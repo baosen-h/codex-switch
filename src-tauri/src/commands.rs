@@ -1,7 +1,8 @@
 use crate::codex::write_provider_config;
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{AppSettings, DashboardState, LaunchRequest, Provider, SessionRecord, SessionUpdateInput};
+use crate::models::{AppSettings, DashboardState, LaunchRequest, Provider, SessionMessage, SessionRecord, SessionUpdateInput};
+use crate::session_manager;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
@@ -125,6 +126,12 @@ pub fn update_session(
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
     db.update_session(session).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_session_messages(source_path: String) -> Result<Vec<SessionMessage>, String> {
+    session_manager::load_codex_messages(PathBuf::from(source_path).as_path())
+        .map_err(|error| error.to_string())
 }
 
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {

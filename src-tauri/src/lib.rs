@@ -3,10 +3,11 @@ mod commands;
 mod database;
 mod error;
 mod models;
+mod session_manager;
 
 use commands::{
-    activate_provider, delete_provider, get_dashboard, launch_codex, save_provider, save_settings,
-    update_session, AppState,
+    activate_provider, delete_provider, get_dashboard, get_session_messages, launch_codex,
+    save_provider, save_settings, update_session, AppState,
 };
 
 pub fn run() {
@@ -20,6 +21,7 @@ pub fn run() {
             delete_provider,
             activate_provider,
             launch_codex,
+            get_session_messages,
             save_settings,
             update_session
         ])

@@ -1,8 +1,10 @@
 use crate::codex::default_codex_config_dir;
 use crate::error::AppError;
 use crate::models::{AppSettings, DashboardState, Provider, SessionRecord, SessionUpdateInput};
+use crate::session_manager;
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -62,6 +64,17 @@ impl Database {
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS session_annotations (
+              id TEXT PRIMARY KEY,
+              provider_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              source_path TEXT NOT NULL UNIQUE,
+              title TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'active',
+              notes TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -85,10 +98,11 @@ impl Database {
     }
 
     pub fn dashboard(&self) -> Result<DashboardState, AppError> {
+        let settings = self.settings()?;
         Ok(DashboardState {
             providers: self.providers()?,
-            sessions: self.sessions()?,
-            settings: self.settings()?,
+            sessions: self.live_sessions(&settings.codex_config_dir)?,
+            settings,
         })
     }
 
@@ -224,31 +238,22 @@ impl Database {
         self.provider_by_id(&id)
     }
 
-    pub fn sessions(&self) -> Result<Vec<SessionRecord>, AppError> {
-        let mut statement = self.connection.prepare(
-            r#"
-            SELECT id, provider_id, provider_name, workspace_path, title, session_ref, status, notes, started_at, last_active_at
-            FROM sessions
-            ORDER BY last_active_at DESC
-            "#,
-        )?;
+    pub fn live_sessions(&self, codex_config_dir: &str) -> Result<Vec<SessionRecord>, AppError> {
+        let mut sessions =
+            session_manager::scan_codex_sessions(&PathBuf::from(codex_config_dir));
+        let annotations = self.session_annotation_map()?;
 
-        let rows = statement.query_map([], |row| {
-            Ok(SessionRecord {
-                id: row.get(0)?,
-                provider_id: row.get(1)?,
-                provider_name: row.get(2)?,
-                workspace_path: row.get(3)?,
-                title: row.get(4)?,
-                session_ref: row.get(5)?,
-                status: row.get(6)?,
-                notes: row.get(7)?,
-                started_at: row.get(8)?,
-                last_active_at: row.get(9)?,
-            })
-        })?;
+        for session in &mut sessions {
+            if let Some(annotation) = annotations.get(&session.source_path) {
+                if !annotation.title.trim().is_empty() {
+                    session.title = annotation.title.clone();
+                }
+                session.status = annotation.status.clone();
+                session.notes = annotation.notes.clone();
+            }
+        }
 
-        Ok(rows.filter_map(Result::ok).collect())
+        Ok(sessions)
     }
 
     pub fn create_session(
@@ -262,34 +267,19 @@ impl Database {
             id: format!("session-{}", Uuid::new_v4()),
             provider_id: provider.id.clone(),
             provider_name: provider.name.clone(),
+            session_id: String::new(),
             workspace_path: workspace_path.to_string(),
             title: title.to_string(),
-            session_ref: String::new(),
+            summary: Some("Launch requested from dashboard".to_string()),
+            source_path: String::new(),
+            resume_command: String::new(),
             status: "active".to_string(),
             notes: String::new(),
             started_at: now.clone(),
+            started_at_ms: Utc::now().timestamp_millis(),
             last_active_at: now.clone(),
+            last_active_at_ms: Utc::now().timestamp_millis(),
         };
-
-        self.connection.execute(
-            r#"
-            INSERT INTO sessions (
-              id, provider_id, provider_name, workspace_path, title, session_ref, status, notes, started_at, last_active_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-            params![
-                session.id,
-                session.provider_id,
-                session.provider_name,
-                session.workspace_path,
-                session.title,
-                session.session_ref,
-                session.status,
-                session.notes,
-                session.started_at,
-                session.last_active_at
-            ],
-        )?;
 
         Ok(session)
     }
@@ -298,44 +288,32 @@ impl Database {
         let now = Utc::now().to_rfc3339();
         self.connection.execute(
             r#"
-            UPDATE sessions
-            SET title = ?2, session_ref = ?3, status = ?4, notes = ?5, last_active_at = ?6
-            WHERE id = ?1
+            INSERT INTO session_annotations (id, provider_id, session_id, source_path, title, status, notes, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            ON CONFLICT(source_path) DO UPDATE SET
+              title = excluded.title,
+              status = excluded.status,
+              notes = excluded.notes,
+              updated_at = excluded.updated_at
             "#,
             params![
                 input.id,
+                input.provider_id,
+                input.session_id,
+                input.source_path,
                 input.title.trim(),
-                input.session_ref.trim(),
                 input.status.trim(),
                 input.notes.trim(),
                 now
             ],
         )?;
 
-        self.connection
-            .query_row(
-                r#"
-                SELECT id, provider_id, provider_name, workspace_path, title, session_ref, status, notes, started_at, last_active_at
-                FROM sessions
-                WHERE id = ?1
-                "#,
-                params![input.id],
-                |row| {
-                    Ok(SessionRecord {
-                        id: row.get(0)?,
-                        provider_id: row.get(1)?,
-                        provider_name: row.get(2)?,
-                        workspace_path: row.get(3)?,
-                        title: row.get(4)?,
-                        session_ref: row.get(5)?,
-                        status: row.get(6)?,
-                        notes: row.get(7)?,
-                        started_at: row.get(8)?,
-                        last_active_at: row.get(9)?,
-                    })
-                },
-            )
-            .map_err(AppError::from)
+        let settings = self.settings()?;
+        let sessions = self.live_sessions(&settings.codex_config_dir)?;
+        sessions
+            .into_iter()
+            .find(|session| session.source_path == input.source_path)
+            .ok_or_else(|| AppError::message("Updated session could not be found after saving"))
     }
 
     pub fn settings(&self) -> Result<AppSettings, AppError> {
@@ -382,4 +360,38 @@ impl Database {
         )?;
         Ok(())
     }
+
+    fn session_annotation_map(&self) -> Result<HashMap<String, SessionAnnotation>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT source_path, title, status, notes
+            FROM session_annotations
+            "#,
+        )?;
+
+        let rows = statement.query_map([], |row| {
+            Ok(SessionAnnotation {
+                source_path: row.get(0)?,
+                title: row.get(1)?,
+                status: row.get(2)?,
+                notes: row.get(3)?,
+            })
+        })?;
+
+        let mut annotations = HashMap::new();
+        for row in rows {
+            let annotation = row?;
+            annotations.insert(annotation.source_path.clone(), annotation);
+        }
+
+        Ok(annotations)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SessionAnnotation {
+    source_path: String,
+    title: String,
+    status: String,
+    notes: String,
 }

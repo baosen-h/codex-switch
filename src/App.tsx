@@ -11,6 +11,8 @@ import type {
   DashboardState,
   PageKey,
   Provider,
+  SessionUpdateInput,
+  SessionMessage,
   SessionRecord,
 } from "./types";
 
@@ -31,6 +33,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   const currentProvider = useMemo(
     () => data.providers.find((provider) => provider.isCurrent) ?? null,
@@ -40,10 +45,60 @@ function App() {
   const refresh = async (nextMessage?: string) => {
     const dashboard = await appApi.getDashboard();
     setData(dashboard);
+    setSelectedSessionId((current) => {
+      if (dashboard.sessions.length === 0) {
+        setSelectedMessages([]);
+        return null;
+      }
+
+      const stillExists = current
+        ? dashboard.sessions.some((session) => session.id === current)
+        : false;
+
+      return stillExists ? current : dashboard.sessions[0]?.id ?? null;
+    });
     if (nextMessage) {
       setMessage(nextMessage);
     }
   };
+
+  useEffect(() => {
+    const selectedSession = data.sessions.find((session) => session.id === selectedSessionId);
+    if (!selectedSession) {
+      return;
+    }
+
+    let isActive = true;
+    setIsLoadingMessages(true);
+
+    void appApi
+      .getSessionMessages(selectedSession.sourcePath)
+      .then((messages) => {
+        if (!isActive) {
+          return;
+        }
+        setSelectedMessages(messages);
+      })
+      .catch((caught) => {
+        if (!isActive) {
+          return;
+        }
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Failed to load session transcript.",
+        );
+      })
+      .finally(() => {
+        if (isActive) {
+          setIsLoadingMessages(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [data.sessions, selectedSessionId]);
 
   useEffect(() => {
     void (async () => {
@@ -93,9 +148,13 @@ function App() {
   const handleLaunch = async (workspacePath: string, title: string) => {
     await runAction(async () => {
       await appApi.launchCodex({ workspacePath, title });
-      await refresh("Codex launched and session recorded.");
+      await refresh("Codex launched. Refresh sessions after the CLI creates a session file.");
       setActivePage("sessions");
     });
+  };
+
+  const handleSelectSession = async (session: SessionRecord) => {
+    setSelectedSessionId(session.id);
   };
 
   const handleSaveSettings = async (settings: AppSettings) => {
@@ -106,7 +165,7 @@ function App() {
   };
 
   const handleSaveSession = async (
-    session: Pick<SessionRecord, "id" | "title" | "sessionRef" | "status" | "notes">,
+    session: SessionUpdateInput,
   ) => {
     await runAction(async () => {
       await appApi.updateSession(session);
@@ -133,6 +192,10 @@ function App() {
         content = (
           <SessionsPage
             sessions={data.sessions}
+            selectedSessionId={selectedSessionId}
+            selectedMessages={selectedMessages}
+            isLoadingMessages={isLoadingMessages}
+            onSelect={handleSelectSession}
             onSave={handleSaveSession}
           />
         );

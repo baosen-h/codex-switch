@@ -15,13 +15,24 @@ export interface SessionRecord {
   id: string;
   providerId: string;
   providerName: string;
+  sessionId: string;
   workspacePath: string;
   title: string;
-  sessionRef: string;
+  summary?: string;
+  sourcePath: string;
+  resumeCommand: string;
   status: string;
   notes: string;
   startedAt: string;
+  startedAtMs: number;
   lastActiveAt: string;
+  lastActiveAtMs: number;
+}
+
+export interface SessionMessage {
+  role: string;
+  content: string;
+  ts?: number;
 }
 
 export interface AppSettings {
@@ -46,8 +57,10 @@ export interface LaunchRequest {
 
 export interface SessionUpdateInput {
   id: string;
+  providerId: string;
+  sessionId: string;
+  sourcePath: string;
   title: string;
-  sessionRef: string;
   status: string;
   notes: string;
 }

@@ -5,7 +5,6 @@
   "identifier": "com.baosenh.codex-switch-mini",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -26,6 +25,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all"
+    "targets": "all",
+    "icon": [
+      "icons/icon.ico",
+      "icons/codex-switch-mini.png"
+    ]
   }
 }

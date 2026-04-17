@@ -4,6 +4,7 @@ import type {
   DashboardState,
   LaunchRequest,
   Provider,
+  SessionMessage,
   SessionRecord,
   SessionUpdateInput,
 } from "../types";
@@ -23,6 +24,9 @@ export const appApi = {
   },
   launchCodex(payload: LaunchRequest): Promise<SessionRecord> {
     return invoke("launch_codex", { request: payload });
+  },
+  getSessionMessages(sourcePath: string): Promise<SessionMessage[]> {
+    return invoke("get_session_messages", { sourcePath });
   },
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke("save_settings", { settings });

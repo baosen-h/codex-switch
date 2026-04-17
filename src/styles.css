@@ -182,6 +182,12 @@ select:focus {
   gap: 1rem;
 }
 
+.sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.92fr) minmax(520px, 1.3fr);
+  gap: 1rem;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -241,6 +247,10 @@ select:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
   margin-top: 1rem;
+}
+
+.compact-form-grid {
+  margin-top: 0;
 }
 
 .field,
@@ -321,12 +331,45 @@ select:focus {
   margin-top: 1rem;
 }
 
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.preset-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.95rem;
+  border-radius: 18px;
+  background: rgba(7, 14, 27, 0.56);
+  border: 1px solid rgba(154, 172, 204, 0.08);
+  color: #e8edf7;
+  text-align: left;
+}
+
+.preset-card span {
+  color: #95a4c1;
+  font-size: 0.88rem;
+}
+
 .provider-row,
 .session-editor {
   border-radius: 18px;
   padding: 1rem;
   background: rgba(7, 14, 27, 0.56);
   border: 1px solid rgba(154, 172, 204, 0.08);
+}
+
+.session-list-item {
+  width: 100%;
+  text-align: left;
+}
+
+.session-list-item.selected {
+  background: rgba(49, 77, 132, 0.36);
+  border-color: rgba(69, 115, 204, 0.58);
 }
 
 .provider-title {
@@ -349,6 +392,12 @@ select:focus {
   gap: 0.2rem;
 }
 
+.session-summary {
+  display: block;
+  margin-top: 0.45rem;
+  color: #8b99b5;
+}
+
 .session-detail-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -366,6 +415,51 @@ select:focus {
 
 .session-form {
   margin-top: 0.95rem;
+}
+
+.resume-command-block {
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background: rgba(7, 14, 27, 0.56);
+  border: 1px solid rgba(154, 172, 204, 0.08);
+}
+
+.resume-command-block code {
+  display: block;
+  margin-top: 0.4rem;
+  color: #dfe9ff;
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.transcript-panel {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.message-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.message-card {
+  border-radius: 18px;
+  padding: 1rem;
+  background: rgba(24, 38, 65, 0.58);
+  border: 1px solid rgba(154, 172, 204, 0.08);
+}
+
+.message-card-header {
+  margin-bottom: 0.55rem;
+  color: #52e1b7;
+}
+
+.message-card p {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 .narrow-card {
