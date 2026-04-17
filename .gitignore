@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+target/
+
+# Build output
+dist/
+build/
+src-tauri/target/
+
+# Local runtime data
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Tauri generated bundles
+src-tauri/gen/
+src-tauri/icons/*.ico
+src-tauri/icons/*.icns
+src-tauri/icons/*.png
