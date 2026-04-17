@@ -1,0 +1,26 @@
+[package]
+name = "codex-switch-mini"
+version = "0.1.0"
+description = "Private Codex provider and session manager"
+authors = ["baosen-h"]
+edition = "2021"
+
+[package.metadata]
+
+[lib]
+name = "codex_switch_mini_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2.0.0", features = [] }
+thiserror = "1"
+toml = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }

@@ -19,3 +19,16 @@
 ## Key Risk
 
 Codex session internals may not be fully controllable. The app must still record enough metadata to help locate and resume previous work even if full automatic session recovery is unavailable.
+
+## Current Progress
+
+- Private repository created and pushed.
+- Tauri + React + TypeScript project scaffold written.
+- Rust backend structure written for:
+  - database
+  - models
+  - provider activation
+  - settings
+  - session updates
+- Frontend pages and styling scaffold written.
+- Frontend build validated successfully.
