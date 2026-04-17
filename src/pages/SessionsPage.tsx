@@ -1,18 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SessionMessage, SessionRecord } from "../types";
 
 interface SessionsPageProps {
   sessions: SessionRecord[];
-  selectedSessionId: string | null;
-  selectedMessages: SessionMessage[];
-  isLoadingMessages: boolean;
-  onSelect: (session: SessionRecord) => Promise<void>;
-  onSave: (
-    session: Pick<
-      SessionRecord,
-      "id" | "providerId" | "sessionId" | "sourcePath" | "title" | "status" | "notes"
-    >,
-  ) => Promise<void>;
+  onLoadMessages: (sourcePath: string) => Promise<SessionMessage[]>;
 }
 
 const roleLabels: Record<string, string> = {
@@ -22,20 +13,12 @@ const roleLabels: Record<string, string> = {
   system: "System",
 };
 
-export function SessionsPage({
-  sessions,
-  selectedSessionId,
-  selectedMessages,
-  isLoadingMessages,
-  onSelect,
-  onSave,
-}: SessionsPageProps) {
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftStatus, setDraftStatus] = useState("active");
-  const [draftNotes, setDraftNotes] = useState("");
+export function SessionsPage({ sessions, onLoadMessages }: SessionsPageProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
 
   const filteredSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -72,19 +55,47 @@ export function SessionsPage({
     filteredSessions[0] ??
     null;
 
-  const startEdit = (session: SessionRecord) => {
-    setEditingId(session.id);
-    setDraftTitle(session.title);
-    setDraftStatus(session.status);
-    setDraftNotes(session.notes);
-  };
+  useEffect(() => {
+    if (!selectedSession) {
+      setSelectedSessionId(null);
+      setSelectedMessages([]);
+      return;
+    }
 
-  const resetEdit = () => {
-    setEditingId(null);
-    setDraftTitle("");
-    setDraftStatus("active");
-    setDraftNotes("");
-  };
+    if (selectedSession.id !== selectedSessionId) {
+      setSelectedSessionId(selectedSession.id);
+    }
+  }, [selectedSession, selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedSession) {
+      return;
+    }
+
+    let active = true;
+    setIsLoadingMessages(true);
+
+    void onLoadMessages(selectedSession.sourcePath)
+      .then((messages) => {
+        if (active) {
+          setSelectedMessages(messages);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setSelectedMessages([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingMessages(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [onLoadMessages, selectedSession]);
 
   return (
     <section className="page">
@@ -123,41 +134,40 @@ export function SessionsPage({
       <div className="sessions-layout">
         <article className="card">
           <div className="session-list">
-          {filteredSessions.length ? (
-            filteredSessions.map((session) => {
-              const isEditing = editingId === session.id;
-              const isSelected = selectedSession?.id === session.id;
+            {filteredSessions.length ? (
+              filteredSessions.map((session) => {
+                const isSelected = selectedSession?.id === session.id;
 
-              return (
-                <button
-                  className={`session-editor session-list-item ${isSelected ? "selected" : ""}`}
-                  key={session.id}
-                  onClick={() => void onSelect(session)}
-                  type="button"
-                >
-                  <div className="session-row">
-                    <div>
-                      <strong>{session.title || "Untitled session"}</strong>
-                      <p>{session.workspacePath}</p>
-                      {session.summary ? (
-                        <small className="session-summary">{session.summary}</small>
-                      ) : null}
+                return (
+                  <button
+                    className={`session-editor session-list-item ${isSelected ? "selected" : ""}`}
+                    key={session.id}
+                    onClick={() => setSelectedSessionId(session.id)}
+                    type="button"
+                  >
+                    <div className="session-row">
+                      <div>
+                        <strong>{session.title || "Untitled session"}</strong>
+                        <p>{session.workspacePath}</p>
+                        {session.summary ? (
+                          <small className="session-summary">{session.summary}</small>
+                        ) : null}
+                      </div>
+                      <div className="session-meta">
+                        <span>{session.providerName}</span>
+                        <small>{session.status}</small>
+                      </div>
                     </div>
-                    <div className="session-meta">
-                      <span>{session.providerName}</span>
-                      <small>{session.status}</small>
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          ) : (
-            <p className="empty-state">
-              {sessions.length
-                ? "No sessions match the current filter."
-                : "No session records yet. Launch Codex from the dashboard to start building continuity history."}
-            </p>
-          )}
+                  </button>
+                );
+              })
+            ) : (
+              <p className="empty-state">
+                {sessions.length
+                  ? "No sessions match the current filter."
+                  : "No Codex session files found yet. Launch Codex to create history."}
+              </p>
+            )}
           </div>
         </article>
 
@@ -213,73 +223,6 @@ export function SessionsPage({
                 <span className="detail-label">Resume command</span>
                 <code>{selectedSession.resumeCommand}</code>
               </div>
-
-              {editingId === selectedSession.id ? (
-                <div className="form-grid session-form">
-                  <label className="field">
-                    <span>Title</span>
-                    <input
-                      value={draftTitle}
-                      onChange={(event) => setDraftTitle(event.target.value)}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Status</span>
-                    <select
-                      value={draftStatus}
-                      onChange={(event) => setDraftStatus(event.target.value)}
-                    >
-                      <option value="active">active</option>
-                      <option value="paused">paused</option>
-                      <option value="completed">completed</option>
-                    </select>
-                  </label>
-                  <label className="field field-full">
-                    <span>Notes</span>
-                    <textarea
-                      rows={4}
-                      value={draftNotes}
-                      onChange={(event) => setDraftNotes(event.target.value)}
-                    />
-                  </label>
-                  <div className="actions">
-                    <button
-                      className="primary-button"
-                      onClick={() =>
-                        void onSave({
-                          id: selectedSession.id,
-                          providerId: selectedSession.providerId,
-                          sessionId: selectedSession.sessionId,
-                          sourcePath: selectedSession.sourcePath,
-                          title: draftTitle,
-                          status: draftStatus,
-                          notes: draftNotes,
-                        }).then(resetEdit)
-                      }
-                      type="button"
-                    >
-                      Save session
-                    </button>
-                    <button
-                      className="secondary-button"
-                      onClick={resetEdit}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => startEdit(selectedSession)}
-                    type="button"
-                  >
-                    Edit continuity data
-                  </button>
-                </div>
-              )}
 
               <div className="transcript-panel">
                 <div className="card-heading">

@@ -1,16 +1,8 @@
 use crate::models::{SessionMessage, SessionRecord};
-use chrono::{DateTime, FixedOffset};
-use regex::Regex;
 use serde_json::Value;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
-
-static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
-        .expect("valid UUID regex")
-});
 
 pub fn scan_codex_sessions(config_dir: &Path) -> Vec<SessionRecord> {
     let root = config_dir.join("sessions");
@@ -83,11 +75,7 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
             continue;
         }
 
-        messages.push(SessionMessage {
-            role,
-            content,
-            ts: value.get("timestamp").and_then(parse_timestamp_to_ms),
-        });
+        messages.push(SessionMessage { role, content });
     }
 
     Ok(messages)
@@ -99,7 +87,6 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
     let mut session_id: Option<String> = None;
     let mut project_dir: Option<String> = None;
     let mut created_at: Option<String> = None;
-    let mut created_at_ms: Option<i64> = None;
 
     for line in &head {
         let value: Value = serde_json::from_str(line).ok()?;
@@ -109,7 +96,6 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
                 .get("timestamp")
                 .and_then(Value::as_str)
                 .map(|value| value.to_string());
-            created_at_ms = value.get("timestamp").and_then(parse_timestamp_to_ms);
         }
 
         if value.get("type").and_then(Value::as_str) == Some("session_meta") {
@@ -129,16 +115,11 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
                 if let Some(timestamp) = payload.get("timestamp").and_then(Value::as_str) {
                     created_at.get_or_insert_with(|| timestamp.to_string());
                 }
-                if let Some(timestamp_ms) = payload.get("timestamp").and_then(parse_timestamp_to_ms)
-                {
-                    created_at_ms.get_or_insert(timestamp_ms);
-                }
             }
         }
     }
 
     let mut last_active_at = created_at.clone();
-    let mut last_active_at_ms = created_at_ms;
     let mut summary: Option<String> = None;
 
     for line in tail.iter().rev() {
@@ -150,11 +131,7 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
         if last_active_at.is_none() {
             last_active_at = value
                 .get("timestamp")
-                .and_then(Value::as_str)
-                .map(|value| value.to_string());
-        }
-        if last_active_at_ms.is_none() {
-            last_active_at_ms = value.get("timestamp").and_then(parse_timestamp_to_ms);
+                .and_then(timestamp_to_string);
         }
 
         if summary.is_none() && value.get("type").and_then(Value::as_str) == Some("response_item") {
@@ -168,7 +145,7 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
             }
         }
 
-        if summary.is_some() && last_active_at.is_some() && last_active_at_ms.is_some() {
+        if summary.is_some() && last_active_at.is_some() {
             break;
         }
     }
@@ -193,9 +170,7 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
         status: "active".to_string(),
         notes: String::new(),
         started_at: created_at.unwrap_or_default(),
-        started_at_ms: created_at_ms.unwrap_or_default(),
         last_active_at: last_active_at.unwrap_or_default(),
-        last_active_at_ms: last_active_at_ms.unwrap_or_default(),
     })
 }
 
@@ -339,30 +314,37 @@ fn path_basename(value: &str) -> Option<String> {
     Some(last.to_string())
 }
 
-fn parse_timestamp_to_ms(value: &Value) -> Option<i64> {
-    if let Some(number) = value.as_i64() {
-        return Some(if number > 1_000_000_000_000 {
-            number
-        } else {
-            number * 1000
-        });
-    }
-    if let Some(number) = value.as_f64() {
-        let number = number as i64;
-        return Some(if number > 1_000_000_000_000 {
-            number
-        } else {
-            number * 1000
-        });
-    }
-
-    let raw = value.as_str()?;
-    DateTime::parse_from_rfc3339(raw)
-        .ok()
-        .map(|timestamp: DateTime<FixedOffset>| timestamp.timestamp_millis())
+fn timestamp_to_string(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| value.as_i64().map(|number| number.to_string()))
+        .or_else(|| value.as_f64().map(|number| number.to_string()))
 }
 
 fn infer_session_id_from_filename(path: &Path) -> Option<String> {
     let file_name = path.file_name()?.to_string_lossy();
-    UUID_RE.find(&file_name).map(|matched| matched.as_str().to_string())
+    file_name
+        .as_bytes()
+        .windows(36)
+        .find(|candidate| is_uuid_like(candidate))
+        .map(|candidate| String::from_utf8_lossy(candidate).to_string())
+}
+
+fn is_uuid_like(candidate: &[u8]) -> bool {
+    if candidate.len() != 36 {
+        return false;
+    }
+
+    for (index, byte) in candidate.iter().enumerate() {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            if *byte != b'-' {
+                return false;
+            }
+        } else if !byte.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+
+    true
 }

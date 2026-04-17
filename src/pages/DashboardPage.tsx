@@ -5,7 +5,7 @@ interface DashboardPageProps {
   providers: Provider[];
   sessions: SessionRecord[];
   settings: AppSettings;
-  onLaunch: (workspacePath: string, title: string) => Promise<void>;
+  onLaunch: (workspacePath: string) => Promise<void>;
 }
 
 export function DashboardPage({
@@ -20,7 +20,6 @@ export function DashboardPage({
   );
 
   const [workspacePath, setWorkspacePath] = useState(settings.defaultWorkspace);
-  const [title, setTitle] = useState("");
   const [isLaunching, setIsLaunching] = useState(false);
 
   const recentSessions = sessions.slice(0, 6);
@@ -28,8 +27,7 @@ export function DashboardPage({
   const handleLaunch = async () => {
     setIsLaunching(true);
     try {
-      await onLaunch(workspacePath, title);
-      setTitle("");
+      await onLaunch(workspacePath);
     } finally {
       setIsLaunching(false);
     }
@@ -62,20 +60,12 @@ export function DashboardPage({
           </div>
 
           <div className="form-grid">
-            <label className="field">
+            <label className="field field-full">
               <span>Workspace path</span>
               <input
                 value={workspacePath}
                 onChange={(event) => setWorkspacePath(event.target.value)}
                 placeholder="F:\\Projects\\your-workspace"
-              />
-            </label>
-            <label className="field">
-              <span>Session title</span>
-              <input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Optional launch title"
               />
             </label>
           </div>
@@ -111,7 +101,7 @@ export function DashboardPage({
               ))
             ) : (
               <p className="empty-state">
-                No sessions recorded yet. Launch Codex here to begin tracking.
+                No Codex session files found yet. Launch Codex to create history.
               </p>
             )}
           </div>

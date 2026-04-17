@@ -24,15 +24,12 @@ export interface SessionRecord {
   status: string;
   notes: string;
   startedAt: string;
-  startedAtMs: number;
   lastActiveAt: string;
-  lastActiveAtMs: number;
 }
 
 export interface SessionMessage {
   role: string;
   content: string;
-  ts?: number;
 }
 
 export interface AppSettings {
@@ -52,15 +49,4 @@ export type PageKey = "dashboard" | "providers" | "sessions" | "settings";
 
 export interface LaunchRequest {
   workspacePath: string;
-  title?: string;
-}
-
-export interface SessionUpdateInput {
-  id: string;
-  providerId: string;
-  sessionId: string;
-  sourcePath: string;
-  title: string;
-  status: string;
-  notes: string;
 }

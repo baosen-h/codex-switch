@@ -7,7 +7,7 @@ mod session_manager;
 
 use commands::{
     activate_provider, delete_provider, get_dashboard, get_session_messages, launch_codex,
-    save_provider, save_settings, update_session, AppState,
+    save_provider, save_settings, AppState,
 };
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
@@ -65,8 +65,7 @@ pub fn run() {
             activate_provider,
             launch_codex,
             get_session_messages,
-            save_settings,
-            update_session
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch Mini");

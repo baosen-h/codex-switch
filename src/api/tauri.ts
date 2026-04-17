@@ -5,8 +5,6 @@ import type {
   LaunchRequest,
   Provider,
   SessionMessage,
-  SessionRecord,
-  SessionUpdateInput,
 } from "../types";
 
 export const appApi = {
@@ -22,7 +20,7 @@ export const appApi = {
   activateProvider(id: string): Promise<Provider> {
     return invoke("activate_provider", { id });
   },
-  launchCodex(payload: LaunchRequest): Promise<SessionRecord> {
+  launchCodex(payload: LaunchRequest): Promise<boolean> {
     return invoke("launch_codex", { request: payload });
   },
   getSessionMessages(sourcePath: string): Promise<SessionMessage[]> {
@@ -30,8 +28,5 @@ export const appApi = {
   },
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke("save_settings", { settings });
-  },
-  updateSession(session: SessionUpdateInput): Promise<SessionRecord> {
-    return invoke("update_session", { session });
   },
 };

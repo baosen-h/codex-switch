@@ -31,9 +31,7 @@ pub struct SessionRecord {
     pub status: String,
     pub notes: String,
     pub started_at: String,
-    pub started_at_ms: i64,
     pub last_active_at: String,
-    pub last_active_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,8 +39,6 @@ pub struct SessionRecord {
 pub struct SessionMessage {
     pub role: String,
     pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ts: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,17 +62,4 @@ pub struct DashboardState {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
     pub workspace_path: String,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionUpdateInput {
-    pub id: String,
-    pub provider_id: String,
-    pub session_id: String,
-    pub source_path: String,
-    pub title: String,
-    pub status: String,
-    pub notes: String,
 }

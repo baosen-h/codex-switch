@@ -10,8 +10,6 @@ pub enum AppError {
     Database(#[from] rusqlite::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("TOML error: {0}")]
-    Toml(#[from] toml::de::Error),
 }
 
 impl AppError {
