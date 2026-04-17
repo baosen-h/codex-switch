@@ -26,7 +26,7 @@ pub fn run() {
             let show_item = MenuItem::with_id(app, TRAY_SHOW_ID, "Show", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, TRAY_QUIT_ID, "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
-            let icon = Image::from_path(app.path().resource_dir()?.join("icons/icon.ico"))?;
+            let icon = Image::from_bytes(include_bytes!("../icons/icon.ico"))?;
 
             TrayIconBuilder::new()
                 .icon(icon)
