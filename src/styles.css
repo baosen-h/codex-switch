@@ -133,6 +133,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 }
 .titlebar-btn:hover { background: var(--p1); color: var(--t1); }
 .titlebar-btn-close:hover { background: var(--err); color: #fff; }
+.titlebar-btn-lang { font-family: var(--sans); font-size: 0.72rem; font-weight: 600; letter-spacing: 0; }
+.titlebar-btn-lang:hover { color: var(--a); }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 .sidebar {
@@ -252,8 +254,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 /* ── Floating toast ─────────────────────────────────────────────── */
 .floating-toast {
   position: fixed;
-  bottom: 1.2rem;
-  right: 1.2rem;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 200;
   padding: 0.55rem 0.9rem;
   font-family: var(--mono);
@@ -268,7 +271,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 }
 .floating-toast-ok  { background: rgba(95,173,86,0.12);  color: #7cd673; border-color: var(--g); }
 .floating-toast-err { background: rgba(217,64,64,0.12);  color: #f07070; border-color: var(--err); }
-@keyframes toast-slide { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes toast-slide { from { opacity:0; transform: translate(-50%, calc(-50% + 8px)); } to { opacity:1; transform: translate(-50%, -50%); } }
 
 /* ── Page structure ─────────────────────────────────────────────── */
 .page { display: flex; flex-direction: column; gap: 0.85rem; }
@@ -463,8 +466,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 }
 
 .preset-card {
-  display: grid;
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
   padding: 0.7rem;
   border-radius: 0;
   background: var(--p2);

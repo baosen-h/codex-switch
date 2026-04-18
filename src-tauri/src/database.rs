@@ -144,6 +144,7 @@ impl Database {
             default_workspace: self.setting("default_workspace")?,
             terminal_program: self.setting("terminal_program")?,
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
+            language: self.setting("language")?,
         })
     }
 
@@ -159,6 +160,7 @@ impl Database {
                 "false".to_string()
             },
         )?;
+        self.set_setting("language", settings.language.clone())?;
         self.settings()
     }
 
@@ -198,6 +200,7 @@ impl Database {
         self.ensure_setting("default_workspace", String::new())?;
         self.ensure_setting("terminal_program", "pwsh".to_string())?;
         self.ensure_setting("auto_record_sessions", "true".to_string())?;
+        self.ensure_setting("language", "en".to_string())?;
 
         Ok(())
     }

@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { Lang } from "../i18n/translations";
 
 const appWindow = getCurrentWindow();
 
@@ -30,13 +31,30 @@ const CloseIcon = () => (
   </svg>
 );
 
-export function TitleBar() {
+interface TitleBarProps {
+  lang: Lang;
+  onToggleLang: () => void;
+}
+
+export function TitleBar({ lang, onToggleLang }: TitleBarProps) {
   return (
     <div className="titlebar">
-      <div className="titlebar-drag" data-tauri-drag-region>
+      <div
+        className="titlebar-drag"
+        data-tauri-drag-region
+        onMouseDown={(e) => { if (e.button === 0) void appWindow.startDragging(); }}
+      >
         <span className="titlebar-title">CODEX SWITCH MINI</span>
       </div>
       <div className="titlebar-controls">
+        <button
+          className="titlebar-btn titlebar-btn-lang"
+          onClick={onToggleLang}
+          type="button"
+          title="Toggle language"
+        >
+          {lang === "en" ? "中" : "EN"}
+        </button>
         <button
           className="titlebar-btn"
           onClick={() => void appWindow.minimize()}

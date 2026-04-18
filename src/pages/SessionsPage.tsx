@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import type { SessionMessage, SessionRecord } from "../types";
+import { useI18n } from "../i18n/context";
+import { formatDate, timeAgo } from "../utils/time";
 
 const PixelX = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
@@ -12,7 +15,6 @@ const PixelX = () => (
     <rect x="6" y="6" width="2" height="2"/>
   </svg>
 );
-import type { SessionMessage, SessionRecord } from "../types";
 
 interface SessionsPageProps {
   sessions: SessionRecord[];
@@ -20,20 +22,21 @@ interface SessionsPageProps {
   onDelete: (session: SessionRecord) => Promise<void>;
 }
 
-const roleLabels: Record<string, string> = {
-  user: "User",
-  assistant: "AI",
-  tool: "Tool",
-  system: "System",
-};
-
 export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPageProps) {
+  const { t, lang } = useI18n();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const roleLabels: Record<string, string> = {
+    user: t("roleUser"),
+    assistant: t("roleAI"),
+    tool: t("roleTool"),
+    system: t("roleSystem"),
+  };
 
   const filteredSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -42,13 +45,8 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
       const matchesStatus =
         statusFilter === "all" || session.status === statusFilter;
 
-      if (!matchesStatus) {
-        return false;
-      }
-
-      if (!normalizedQuery) {
-        return true;
-      }
+      if (!matchesStatus) return false;
+      if (!normalizedQuery) return true;
 
       return [
         session.title,
@@ -83,33 +81,17 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   }, [selectedSession, selectedSessionId]);
 
   useEffect(() => {
-    if (!selectedSession) {
-      return;
-    }
+    if (!selectedSession) return;
 
     let active = true;
     setIsLoadingMessages(true);
 
     void onLoadMessages(selectedSession.sourcePath)
-      .then((messages) => {
-        if (active) {
-          setSelectedMessages(messages);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setSelectedMessages([]);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setIsLoadingMessages(false);
-        }
-      });
+      .then((messages) => { if (active) setSelectedMessages(messages); })
+      .catch(() => { if (active) setSelectedMessages([]); })
+      .finally(() => { if (active) setIsLoadingMessages(false); });
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [onLoadMessages, selectedSession]);
 
   const handleDelete = async (session: SessionRecord) => {
@@ -125,31 +107,30 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
     <section className="page">
       <header className="page-header">
         <div>
-          <h2>Sessions</h2>
-          <p>Track workspace/provider continuity and keep resume references together.</p>
+          <h2>{t("sessions")}</h2>
         </div>
       </header>
 
       <article className="card narrow-card">
         <div className="form-grid compact-form-grid">
           <label className="field">
-            <span>Search</span>
+            <span>{t("search")}</span>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Workspace, provider, notes, session ref..."
+              placeholder={t("searchPlaceholder")}
             />
           </label>
           <label className="field">
-            <span>Status</span>
+            <span>{t("status")}</span>
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
             >
-              <option value="all">all</option>
-              <option value="active">active</option>
-              <option value="paused">paused</option>
-              <option value="completed">completed</option>
+              <option value="all">{t("all")}</option>
+              <option value="active">{t("active")}</option>
+              <option value="paused">{t("paused")}</option>
+              <option value="completed">{t("completed")}</option>
             </select>
           </label>
         </div>
@@ -170,21 +151,21 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                   >
                     {isPendingDelete ? (
                       <div className="delete-confirm">
-                        <span>Delete session file?</span>
+                        <span>{t("deleteSessionFile")}</span>
                         <div className="delete-confirm-actions">
                           <button
                             className="danger-button"
                             onClick={() => void handleDelete(session)}
                             type="button"
                           >
-                            Delete
+                            {t("delete")}
                           </button>
                           <button
                             className="secondary-button"
                             onClick={() => setPendingDeleteId(null)}
                             type="button"
                           >
-                            Cancel
+                            {t("cancel")}
                           </button>
                         </div>
                       </div>
@@ -206,7 +187,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                           </div>
                           <div className="session-meta">
                             <span>{session.providerName}</span>
-                            <small>{session.status}</small>
+                            <small>{session.lastActiveAt ? timeAgo(session.lastActiveAt, lang) : session.status}</small>
                             <button
                               className="session-delete-btn"
                               onClick={(e) => {
@@ -227,9 +208,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
               })
             ) : (
               <p className="empty-state">
-                {sessions.length
-                  ? "No sessions match the current filter."
-                  : "No Codex session files found yet. Launch Codex to create history."}
+                {sessions.length ? t("noSessionsFilter") : t("noSessions")}
               </p>
             )}
           </div>
@@ -242,17 +221,15 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                 <div>
                   <span className="eyebrow">{selectedSession.providerName}</span>
                   <h3>{selectedSession.title || "Untitled session"}</h3>
-                  <p>{selectedSession.workspacePath || "Unknown workspace"}</p>
+                  <p>{selectedSession.workspacePath || t("unknownWorkspace")}</p>
                 </div>
                 <div className="provider-actions">
                   <button
                     className="secondary-button"
-                    onClick={() =>
-                      void navigator.clipboard.writeText(selectedSession.resumeCommand)
-                    }
+                    onClick={() => void navigator.clipboard.writeText(selectedSession.resumeCommand)}
                     type="button"
                   >
-                    Copy resume
+                    {t("copyResume")}
                   </button>
                   <button
                     className="secondary-button"
@@ -263,40 +240,40 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                     }
                     type="button"
                   >
-                    Copy workspace
+                    {t("copyWorkspace")}
                   </button>
                 </div>
               </div>
 
               <div className="session-detail-grid">
                 <div>
-                  <span className="detail-label">Session id</span>
+                  <span className="detail-label">{t("sessionId")}</span>
                   <p>{selectedSession.sessionId}</p>
                 </div>
                 <div>
-                  <span className="detail-label">Started</span>
-                  <p>{selectedSession.startedAt || "Unknown"}</p>
+                  <span className="detail-label">{t("started")}</span>
+                  <p>{selectedSession.startedAt ? formatDate(selectedSession.startedAt) : t("unknown")}</p>
                 </div>
                 <div>
-                  <span className="detail-label">Last active</span>
-                  <p>{selectedSession.lastActiveAt || "Unknown"}</p>
+                  <span className="detail-label">{t("lastActive")}</span>
+                  <p>{selectedSession.lastActiveAt ? formatDate(selectedSession.lastActiveAt) : t("unknown")}</p>
                 </div>
               </div>
 
               <div className="resume-command-block">
-                <span className="detail-label">Resume command</span>
+                <span className="detail-label">{t("resumeCommand")}</span>
                 <code>{selectedSession.resumeCommand}</code>
               </div>
 
               <div className="transcript-panel">
                 <div className="card-heading">
                   <div>
-                    <span className="eyebrow">Transcript</span>
-                    <h3>Messages</h3>
+                    <span className="eyebrow">{t("transcript")}</span>
+                    <h3>{t("messages")}</h3>
                   </div>
                 </div>
                 {isLoadingMessages ? (
-                  <p className="empty-state">Loading transcript...</p>
+                  <p className="empty-state">{t("loadingTranscript")}</p>
                 ) : selectedMessages.length ? (
                   <div className="message-list">
                     {selectedMessages.map((message, index) => (
@@ -309,16 +286,12 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                     ))}
                   </div>
                 ) : (
-                  <p className="empty-state">
-                    No parsed messages found for this session yet.
-                  </p>
+                  <p className="empty-state">{t("noMessages")}</p>
                 )}
               </div>
             </>
           ) : (
-            <p className="empty-state">
-              Select a session to inspect its transcript and resume command.
-            </p>
+            <p className="empty-state">{t("selectSession")}</p>
           )}
         </article>
       </div>

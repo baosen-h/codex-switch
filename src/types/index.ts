@@ -37,6 +37,7 @@ export interface AppSettings {
   defaultWorkspace: string;
   terminalProgram: string;
   autoRecordSessions: boolean;
+  language: string;
 }
 
 export interface DashboardState {

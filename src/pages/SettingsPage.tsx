@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AppSettings } from "../types";
+import { useI18n } from "../i18n/context";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -7,6 +8,7 @@ interface SettingsPageProps {
 }
 
 export function SettingsPage({ settings, onSave }: SettingsPageProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
 
   useEffect(() => {
@@ -21,52 +23,43 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
     <section className="page settings-page">
       <header className="page-header">
         <div>
-          <h2>Settings</h2>
-          <p>Choose Codex config location and local launch behavior.</p>
+          <h2>{t("settingsTitle")}</h2>
         </div>
       </header>
 
       <article className="card">
         <div className="form-grid">
           <label className="field">
-            <span>Codex config directory</span>
+            <span>{t("codexConfigDir")}</span>
             <input
               value={draft.codexConfigDir}
-              onChange={(event) =>
-                updateDraft("codexConfigDir", event.target.value)
-              }
+              onChange={(event) => updateDraft("codexConfigDir", event.target.value)}
               placeholder="C:\\Users\\you\\.codex"
             />
           </label>
           <label className="field">
-            <span>Default workspace</span>
+            <span>{t("defaultWorkspace")}</span>
             <input
               value={draft.defaultWorkspace}
-              onChange={(event) =>
-                updateDraft("defaultWorkspace", event.target.value)
-              }
+              onChange={(event) => updateDraft("defaultWorkspace", event.target.value)}
               placeholder="F:\\Projects"
             />
           </label>
           <label className="field">
-            <span>Terminal program</span>
+            <span>{t("terminalProgram")}</span>
             <input
               value={draft.terminalProgram}
-              onChange={(event) =>
-                updateDraft("terminalProgram", event.target.value)
-              }
+              onChange={(event) => updateDraft("terminalProgram", event.target.value)}
               placeholder="pwsh"
             />
           </label>
           <label className="checkbox-field">
             <input
               checked={draft.autoRecordSessions}
-              onChange={(event) =>
-                updateDraft("autoRecordSessions", event.target.checked)
-              }
+              onChange={(event) => updateDraft("autoRecordSessions", event.target.checked)}
               type="checkbox"
             />
-            <span>Auto-record sessions launched from this app</span>
+            <span>{t("autoRecordSessions")}</span>
           </label>
         </div>
 
@@ -76,7 +69,7 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
             onClick={() => void onSave(draft)}
             type="button"
           >
-            Save settings
+            {t("saveSettings")}
           </button>
         </div>
       </article>

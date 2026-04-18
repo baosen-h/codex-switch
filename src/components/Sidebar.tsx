@@ -1,4 +1,5 @@
 import type { PageKey } from "../types";
+import { useI18n } from "../i18n/context";
 
 interface SidebarProps {
   activePage: PageKey;
@@ -39,13 +40,15 @@ const GearIcon = () => (
   </svg>
 );
 
-const items: Array<{ key: PageKey; label: string; Icon: () => JSX.Element }> = [
-  { key: "providers", label: "Providers", Icon: PlugIcon },
-  { key: "sessions",  label: "Sessions",  Icon: ClockIcon },
-  { key: "settings",  label: "Settings",  Icon: GearIcon },
-];
-
 export function Sidebar({ activePage, onSelect }: SidebarProps) {
+  const { t } = useI18n();
+
+  const items: Array<{ key: PageKey; label: string; Icon: () => JSX.Element }> = [
+    { key: "providers", label: t("providers"), Icon: PlugIcon },
+    { key: "sessions",  label: t("sessions"),  Icon: ClockIcon },
+    { key: "settings",  label: t("settings"),  Icon: GearIcon },
+  ];
+
   return (
     <aside className="sidebar">
       <div className="brand">

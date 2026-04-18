@@ -48,6 +48,7 @@ pub struct AppSettings {
     pub default_workspace: String,
     pub terminal_program: String,
     pub auto_record_sessions: bool,
+    pub language: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

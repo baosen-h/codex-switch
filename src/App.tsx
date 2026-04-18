@@ -3,6 +3,8 @@ import { appApi } from "./api/tauri";
 import { FloatingToast, type ToastState } from "./components/FloatingToast";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
+import { I18nProvider } from "./i18n/context";
+import type { Lang } from "./i18n/translations";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -16,6 +18,7 @@ const emptyState: DashboardState = {
     defaultWorkspace: "",
     terminalProgram: "pwsh",
     autoRecordSessions: true,
+    language: "en",
   },
 };
 
@@ -31,6 +34,8 @@ function App() {
   const showToast = useRef((message: string, type: ToastState["type"]) => {
     setToast({ message, type, id: ++toastSeq });
   });
+
+  const lang: Lang = (data.settings.language as Lang) || "en";
 
   useEffect(() => {
     void refresh();
@@ -51,10 +56,7 @@ function App() {
     }
   };
 
-  const runAction = async (
-    action: () => Promise<void>,
-    successMsg?: string,
-  ) => {
+  const runAction = async (action: () => Promise<void>, successMsg?: string) => {
     try {
       await action();
       if (successMsg) showToast.current(successMsg, "ok");
@@ -96,8 +98,16 @@ function App() {
       await refresh();
     }, "Session deleted.");
 
+  const handleToggleLang = () => {
+    const newLang: Lang = lang === "en" ? "zh" : "en";
+    void runAction(async () => {
+      await appApi.saveSettings({ ...data.settings, language: newLang });
+      await refresh();
+    });
+  };
+
   const content = loading ? (
-    <div className="loading-screen">LOADING...</div>
+    <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
@@ -116,16 +126,18 @@ function App() {
   );
 
   return (
-    <div className="app-root">
-      <TitleBar />
-      <div className="app-shell">
-        <Sidebar activePage={activePage} onSelect={setActivePage} />
-        <main className="main-content">
-          {content}
-        </main>
+    <I18nProvider lang={lang}>
+      <div className="app-root">
+        <TitleBar lang={lang} onToggleLang={handleToggleLang} />
+        <div className="app-shell">
+          <Sidebar activePage={activePage} onSelect={setActivePage} />
+          <main className="main-content">
+            {content}
+          </main>
+        </div>
+        <FloatingToast toast={toast} onDismiss={dismissToast} />
       </div>
-      <FloatingToast toast={toast} onDismiss={dismissToast} />
-    </div>
+    </I18nProvider>
   );
 }
 
