@@ -68,7 +68,7 @@ const en = {
   saveSettings: "Save settings",
   // App
   loading: "LOADING...",
-} as const;
+};
 
 const zh: typeof en = {
   providers: "模型",
