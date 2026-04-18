@@ -113,6 +113,12 @@ pub fn get_session_messages(source_path: String) -> Result<Vec<SessionMessage>, 
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+pub fn delete_session(source_path: String) -> Result<bool, String> {
+    std::fs::remove_file(&source_path).map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {

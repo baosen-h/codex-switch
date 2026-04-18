@@ -26,6 +26,9 @@ export const appApi = {
   getSessionMessages(sourcePath: string): Promise<SessionMessage[]> {
     return invoke("get_session_messages", { sourcePath });
   },
+  deleteSession(sourcePath: string): Promise<boolean> {
+    return invoke("delete_session", { sourcePath });
+  },
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke("save_settings", { settings });
   },

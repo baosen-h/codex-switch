@@ -49,7 +49,13 @@ export function Sidebar({ activePage, onSelect }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark">C</div>
+        <div className="brand-mark">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="#0d0d15" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="4" y="1" width="12" height="3"/>
+            <rect x="1" y="4" width="5" height="12"/>
+            <rect x="4" y="16" width="12" height="3"/>
+          </svg>
+        </div>
         <h1>Codex Switch</h1>
       </div>
 

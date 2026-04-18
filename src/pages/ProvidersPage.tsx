@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ConfirmModal } from "../components/ConfirmModal";
 import type { Provider } from "../types";
 
 interface ProvidersPageProps {
@@ -46,6 +47,7 @@ const presets: Array<{
 export function ProvidersPage({ providers, onSave, onDelete, onActivate }: ProvidersPageProps) {
   const [draft, setDraft] = useState<Provider>(emptyProvider);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [pendingActivation, setPendingActivation] = useState<Provider | null>(null);
 
   const sortedProviders = useMemo(
     () =>
@@ -73,114 +75,132 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
     setDraft((cur) => ({ ...emptyProvider, ...cur, ...preset.values, id: "", isCurrent: false, createdAt: "", updatedAt: "" }));
   };
 
+  const handleConfirmActivation = async () => {
+    if (!pendingActivation) return;
+    await onActivate(pendingActivation.id);
+    setPendingActivation(null);
+  };
+
   return (
-    <section className="page providers-layout">
-      <header className="page-header">
-        <h2>Providers</h2>
-      </header>
+    <>
+      {pendingActivation && (
+        <ConfirmModal
+          title={`Activate ${pendingActivation.name}`}
+          message={`Set "${pendingActivation.name}" (${pendingActivation.model}) as the active provider? This will overwrite your Codex config.`}
+          confirmLabel="Activate"
+          onConfirm={() => void handleConfirmActivation()}
+          onCancel={() => setPendingActivation(null)}
+        />
+      )}
 
-      <div className="providers-grid">
-        <article className="card">
-          <div className="card-heading">
-            <div>
-              <span className="eyebrow">{isEditing ? "Edit" : "New"}</span>
-              <h3>{isEditing ? draft.name || "Draft" : "Add provider"}</h3>
+      <section className="page providers-layout">
+        <header className="page-header">
+          <h2>Providers</h2>
+        </header>
+
+        <div className="providers-grid">
+          <article className="card">
+            <div className="card-heading">
+              <div>
+                <span className="eyebrow">{isEditing ? "Edit" : "New"}</span>
+                <h3>{isEditing ? draft.name || "Draft" : "Add provider"}</h3>
+              </div>
             </div>
-          </div>
 
-          <div className="preset-grid">
-            {presets.map((preset) => (
-              <button key={preset.id} className="preset-card" onClick={() => applyPreset(preset.id)} type="button">
-                <strong>{preset.title}</strong>
-              </button>
-            ))}
-          </div>
+            <div className="preset-grid">
+              {presets.map((preset) => (
+                <button key={preset.id} className="preset-card" onClick={() => applyPreset(preset.id)} type="button">
+                  <strong>{preset.title}</strong>
+                </button>
+              ))}
+            </div>
 
-          <div className="form-grid">
-            <label className="field">
-              <span>Name</span>
-              <input value={draft.name} onChange={(e) => updateDraft("name", e.target.value)} placeholder="My Provider" />
-            </label>
-            <label className="field">
-              <span>Model</span>
-              <input value={draft.model} onChange={(e) => updateDraft("model", e.target.value)} placeholder="gpt-5.4" />
-            </label>
-          </div>
-
-          <button className="toggle-advanced" type="button" onClick={() => setShowAdvanced((v) => !v)}>
-            {showAdvanced ? "▲ Hide advanced" : "▼ Advanced"}
-          </button>
-
-          {showAdvanced && (
             <div className="form-grid">
               <label className="field">
-                <span>Base URL</span>
-                <input value={draft.baseUrl} onChange={(e) => updateDraft("baseUrl", e.target.value)} placeholder="https://api.example.com/v1" />
+                <span>Name</span>
+                <input value={draft.name} onChange={(e) => updateDraft("name", e.target.value)} placeholder="My Provider" />
               </label>
               <label className="field">
-                <span>API key</span>
-                <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
-              </label>
-              <label className="field">
-                <span>Reasoning effort</span>
-                <select value={draft.reasoningEffort} onChange={(e) => updateDraft("reasoningEffort", e.target.value)}>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                </select>
-              </label>
-              <label className="field field-full">
-                <span>Extra TOML</span>
-                <textarea value={draft.extraToml} onChange={(e) => updateDraft("extraToml", e.target.value)} placeholder={`[experimental]\nproject_doc = "AGENTS.md"`} rows={5} />
+                <span>Model</span>
+                <input value={draft.model} onChange={(e) => updateDraft("model", e.target.value)} placeholder="gpt-5.4" />
               </label>
             </div>
-          )}
 
-          <div className="actions">
-            <button className="primary-button" disabled={!draft.name.trim() || !draft.model.trim()} onClick={() => void handleSubmit()} type="button">
-              {isEditing ? "Save" : "Create"}
+            <button className="toggle-advanced" type="button" onClick={() => setShowAdvanced((v) => !v)}>
+              {showAdvanced ? "▲ Hide advanced" : "▼ Advanced"}
             </button>
-            {isEditing && (
-              <button className="secondary-button" onClick={() => { setDraft(emptyProvider); setShowAdvanced(false); }} type="button">
-                Cancel
+
+            {showAdvanced && (
+              <div className="form-grid">
+                <label className="field">
+                  <span>Base URL</span>
+                  <input value={draft.baseUrl} onChange={(e) => updateDraft("baseUrl", e.target.value)} placeholder="https://api.example.com/v1" />
+                </label>
+                <label className="field">
+                  <span>API key</span>
+                  <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
+                </label>
+                <label className="field">
+                  <span>Reasoning effort</span>
+                  <select value={draft.reasoningEffort} onChange={(e) => updateDraft("reasoningEffort", e.target.value)}>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </label>
+                <label className="field field-full">
+                  <span>Extra TOML</span>
+                  <textarea value={draft.extraToml} onChange={(e) => updateDraft("extraToml", e.target.value)} placeholder={`[experimental]\nproject_doc = "AGENTS.md"`} rows={5} />
+                </label>
+              </div>
+            )}
+
+            <div className="actions">
+              <button className="primary-button" disabled={!draft.name.trim() || !draft.model.trim()} onClick={() => void handleSubmit()} type="button">
+                {isEditing ? "Save" : "Create"}
               </button>
-            )}
-          </div>
-        </article>
-
-        <article className="card">
-          <div className="card-heading">
-            <div>
-              <span className="eyebrow">Available</span>
-              <h3>{providers.length} configured</h3>
+              {isEditing && (
+                <button className="secondary-button" onClick={() => { setDraft(emptyProvider); setShowAdvanced(false); }} type="button">
+                  Cancel
+                </button>
+              )}
             </div>
-          </div>
+          </article>
 
-          <div className="provider-list">
-            {sortedProviders.length ? (
-              sortedProviders.map((provider) => (
-                <div className="provider-row" key={provider.id}>
-                  <div>
-                    <div className="provider-title">
-                      <strong>{provider.name}</strong>
-                      {provider.isCurrent ? <span className="pill">Active</span> : null}
+          <article className="card">
+            <div className="card-heading">
+              <div>
+                <span className="eyebrow">Available</span>
+                <h3>{providers.length} configured</h3>
+              </div>
+            </div>
+
+            <div className="provider-list">
+              {sortedProviders.length ? (
+                sortedProviders.map((provider) => (
+                  <div className="provider-row" key={provider.id}>
+                    <div>
+                      <div className="provider-title">
+                        <strong>{provider.name}</strong>
+                        {provider.isCurrent ? <span className="pill">Active</span> : null}
+                      </div>
+                      <p>{provider.model}</p>
+                      <small>{provider.baseUrl || "OpenAI default"}</small>
                     </div>
-                    <p>{provider.model}</p>
-                    <small>{provider.baseUrl || "OpenAI default"}</small>
+                    <div className="provider-actions">
+                      <button className="secondary-button" onClick={() => { setDraft(provider); setShowAdvanced(true); }} type="button">Edit</button>
+                      <button className="secondary-button" onClick={() => setPendingActivation(provider)} type="button">Enable</button>
+                      <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">Del</button>
+                    </div>
                   </div>
-                  <div className="provider-actions">
-                    <button className="secondary-button" onClick={() => { setDraft(provider); setShowAdvanced(true); }} type="button">Edit</button>
-                    <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">Enable</button>
-                    <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">Del</button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="empty-state">No providers yet.</p>
-            )}
-          </div>
-        </article>
-      </div>
-    </section>
+                ))
+              ) : (
+                <p className="empty-state">No providers yet.</p>
+              )}
+            </div>
+          </article>
+        </div>
+      </section>
+    </>
   );
 }

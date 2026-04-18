@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { appApi } from "./api/tauri";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import type { AppSettings, DashboardState, PageKey, Provider } from "./types";
+import type { AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
 
 const emptyState: DashboardState = {
   providers: [],
@@ -24,11 +24,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-
-  const currentProvider = useMemo(
-    () => data.providers.find((provider) => provider.isCurrent) ?? null,
-    [data.providers],
-  );
 
   useEffect(() => {
     void refresh();
@@ -84,12 +79,19 @@ function App() {
       await refresh("Settings saved.");
     });
 
+  const handleDeleteSession = async (session: SessionRecord) =>
+    runAction(async () => {
+      await appApi.deleteSession(session.sourcePath);
+      await refresh("Session deleted.");
+    });
+
   const content = loading ? (
     <div className="loading-screen">LOADING...</div>
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
       onLoadMessages={appApi.getSessionMessages}
+      onDelete={handleDeleteSession}
     />
   ) : activePage === "settings" ? (
     <SettingsPage settings={data.settings} onSave={handleSaveSettings} />
@@ -106,14 +108,6 @@ function App() {
     <div className="app-shell">
       <Sidebar activePage={activePage} onSelect={setActivePage} />
       <main className="main-content">
-        <header className="topbar">
-          <div>
-            <h2>{currentProvider?.name ?? "No active provider"}</h2>
-          </div>
-          <div className="topbar-chip">
-            {currentProvider?.model ?? "—"}
-          </div>
-        </header>
         <StatusBar error={error} message={message} />
         {content}
       </main>

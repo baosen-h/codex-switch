@@ -4,6 +4,7 @@ import type { SessionMessage, SessionRecord } from "../types";
 interface SessionsPageProps {
   sessions: SessionRecord[];
   onLoadMessages: (sourcePath: string) => Promise<SessionMessage[]>;
+  onDelete: (session: SessionRecord) => Promise<void>;
 }
 
 const roleLabels: Record<string, string> = {
@@ -13,12 +14,13 @@ const roleLabels: Record<string, string> = {
   system: "System",
 };
 
-export function SessionsPage({ sessions, onLoadMessages }: SessionsPageProps) {
+export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPageProps) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const filteredSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -97,6 +99,15 @@ export function SessionsPage({ sessions, onLoadMessages }: SessionsPageProps) {
     };
   }, [onLoadMessages, selectedSession]);
 
+  const handleDelete = async (session: SessionRecord) => {
+    setPendingDeleteId(null);
+    if (selectedSessionId === session.id) {
+      setSelectedSessionId(null);
+      setSelectedMessages([]);
+    }
+    await onDelete(session);
+  };
+
   return (
     <section className="page">
       <header className="page-header">
@@ -137,28 +148,68 @@ export function SessionsPage({ sessions, onLoadMessages }: SessionsPageProps) {
             {filteredSessions.length ? (
               filteredSessions.map((session) => {
                 const isSelected = selectedSession?.id === session.id;
+                const isPendingDelete = pendingDeleteId === session.id;
 
                 return (
-                  <button
-                    className={`session-editor session-list-item ${isSelected ? "selected" : ""}`}
+                  <div
+                    className={`session-editor ${isSelected ? "selected" : ""}`}
                     key={session.id}
-                    onClick={() => setSelectedSessionId(session.id)}
-                    type="button"
                   >
-                    <div className="session-row">
-                      <div>
-                        <strong>{session.title || "Untitled session"}</strong>
-                        <p>{session.workspacePath}</p>
-                        {session.summary ? (
-                          <small className="session-summary">{session.summary}</small>
-                        ) : null}
+                    {isPendingDelete ? (
+                      <div className="delete-confirm">
+                        <span>Delete session file?</span>
+                        <div className="delete-confirm-actions">
+                          <button
+                            className="danger-button"
+                            onClick={() => void handleDelete(session)}
+                            type="button"
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="secondary-button"
+                            onClick={() => setPendingDeleteId(null)}
+                            type="button"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <div className="session-meta">
-                        <span>{session.providerName}</span>
-                        <small>{session.status}</small>
+                    ) : (
+                      <div
+                        className="session-list-item"
+                        onClick={() => setSelectedSessionId(session.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => e.key === "Enter" && setSelectedSessionId(session.id)}
+                      >
+                        <div className="session-row">
+                          <div>
+                            <strong>{session.title || "Untitled session"}</strong>
+                            <p>{session.workspacePath}</p>
+                            {session.summary ? (
+                              <small className="session-summary">{session.summary}</small>
+                            ) : null}
+                          </div>
+                          <div className="session-meta">
+                            <span>{session.providerName}</span>
+                            <small>{session.status}</small>
+                            <button
+                              className="session-delete-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPendingDeleteId(session.id);
+                              }}
+                              type="button"
+                              title="Delete session"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    )}
+                  </div>
                 );
               })
             ) : (
