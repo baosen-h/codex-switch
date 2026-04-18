@@ -18,7 +18,7 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
   };
 
   return (
-    <section className="page">
+    <section className="page settings-page">
       <header className="page-header">
         <div>
           <h2>Settings</h2>
@@ -26,7 +26,7 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
         </div>
       </header>
 
-      <article className="card narrow-card">
+      <article className="card">
         <div className="form-grid">
           <label className="field">
             <span>Codex config directory</span>

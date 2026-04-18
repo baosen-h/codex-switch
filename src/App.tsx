@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { appApi } from "./api/tauri";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
-import { DashboardPage } from "./pages/DashboardPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -20,7 +19,7 @@ const emptyState: DashboardState = {
 };
 
 function App() {
-  const [activePage, setActivePage] = useState<PageKey>("dashboard");
+  const [activePage, setActivePage] = useState<PageKey>("providers");
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -76,14 +75,7 @@ function App() {
   const handleActivateProvider = async (id: string) =>
     runAction(async () => {
       await appApi.activateProvider(id);
-      await refresh("Provider enabled and Codex config written.");
-    });
-
-  const handleLaunch = async (workspacePath: string) =>
-    runAction(async () => {
-      await appApi.launchCodex({ workspacePath });
-      await refresh("Codex launched. Refresh sessions after the CLI creates a session file.");
-      setActivePage("sessions");
+      await refresh("Provider activated.");
     });
 
   const handleSaveSettings = async (settings: AppSettings) =>
@@ -93,14 +85,7 @@ function App() {
     });
 
   const content = loading ? (
-    <div className="loading-screen">Loading Codex Switch Mini...</div>
-  ) : activePage === "providers" ? (
-    <ProvidersPage
-      providers={data.providers}
-      onActivate={handleActivateProvider}
-      onDelete={handleDeleteProvider}
-      onSave={handleSaveProvider}
-    />
+    <div className="loading-screen">LOADING...</div>
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
@@ -109,11 +94,11 @@ function App() {
   ) : activePage === "settings" ? (
     <SettingsPage settings={data.settings} onSave={handleSaveSettings} />
   ) : (
-    <DashboardPage
+    <ProvidersPage
       providers={data.providers}
-      sessions={data.sessions}
-      settings={data.settings}
-      onLaunch={handleLaunch}
+      onActivate={handleActivateProvider}
+      onDelete={handleDeleteProvider}
+      onSave={handleSaveProvider}
     />
   );
 
@@ -123,11 +108,10 @@ function App() {
       <main className="main-content">
         <header className="topbar">
           <div>
-            <span className="eyebrow">Active route</span>
             <h2>{currentProvider?.name ?? "No active provider"}</h2>
           </div>
           <div className="topbar-chip">
-            {currentProvider?.model ?? "Configure provider first"}
+            {currentProvider?.model ?? "—"}
           </div>
         </header>
         <StatusBar error={error} message={message} />

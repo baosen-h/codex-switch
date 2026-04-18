@@ -45,7 +45,7 @@ export interface DashboardState {
   settings: AppSettings;
 }
 
-export type PageKey = "dashboard" | "providers" | "sessions" | "settings";
+export type PageKey = "providers" | "sessions" | "settings";
 
 export interface LaunchRequest {
   workspacePath: string;
