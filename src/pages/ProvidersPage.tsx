@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Provider } from "../types";
 
 interface ProvidersPageProps {
@@ -21,11 +21,7 @@ const emptyProvider: Provider = {
   updatedAt: "",
 };
 
-const presets: Array<{
-  id: string;
-  title: string;
-  values: Partial<Provider>;
-}> = [
+const presets: Array<{ id: string; title: string; values: Partial<Provider> }> = [
   {
     id: "official",
     title: "OpenAI",
@@ -43,16 +39,27 @@ const presets: Array<{
   },
 ];
 
-interface Toast {
-  message: string;
-  type: "ok" | "err";
-}
+const AddIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+    <rect x="5" y="1" width="2" height="10"/>
+    <rect x="1" y="5" width="10" height="2"/>
+  </svg>
+);
+
+const BackIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+    <rect x="1" y="5" width="7" height="2"/>
+    <rect x="1" y="3" width="2" height="2"/>
+    <rect x="3" y="1" width="2" height="2"/>
+    <rect x="1" y="7" width="2" height="2"/>
+    <rect x="3" y="9" width="2" height="2"/>
+  </svg>
+);
 
 export function ProvidersPage({ providers, onSave, onDelete, onActivate }: ProvidersPageProps) {
+  const [view, setView] = useState<"list" | "form">("list");
   const [draft, setDraft] = useState<Provider>(emptyProvider);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sortedProviders = useMemo(
     () =>
@@ -64,22 +71,24 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
     [providers],
   );
 
-  const showToast = (message: string, type: Toast["type"]) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ message, type });
-    toastTimer.current = setTimeout(() => setToast(null), 2000);
+  const openForm = (provider?: Provider) => {
+    setDraft(provider ?? emptyProvider);
+    setShowAdvanced(Boolean(provider));
+    setView("form");
   };
 
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const closeForm = () => {
+    setDraft(emptyProvider);
+    setShowAdvanced(false);
+    setView("list");
+  };
 
-  const isEditing = Boolean(draft.id);
   const updateDraft = (field: keyof Provider, value: string) =>
     setDraft((cur) => ({ ...cur, [field]: value }));
 
   const handleSubmit = async () => {
     await onSave(draft);
-    setDraft(emptyProvider);
-    setShowAdvanced(false);
+    closeForm();
   };
 
   const applyPreset = (presetId: string) => {
@@ -88,28 +97,24 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
     setDraft((cur) => ({ ...emptyProvider, ...cur, ...preset.values, id: "", isCurrent: false, createdAt: "", updatedAt: "" }));
   };
 
-  const handleActivate = async (provider: Provider) => {
-    try {
-      await onActivate(provider.id);
-      showToast(`✓ ${provider.name} activated`, "ok");
-    } catch (err) {
-      showToast(`✗ ${err instanceof Error ? err.message : "Failed"}`, "err");
-    }
-  };
+  if (view === "form") {
+    const isEditing = Boolean(draft.id);
+    return (
+      <section className="page">
+        <header className="page-header">
+          <h2>{isEditing ? "Edit provider" : "New provider"}</h2>
+        </header>
 
-  return (
-    <section className="page providers-layout">
-      <header className="page-header">
-        <h2>Providers</h2>
-      </header>
-
-      <div className="providers-grid">
         <article className="card">
           <div className="card-heading">
             <div>
               <span className="eyebrow">{isEditing ? "Edit" : "New"}</span>
               <h3>{isEditing ? draft.name || "Draft" : "Add provider"}</h3>
             </div>
+            <button className="back-button" onClick={closeForm} type="button">
+              <BackIcon />
+              <span>Back</span>
+            </button>
           </div>
 
           <div className="preset-grid">
@@ -161,56 +166,62 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
           )}
 
           <div className="actions">
-            <button className="primary-button" disabled={!draft.name.trim() || !draft.model.trim()} onClick={() => void handleSubmit()} type="button">
+            <button
+              className="primary-button"
+              disabled={!draft.name.trim() || !draft.model.trim()}
+              onClick={() => void handleSubmit()}
+              type="button"
+            >
               {isEditing ? "Save" : "Create"}
             </button>
-            {isEditing && (
-              <button className="secondary-button" onClick={() => { setDraft(emptyProvider); setShowAdvanced(false); }} type="button">
-                Cancel
-              </button>
-            )}
           </div>
         </article>
+      </section>
+    );
+  }
 
-        <article className="card">
-          <div className="card-heading">
-            <div>
-              <span className="eyebrow">Available</span>
-              <h3>{providers.length} configured</h3>
-            </div>
+  return (
+    <section className="page">
+      <header className="page-header">
+        <h2>Providers</h2>
+      </header>
+
+      <article className="card">
+        <div className="card-heading">
+          <div>
+            <span className="eyebrow">Available</span>
+            <h3>{providers.length} configured</h3>
           </div>
+          <button className="add-button" onClick={() => openForm()} type="button" title="Add provider">
+            <AddIcon />
+            <span>Add</span>
+          </button>
+        </div>
 
-          {toast && (
-            <div className={`provider-toast provider-toast-${toast.type}`}>
-              {toast.message}
-            </div>
-          )}
-
-          <div className="provider-list">
-            {sortedProviders.length ? (
-              sortedProviders.map((provider) => (
-                <div className="provider-row" key={provider.id}>
-                  <div>
-                    <div className="provider-title">
-                      <strong>{provider.name}</strong>
-                      {provider.isCurrent ? <span className="pill">Active</span> : null}
-                    </div>
-                    <p>{provider.model}</p>
-                    <small>{provider.baseUrl || "OpenAI default"}</small>
+        <div className="provider-list">
+          {sortedProviders.length ? (
+            sortedProviders.map((provider) => (
+              <div className="provider-row" key={provider.id}>
+                <div className="provider-info">
+                  <div className="provider-title">
+                    <strong>{provider.name}</strong>
+                    {provider.isCurrent ? <span className="pill">Active</span> : null}
                   </div>
-                  <div className="provider-actions">
-                    <button className="secondary-button" onClick={() => { setDraft(provider); setShowAdvanced(true); }} type="button">Edit</button>
-                    <button className="secondary-button" onClick={() => void handleActivate(provider)} type="button">Enable</button>
-                    <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">Del</button>
-                  </div>
+                  <p>{provider.model}</p>
+                  <small>{provider.baseUrl || "OpenAI default"}</small>
                 </div>
-              ))
-            ) : (
-              <p className="empty-state">No providers yet.</p>
-            )}
-          </div>
-        </article>
-      </div>
+                <div className="provider-actions">
+                  <button className="secondary-button" onClick={() => openForm(provider)} type="button">Edit</button>
+                  <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">Enable</button>
+                  <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">Del</button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="empty-state">No providers yet. Click [+] Add to create one.</p>
+          )}
+        </div>
+      </article>
     </section>
   );
 }

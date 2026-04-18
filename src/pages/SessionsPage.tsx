@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
+
+const PixelX = () => (
+  <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
+    <rect x="0" y="0" width="2" height="2"/>
+    <rect x="6" y="0" width="2" height="2"/>
+    <rect x="2" y="2" width="2" height="2"/>
+    <rect x="4" y="2" width="2" height="2"/>
+    <rect x="2" y="4" width="2" height="2"/>
+    <rect x="4" y="4" width="2" height="2"/>
+    <rect x="0" y="6" width="2" height="2"/>
+    <rect x="6" y="6" width="2" height="2"/>
+  </svg>
+);
 import type { SessionMessage, SessionRecord } from "../types";
 
 interface SessionsPageProps {
@@ -203,7 +216,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                               type="button"
                               title="Delete session"
                             >
-                              ✕
+                              <PixelX />
                             </button>
                           </div>
                         </div>
