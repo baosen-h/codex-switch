@@ -214,8 +214,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 }
 
 .dashboard-grid, .providers-grid { display: grid; gap: 0.85rem; }
-.dashboard-grid  { grid-template-columns: minmax(380px, 1.2fr) minmax(300px, 1fr); }
-.providers-grid  { grid-template-columns: minmax(380px, 1fr) minmax(380px, 1fr); }
+.dashboard-grid  { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+.providers-grid  { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 
 .sessions-layout {
   display: grid;
@@ -579,6 +579,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 .empty-state { padding: 0.5rem 0; color: var(--t2); font-size: 0.85rem; }
 
 .providers-layout { align-content: start; }
+
+/* ── Provider toast ─────────────────────────────────────────────── */
+.provider-toast {
+  margin-bottom: 0.6rem;
+  padding: 0.45rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  border-left: 3px solid;
+  animation: toast-in 120ms linear;
+}
+.provider-toast-ok  { background: rgba(95,173,86,0.1);  color: #7cd673; border-color: var(--g); }
+.provider-toast-err { background: rgba(217,64,64,0.1);  color: #f07070; border-color: var(--err); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
 /* ── Modal ──────────────────────────────────────────────────────── */
 .modal-overlay {

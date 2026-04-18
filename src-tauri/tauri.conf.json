@@ -16,7 +16,8 @@
         "height": 640,
         "minWidth": 880,
         "minHeight": 560,
-        "resizable": true
+        "resizable": true,
+        "theme": "Dark"
       }
     ],
     "security": {
@@ -27,8 +28,11 @@
     "active": true,
     "targets": "all",
     "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
       "icons/icon.ico",
-      "icons/codex-switch-mini.png"
+      "icons/icon.png"
     ]
   }
 }
