@@ -5,11 +5,13 @@ use serde::{Deserialize, Serialize};
 pub struct Provider {
     pub id: String,
     pub name: String,
+    pub agent: String,
     pub base_url: String,
     pub api_key: String,
     pub model: String,
     pub reasoning_effort: String,
     pub extra_toml: String,
+    pub config_text: String,
     pub is_current: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -21,6 +23,7 @@ pub struct SessionRecord {
     pub id: String,
     pub provider_id: String,
     pub provider_name: String,
+    pub agent: String,
     pub session_id: String,
     pub workspace_path: String,
     pub title: String,
@@ -30,6 +33,7 @@ pub struct SessionRecord {
     pub resume_command: String,
     pub status: String,
     pub notes: String,
+    pub message_count: i64,
     pub started_at: String,
     pub last_active_at: String,
 }
@@ -49,6 +53,7 @@ pub struct AppSettings {
     pub terminal_program: String,
     pub auto_record_sessions: bool,
     pub language: String,
+    pub theme: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { SessionMessage, SessionRecord } from "../types";
+import type { AgentKind, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatDate, timeAgo } from "../utils/time";
 
@@ -22,10 +22,12 @@ interface SessionsPageProps {
   onDelete: (session: SessionRecord) => Promise<void>;
 }
 
+type AgentFilter = AgentKind | "all";
+
 export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPageProps) {
   const { t, lang } = useI18n();
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [agentFilter, setAgentFilter] = useState<AgentFilter>("all");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -40,15 +42,15 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
 
   const filteredSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
+    const byAgent =
+      agentFilter === "all"
+        ? sessions
+        : sessions.filter((session) => session.agent === agentFilter);
 
-    return sessions.filter((session) => {
-      const matchesStatus =
-        statusFilter === "all" || session.status === statusFilter;
+    if (!normalizedQuery) return byAgent;
 
-      if (!matchesStatus) return false;
-      if (!normalizedQuery) return true;
-
-      return [
+    return byAgent.filter((session) =>
+      [
         session.title,
         session.providerName,
         session.workspacePath,
@@ -58,9 +60,9 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
       ]
         .join(" ")
         .toLowerCase()
-        .includes(normalizedQuery);
-    });
-  }, [query, sessions, statusFilter]);
+        .includes(normalizedQuery),
+    );
+  }, [query, agentFilter, sessions]);
 
   const selectedSession =
     filteredSessions.find((session) => session.id === selectedSessionId) ??
@@ -112,7 +114,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
       </header>
 
       <article className="card narrow-card">
-        <div className="form-grid compact-form-grid">
+        <div className="filter-row">
           <label className="field">
             <span>{t("search")}</span>
             <input
@@ -122,15 +124,15 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
             />
           </label>
           <label className="field">
-            <span>{t("status")}</span>
+            <span>{t("agentFilter")}</span>
             <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              value={agentFilter}
+              onChange={(event) => setAgentFilter(event.target.value as AgentFilter)}
             >
-              <option value="all">{t("all")}</option>
-              <option value="active">{t("active")}</option>
-              <option value="paused">{t("paused")}</option>
-              <option value="completed">{t("completed")}</option>
+              <option value="all">{t("tabAll")}</option>
+              <option value="codex">{t("agentCodex")}</option>
+              <option value="claude">{t("agentClaude")}</option>
+              <option value="gemini">{t("agentGemini")}</option>
             </select>
           </label>
         </div>
@@ -187,7 +189,10 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                           </div>
                           <div className="session-meta">
                             <span>{session.providerName}</span>
-                            <small>{session.lastActiveAt ? timeAgo(session.lastActiveAt, lang) : session.status}</small>
+                            <small>{session.messageCount} {t("messagesSuffix")}</small>
+                            {session.lastActiveAt ? (
+                              <small>{timeAgo(session.lastActiveAt, lang)}</small>
+                            ) : null}
                             <button
                               className="session-delete-btn"
                               onClick={(e) => {

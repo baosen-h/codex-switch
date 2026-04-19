@@ -1,14 +1,12 @@
-use crate::codex::write_provider_config;
+use crate::agent_writer::{write_provider, AGENT_CODEX};
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{
-    AppSettings, DashboardState, LaunchRequest, Provider, SessionMessage,
-};
+use crate::models::{AppSettings, DashboardState, LaunchRequest, Provider, SessionMessage};
 use crate::session_manager;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 pub struct AppState {
     pub db: Mutex<Database>,
@@ -20,6 +18,10 @@ impl AppState {
             db: Mutex::new(Database::new()?),
         })
     }
+}
+
+fn notify_tray(app: &AppHandle) {
+    let _ = app.emit("providers-changed", ());
 }
 
 #[tauri::command]
@@ -34,29 +36,39 @@ pub fn get_dashboard(state: State<'_, AppState>) -> Result<DashboardState, Strin
 
 #[tauri::command]
 pub fn save_provider(
+    app: AppHandle,
     state: State<'_, AppState>,
     provider: Provider,
 ) -> Result<Provider, String> {
-    state
+    let saved = state
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?
         .save_provider(provider)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    notify_tray(&app);
+    Ok(saved)
 }
 
 #[tauri::command]
-pub fn delete_provider(state: State<'_, AppState>, id: String) -> Result<bool, String> {
-    state
+pub fn delete_provider(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<bool, String> {
+    let ok = state
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?
         .delete_provider(&id)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    notify_tray(&app);
+    Ok(ok)
 }
 
 #[tauri::command]
 pub fn activate_provider(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Provider, String> {
@@ -67,8 +79,10 @@ pub fn activate_provider(
 
     let provider = db.activate_provider(&id).map_err(|error| error.to_string())?;
     let settings = db.settings().map_err(|error| error.to_string())?;
-    write_provider_config(&provider, &PathBuf::from(settings.codex_config_dir))
+    write_provider(&provider, &PathBuf::from(settings.codex_config_dir))
         .map_err(|error| error.to_string())?;
+    drop(db);
+    notify_tray(&app);
 
     Ok(provider)
 }
@@ -83,9 +97,11 @@ pub fn launch_codex(
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
 
-    let provider = db.current_provider().map_err(|error| error.to_string())?;
+    let provider = db
+        .current_provider_for_agent(AGENT_CODEX)
+        .map_err(|error| error.to_string())?;
     let settings = db.settings().map_err(|error| error.to_string())?;
-    write_provider_config(&provider, &PathBuf::from(settings.codex_config_dir.clone()))
+    write_provider(&provider, &PathBuf::from(settings.codex_config_dir.clone()))
         .map_err(|error| error.to_string())?;
 
     launch_terminal(&settings.terminal_program, &request.workspace_path)
@@ -109,8 +125,23 @@ pub fn save_settings(
 
 #[tauri::command]
 pub fn get_session_messages(source_path: String) -> Result<Vec<SessionMessage>, String> {
-    session_manager::load_codex_messages(PathBuf::from(source_path).as_path())
-        .map_err(|error| error.to_string())
+    let path = PathBuf::from(&source_path);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let in_claude = path
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
+
+    if ext == "json" {
+        return session_manager::load_gemini_messages(&path).map_err(|e| e.to_string());
+    }
+    if in_claude {
+        return session_manager::load_claude_messages(&path).map_err(|e| e.to_string());
+    }
+    session_manager::load_codex_messages(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

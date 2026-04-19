@@ -1,4 +1,4 @@
-use crate::codex::default_codex_config_dir;
+use crate::agent_writer::default_codex_config_dir;
 use crate::error::AppError;
 use crate::models::{AppSettings, DashboardState, Provider, SessionRecord};
 use crate::session_manager;
@@ -25,10 +25,11 @@ impl Database {
 
     pub fn dashboard(&self) -> Result<DashboardState, AppError> {
         let settings = self.settings()?;
+        let providers = self.providers()?;
 
         Ok(DashboardState {
-            providers: self.providers()?,
-            sessions: self.live_sessions(&settings.codex_config_dir),
+            sessions: self.live_sessions(&settings.codex_config_dir, &providers),
+            providers,
             settings,
         })
     }
@@ -36,7 +37,7 @@ impl Database {
     pub fn providers(&self) -> Result<Vec<Provider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, base_url, api_key, model, reasoning_effort, extra_toml, is_current, created_at, updated_at
+            SELECT id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
             FROM providers
             ORDER BY is_current DESC, updated_at DESC
             "#,
@@ -50,7 +51,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, base_url, api_key, model, reasoning_effort, extra_toml, is_current, created_at, updated_at
+                SELECT id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
                 FROM providers
                 WHERE id = ?1
                 "#,
@@ -78,28 +79,38 @@ impl Database {
             .optional()?
             .unwrap_or_else(|| now.clone());
 
+        let agent = if provider.agent.trim().is_empty() {
+            "codex".to_string()
+        } else {
+            provider.agent.trim().to_string()
+        };
+
         self.connection.execute(
             r#"
             INSERT INTO providers (
-              id, name, base_url, api_key, model, reasoning_effort, extra_toml, is_current, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?8, ?9)
+              id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
+              agent = excluded.agent,
               base_url = excluded.base_url,
               api_key = excluded.api_key,
               model = excluded.model,
               reasoning_effort = excluded.reasoning_effort,
               extra_toml = excluded.extra_toml,
+              config_text = excluded.config_text,
               updated_at = excluded.updated_at
             "#,
             params![
                 provider_id,
                 provider.name.trim(),
+                agent,
                 provider.base_url.trim(),
                 provider.api_key.trim(),
                 provider.model.trim(),
                 provider.reasoning_effort.trim(),
                 provider.extra_toml.trim(),
+                provider.config_text,
                 created_at,
                 now
             ],
@@ -115,7 +126,18 @@ impl Database {
     }
 
     pub fn activate_provider(&self, id: &str) -> Result<Provider, AppError> {
-        self.connection.execute("UPDATE providers SET is_current = 0", [])?;
+        // Clear is_current only among providers of the same agent (so each agent
+        // tracks its own active provider).
+        let agent: String = self.connection.query_row(
+            "SELECT agent FROM providers WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        )?;
+
+        self.connection.execute(
+            "UPDATE providers SET is_current = 0 WHERE agent = ?1",
+            params![agent],
+        )?;
         self.connection.execute(
             "UPDATE providers SET is_current = 1, updated_at = ?2 WHERE id = ?1",
             params![id, current_time_string()],
@@ -124,16 +146,16 @@ impl Database {
         self.provider_by_id(id)
     }
 
-    pub fn current_provider(&self) -> Result<Provider, AppError> {
+    pub fn current_provider_for_agent(&self, agent: &str) -> Result<Provider, AppError> {
         let id = self
             .connection
             .query_row(
-                "SELECT id FROM providers WHERE is_current = 1 LIMIT 1",
-                [],
+                "SELECT id FROM providers WHERE is_current = 1 AND agent = ?1 LIMIT 1",
+                params![agent],
                 |row| row.get::<_, String>(0),
             )
             .optional()?
-            .ok_or_else(|| AppError::message("No active provider configured"))?;
+            .ok_or_else(|| AppError::message("No active provider configured for this agent"))?;
 
         self.provider_by_id(&id)
     }
@@ -145,6 +167,7 @@ impl Database {
             terminal_program: self.setting("terminal_program")?,
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
             language: self.setting("language")?,
+            theme: self.setting("theme")?,
         })
     }
 
@@ -161,6 +184,7 @@ impl Database {
             },
         )?;
         self.set_setting("language", settings.language.clone())?;
+        self.set_setting("theme", settings.theme.clone())?;
         self.settings()
     }
 
@@ -176,11 +200,13 @@ impl Database {
             CREATE TABLE IF NOT EXISTS providers (
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
+              agent TEXT NOT NULL DEFAULT 'codex',
               base_url TEXT NOT NULL DEFAULT '',
               api_key TEXT NOT NULL DEFAULT '',
               model TEXT NOT NULL,
               reasoning_effort TEXT NOT NULL DEFAULT 'high',
               extra_toml TEXT NOT NULL DEFAULT '',
+              config_text TEXT NOT NULL DEFAULT '',
               is_current INTEGER NOT NULL DEFAULT 0,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
@@ -193,6 +219,10 @@ impl Database {
             "#,
         )?;
 
+        // Forward-migrations for DBs created before agent/config_text existed.
+        ensure_column(&self.connection, "providers", "agent", "TEXT NOT NULL DEFAULT 'codex'")?;
+        ensure_column(&self.connection, "providers", "config_text", "TEXT NOT NULL DEFAULT ''")?;
+
         self.ensure_setting(
             "codex_config_dir",
             default_codex_config_dir().to_string_lossy().to_string(),
@@ -201,6 +231,7 @@ impl Database {
         self.ensure_setting("terminal_program", "pwsh".to_string())?;
         self.ensure_setting("auto_record_sessions", "true".to_string())?;
         self.ensure_setting("language", "en".to_string())?;
+        self.ensure_setting("theme", "system".to_string())?;
 
         Ok(())
     }
@@ -234,9 +265,33 @@ impl Database {
         Ok(())
     }
 
-    fn live_sessions(&self, codex_config_dir: &str) -> Vec<SessionRecord> {
-        session_manager::scan_codex_sessions(&PathBuf::from(codex_config_dir))
+    fn live_sessions(&self, codex_config_dir: &str, _providers: &[Provider]) -> Vec<SessionRecord> {
+        let mut all = session_manager::scan_codex_sessions(&PathBuf::from(codex_config_dir));
+        all.extend(session_manager::scan_claude_sessions());
+        all.extend(session_manager::scan_gemini_sessions());
+        all.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
+        all
     }
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), AppError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let existing: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(Result::ok)
+        .collect();
+    if !existing.iter().any(|name| name == column) {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
+            [],
+        )?;
+    }
+    Ok(())
 }
 
 fn current_time_string() -> String {
@@ -250,13 +305,15 @@ fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {
     Ok(Provider {
         id: row.get(0)?,
         name: row.get(1)?,
-        base_url: row.get(2)?,
-        api_key: row.get(3)?,
-        model: row.get(4)?,
-        reasoning_effort: row.get(5)?,
-        extra_toml: row.get(6)?,
-        is_current: row.get::<_, i64>(7)? == 1,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        agent: row.get(2)?,
+        base_url: row.get(3)?,
+        api_key: row.get(4)?,
+        model: row.get(5)?,
+        reasoning_effort: row.get(6)?,
+        extra_toml: row.get(7)?,
+        config_text: row.get(8)?,
+        is_current: row.get::<_, i64>(9)? == 1,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }

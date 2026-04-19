@@ -37,7 +37,61 @@
   color: var(--t1);
 }
 
+/* ── Light theme ────────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  --bg:  #f3ecd6;
+  --p1:  #fbf6e4;
+  --p2:  #fffcee;
+  --row: rgba(200,155,50,0.07);
+
+  --b0:  #dccfa4;
+  --b1:  #c4b482;
+  --b-a: #c89b32;
+
+  --t1:  #1f1a0e;
+  --t2:  #736838;
+
+  --a:    #c89b32;
+  --a-dk: #8a6a1f;
+  --a-d:  rgba(200,155,50,0.16);
+  --g:    #4a8c3a;
+  --g-d:  rgba(74,140,58,0.18);
+  --err:  #b83030;
+
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
+
+/* ── Theme swap: View Transitions circular reveal ──────────────── */
+:root { --reveal-x: 50%; --reveal-y: 50%; }
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) { z-index: 1; }
+::view-transition-new(root) {
+  z-index: 2;
+  animation: theme-reveal 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes theme-reveal {
+  from { clip-path: circle(0 at var(--reveal-x) var(--reveal-y)); }
+  to   { clip-path: circle(150vmax at var(--reveal-x) var(--reveal-y)); }
+}
+
+/* Fallback 200ms fade for browsers without View Transitions (and for
+   ambient system-theme swaps that don't run through startViewTransition). */
+html, body,
+.sidebar, .card, .titlebar,
+.config-preview, .message-card, .resume-command-block, .delete-confirm,
+.agent-chip, .preset-card, .session-editor {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease;
+}
 
 body {
   margin: 0;
@@ -133,8 +187,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 }
 .titlebar-btn:hover { background: var(--p1); color: var(--t1); }
 .titlebar-btn-close:hover { background: var(--err); color: #fff; }
-.titlebar-btn-lang { font-family: var(--sans); font-size: 0.72rem; font-weight: 600; letter-spacing: 0; }
-.titlebar-btn-lang:hover { color: var(--a); }
 
 /* ── Sidebar ────────────────────────────────────────────────────── */
 .sidebar {
@@ -485,6 +537,47 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 .preset-card:active { transform: translate(2px, 2px); box-shadow: none; }
 .preset-card span  { color: var(--t2); font-size: 0.78rem; font-weight: 400; }
 
+/* ── Provider type tabs ─────────────────────────────────────────── */
+.provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--b0);
+}
+
+.provider-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  color: var(--t2);
+  border: 2px solid var(--b1);
+  border-radius: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  box-shadow: 2px 2px 0 var(--b0);
+  transition: color 80ms, border-color 80ms, background 80ms, box-shadow 80ms, transform 80ms;
+}
+.provider-tab:hover { color: var(--t1); border-color: var(--t2); }
+.provider-tab:active { transform: translate(2px, 2px); box-shadow: none; }
+.provider-tab.active {
+  color: var(--a);
+  border-color: var(--a);
+  background: var(--a-d);
+  box-shadow: 2px 2px 0 var(--a-dk);
+}
+.provider-tab small {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--t2);
+  padding: 0 0.3rem;
+  border: 1px solid var(--b0);
+}
+.provider-tab.active small { color: var(--a); border-color: var(--a); }
+
 /* ── Provider rows ──────────────────────────────────────────────── */
 .provider-list { display: grid; gap: 0; margin-top: 0.85rem; }
 
@@ -667,5 +760,90 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 .empty-state { padding: 0.5rem 0; color: var(--t2); font-size: 0.85rem; }
 
 .providers-layout { align-content: start; }
+
+/* ── Agent chip (form header) ──────────────────────────────────── */
+.agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--p2);
+  border: 2px solid var(--b1);
+  color: var(--t1);
+  font-size: 0.76rem;
+  font-weight: 500;
+  box-shadow: 2px 2px 0 var(--b0);
+}
+
+/* ── Config preview block ──────────────────────────────────────── */
+.preview-block {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.preview-hint {
+  margin: 0;
+  color: var(--t2);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.config-preview {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  background: rgba(0,0,0,0.35);
+  border: 2px solid var(--b0);
+  border-left: 3px solid var(--a);
+  color: var(--t1);
+  white-space: pre;
+  resize: vertical;
+  min-height: 220px;
+}
+:root[data-theme="light"] .config-preview {
+  background: #fffcee;
+}
+
+.preview-reset {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--t2);
+  border: 2px solid var(--b1);
+  border-radius: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  box-shadow: 2px 2px 0 var(--b0);
+  transition: color 80ms, border-color 80ms, transform 80ms, box-shadow 80ms;
+}
+.preview-reset:not(:disabled):hover {
+  color: var(--a);
+  border-color: var(--a);
+  box-shadow: 2px 2px 0 var(--a-dk);
+}
+.preview-reset:not(:disabled):active { transform: translate(2px,2px); box-shadow: none; }
+.preview-reset:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Session filter row (search + agent) ───────────────────────── */
+.filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: 0.75rem;
+  align-items: end;
+}
+@media (max-width: 720px) {
+  .filter-row { grid-template-columns: 1fr; }
+}
 
 

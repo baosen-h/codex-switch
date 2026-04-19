@@ -1,5 +1,4 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { Lang } from "../i18n/translations";
 
 const appWindow = getCurrentWindow();
 
@@ -31,12 +30,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-interface TitleBarProps {
-  lang: Lang;
-  onToggleLang: () => void;
-}
-
-export function TitleBar({ lang, onToggleLang }: TitleBarProps) {
+export function TitleBar() {
   return (
     <div className="titlebar">
       <div
@@ -47,14 +41,6 @@ export function TitleBar({ lang, onToggleLang }: TitleBarProps) {
         <span className="titlebar-title">CODEX SWITCH MINI</span>
       </div>
       <div className="titlebar-controls">
-        <button
-          className="titlebar-btn titlebar-btn-lang"
-          onClick={onToggleLang}
-          type="button"
-          title="Toggle language"
-        >
-          {lang === "en" ? "中" : "EN"}
-        </button>
         <button
           className="titlebar-btn"
           onClick={() => void appWindow.minimize()}

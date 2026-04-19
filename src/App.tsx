@@ -9,6 +9,7 @@ import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
+import { applyTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
   providers: [],
@@ -19,8 +20,10 @@ const emptyState: DashboardState = {
     terminalProgram: "pwsh",
     autoRecordSessions: true,
     language: "en",
+    theme: "system",
   },
 };
+
 
 let toastSeq = 0;
 
@@ -36,10 +39,20 @@ function App() {
   });
 
   const lang: Lang = (data.settings.language as Lang) || "en";
+  const themeMode = data.settings.theme || "system";
 
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    applyTheme(themeMode);
+    if (themeMode !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const listener = () => applyTheme("system");
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, [themeMode]);
 
   const refresh = async (nextMessage?: string) => {
     try {
@@ -98,14 +111,6 @@ function App() {
       await refresh();
     }, "Session deleted.");
 
-  const handleToggleLang = () => {
-    const newLang: Lang = lang === "en" ? "zh" : "en";
-    void runAction(async () => {
-      await appApi.saveSettings({ ...data.settings, language: newLang });
-      await refresh();
-    });
-  };
-
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
   ) : activePage === "sessions" ? (
@@ -128,7 +133,7 @@ function App() {
   return (
     <I18nProvider lang={lang}>
       <div className="app-root">
-        <TitleBar lang={lang} onToggleLang={handleToggleLang} />
+        <TitleBar />
         <div className="app-shell">
           <Sidebar activePage={activePage} onSelect={setActivePage} />
           <main className="main-content">

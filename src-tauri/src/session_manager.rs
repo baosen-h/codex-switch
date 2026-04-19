@@ -1,7 +1,7 @@
 use crate::models::{SessionMessage, SessionRecord};
 use serde_json::Value;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub fn scan_codex_sessions(config_dir: &Path) -> Vec<SessionRecord> {
@@ -161,6 +161,7 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
         id: path.to_string_lossy().to_string(),
         provider_id: "codex".to_string(),
         provider_name: "Codex".to_string(),
+        agent: "codex".to_string(),
         session_id: session_id.clone(),
         workspace_path,
         title,
@@ -169,9 +170,27 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
         resume_command: format!("codex resume {session_id}"),
         status: "active".to_string(),
         notes: String::new(),
+        message_count: count_lines(path),
         started_at: created_at.unwrap_or_default(),
         last_active_at: last_active_at.unwrap_or_default(),
     })
+}
+
+fn count_lines(path: &Path) -> i64 {
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return 0,
+    };
+    let mut buf = [0u8; 8192];
+    let mut count: i64 = 0;
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => count += buf[..n].iter().filter(|&&byte| byte == b'\n').count() as i64,
+            Err(_) => break,
+        }
+    }
+    count
 }
 
 fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) {
@@ -347,4 +366,303 @@ fn is_uuid_like(candidate: &[u8]) -> bool {
     }
 
     true
+}
+
+/* ── Claude Code sessions ──────────────────────────────────────── */
+
+pub fn scan_claude_sessions() -> Vec<SessionRecord> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let root = home.join(".claude").join("projects");
+    let mut files = Vec::new();
+    collect_jsonl_files(&root, &mut files);
+    files.retain(|p| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| !s.starts_with("agent-"))
+            .unwrap_or(true)
+    });
+
+    let mut sessions: Vec<SessionRecord> = files
+        .into_iter()
+        .filter_map(|path| parse_claude_session(&path))
+        .collect();
+    sessions.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
+    sessions
+}
+
+pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open: {e}"))?;
+    let reader = BufReader::new(file);
+    let mut messages = Vec::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if value.get("isMeta").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        let message = match value.get("message") {
+            Some(m) => m,
+            None => continue,
+        };
+        let mut role = message
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let null = Value::Null;
+        let content_value = message.get("content").unwrap_or(&null);
+
+        if role == "user" {
+            if let Value::Array(items) = content_value {
+                if !items.is_empty()
+                    && items.iter().all(|i| {
+                        i.get("type").and_then(Value::as_str) == Some("tool_result")
+                    })
+                {
+                    role = "tool".to_string();
+                }
+            }
+        }
+
+        let content = extract_text(content_value);
+        if content.trim().is_empty() {
+            continue;
+        }
+        messages.push(SessionMessage { role, content });
+    }
+    Ok(messages)
+}
+
+fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
+    let (head, tail) = read_head_tail_lines(path, 10, 30).ok()?;
+
+    let mut session_id: Option<String> = None;
+    let mut project_dir: Option<String> = None;
+    let mut created_at: Option<String> = None;
+
+    for line in &head {
+        let value: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if session_id.is_none() {
+            session_id = value
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(String::from);
+        }
+        if project_dir.is_none() {
+            project_dir = value.get("cwd").and_then(Value::as_str).map(String::from);
+        }
+        if created_at.is_none() {
+            created_at = value
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .map(String::from);
+        }
+        if session_id.is_some() && project_dir.is_some() && created_at.is_some() {
+            break;
+        }
+    }
+
+    let mut last_active_at = created_at.clone();
+    let mut summary: Option<String> = None;
+
+    for line in tail.iter().rev() {
+        let value: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if value.get("isMeta").and_then(Value::as_bool).unwrap_or(false) {
+            continue;
+        }
+        if last_active_at.is_none() {
+            last_active_at = value
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .map(String::from);
+        }
+        if summary.is_none() {
+            if let Some(content) = value.get("message").and_then(|m| m.get("content")) {
+                let text = extract_text(content);
+                if !text.trim().is_empty() {
+                    summary = Some(truncate_summary(&text, 180));
+                }
+            }
+        }
+        if summary.is_some() && last_active_at.is_some() {
+            break;
+        }
+    }
+
+    let session_id = session_id.or_else(|| infer_session_id_from_filename(path))?;
+    let workspace_path = project_dir.clone().unwrap_or_default();
+    let title = project_dir
+        .as_deref()
+        .and_then(path_basename)
+        .unwrap_or_else(|| "Claude chat".to_string());
+
+    Some(SessionRecord {
+        id: path.to_string_lossy().to_string(),
+        provider_id: "claude".to_string(),
+        provider_name: "Claude Code".to_string(),
+        agent: "claude".to_string(),
+        session_id: session_id.clone(),
+        workspace_path,
+        title,
+        summary,
+        source_path: path.to_string_lossy().to_string(),
+        resume_command: format!("claude --resume {session_id}"),
+        status: "active".to_string(),
+        notes: String::new(),
+        message_count: count_lines(path),
+        started_at: created_at.unwrap_or_default(),
+        last_active_at: last_active_at.unwrap_or_default(),
+    })
+}
+
+/* ── Gemini sessions ───────────────────────────────────────────── */
+
+pub fn scan_gemini_sessions() -> Vec<SessionRecord> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    let tmp = home.join(".gemini").join("tmp");
+    if !tmp.exists() {
+        return Vec::new();
+    }
+
+    let mut files = Vec::new();
+    if let Ok(project_dirs) = std::fs::read_dir(&tmp) {
+        for entry in project_dirs.flatten() {
+            let chats = entry.path().join("chats");
+            if let Ok(chat_files) = std::fs::read_dir(&chats) {
+                for f in chat_files.flatten() {
+                    let p = f.path();
+                    if p.extension().and_then(|e| e.to_str()) == Some("json") {
+                        files.push(p);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sessions: Vec<SessionRecord> = files
+        .into_iter()
+        .filter_map(|path| parse_gemini_session(&path))
+        .collect();
+    sessions.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
+    sessions
+}
+
+pub fn load_gemini_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
+    let contents =
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to open: {e}"))?;
+    let value: Value =
+        serde_json::from_str(&contents).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let messages = match value.get("messages").and_then(Value::as_array) {
+        Some(a) => a,
+        None => return Ok(Vec::new()),
+    };
+
+    let mut out = Vec::new();
+    for msg in messages {
+        let raw_type = msg.get("type").and_then(Value::as_str).unwrap_or("");
+        let role = match raw_type {
+            "user" => "user",
+            "gemini" => "assistant",
+            "info" | "error" => continue,
+            other => other,
+        };
+        let mut content = msg.get("content").map(extract_text).unwrap_or_default();
+        if let Some(tools) = msg.get("toolCalls").and_then(Value::as_array) {
+            for t in tools {
+                let name = t.get("name").and_then(Value::as_str).unwrap_or("unknown");
+                content.push_str(&format!("\n[Tool: {name}]"));
+            }
+        }
+        if content.trim().is_empty() {
+            continue;
+        }
+        out.push(SessionMessage {
+            role: role.to_string(),
+            content,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_gemini_session(path: &Path) -> Option<SessionRecord> {
+    let contents = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&contents).ok()?;
+
+    let session_id = value
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(String::from)
+        .or_else(|| infer_session_id_from_filename(path))?;
+    let started_at = value
+        .get("startTime")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let last_active_at = value
+        .get("lastUpdated")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let messages = value.get("messages").and_then(Value::as_array);
+    let first_user_text = messages
+        .and_then(|arr| {
+            arr.iter()
+                .find(|m| m.get("type").and_then(Value::as_str) == Some("user"))
+        })
+        .and_then(|m| m.get("content"))
+        .map(extract_text)
+        .unwrap_or_default();
+    let title = if first_user_text.trim().is_empty() {
+        "Gemini chat".to_string()
+    } else {
+        truncate_summary(&first_user_text, 60)
+    };
+    let summary = if first_user_text.trim().is_empty() {
+        None
+    } else {
+        Some(truncate_summary(&first_user_text, 180))
+    };
+    let count = messages.map(|a| a.len() as i64).unwrap_or(0);
+
+    Some(SessionRecord {
+        id: path.to_string_lossy().to_string(),
+        provider_id: "gemini".to_string(),
+        provider_name: "Gemini".to_string(),
+        agent: "gemini".to_string(),
+        session_id: session_id.clone(),
+        workspace_path: String::new(),
+        title,
+        summary,
+        source_path: path.to_string_lossy().to_string(),
+        resume_command: format!("gemini --resume {session_id}"),
+        status: "active".to_string(),
+        notes: String::new(),
+        message_count: count,
+        started_at: started_at.clone(),
+        last_active_at: if last_active_at.is_empty() {
+            started_at
+        } else {
+            last_active_at
+        },
+    })
 }

@@ -1,11 +1,15 @@
+export type AgentKind = "codex" | "claude" | "gemini";
+
 export interface Provider {
   id: string;
   name: string;
+  agent: AgentKind;
   baseUrl: string;
   apiKey: string;
   model: string;
   reasoningEffort: string;
   extraToml: string;
+  configText: string;
   isCurrent: boolean;
   createdAt: string;
   updatedAt: string;
@@ -15,6 +19,7 @@ export interface SessionRecord {
   id: string;
   providerId: string;
   providerName: string;
+  agent: AgentKind;
   sessionId: string;
   workspacePath: string;
   title: string;
@@ -23,6 +28,7 @@ export interface SessionRecord {
   resumeCommand: string;
   status: string;
   notes: string;
+  messageCount: number;
   startedAt: string;
   lastActiveAt: string;
 }
@@ -32,12 +38,15 @@ export interface SessionMessage {
   content: string;
 }
 
+export type ThemeMode = "system" | "dark" | "light";
+
 export interface AppSettings {
   codexConfigDir: string;
   defaultWorkspace: string;
   terminalProgram: string;
   autoRecordSessions: boolean;
   language: string;
+  theme: ThemeMode;
 }
 
 export interface DashboardState {
