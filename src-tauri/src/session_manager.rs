@@ -82,11 +82,12 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
 }
 
 fn parse_session(path: &Path) -> Option<SessionRecord> {
-    let (head, tail) = read_head_tail_lines(path, 10, 30).ok()?;
+    let (head, tail) = read_head_tail_lines(path, 80, 30).ok()?;
 
     let mut session_id: Option<String> = None;
     let mut project_dir: Option<String> = None;
     let mut created_at: Option<String> = None;
+    let mut first_user_text: Option<String> = None;
 
     for line in &head {
         let value: Value = serde_json::from_str(line).ok()?;
@@ -117,10 +118,26 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
                 }
             }
         }
+
+        if first_user_text.is_none()
+            && value.get("type").and_then(Value::as_str) == Some("response_item")
+        {
+            if let Some(payload) = value.get("payload") {
+                if payload.get("type").and_then(Value::as_str) == Some("message")
+                    && payload.get("role").and_then(Value::as_str) == Some("user")
+                {
+                    let text = payload.get("content").map(extract_text).unwrap_or_default();
+                    if !text.trim().is_empty() && !is_codex_structural_prompt(&text) {
+                        first_user_text = Some(text);
+                    }
+                }
+            }
+        }
     }
 
-    let mut last_active_at = created_at.clone();
+    let mut last_active_at: Option<String> = None;
     let mut summary: Option<String> = None;
+    let mut last_assistant_text: Option<String> = None;
 
     for line in tail.iter().rev() {
         let value: Value = match serde_json::from_str(line) {
@@ -128,34 +145,47 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
             Err(_) => continue,
         };
 
-        if last_active_at.is_none() {
-            last_active_at = value
-                .get("timestamp")
-                .and_then(timestamp_to_string);
-        }
+        last_active_at =
+            last_active_at.or_else(|| value.get("timestamp").and_then(timestamp_to_string));
 
-        if summary.is_none() && value.get("type").and_then(Value::as_str) == Some("response_item") {
+        if value.get("type").and_then(Value::as_str) == Some("response_item") {
             if let Some(payload) = value.get("payload") {
                 if payload.get("type").and_then(Value::as_str) == Some("message") {
+                    let role = payload.get("role").and_then(Value::as_str).unwrap_or("");
                     let text = payload.get("content").map(extract_text).unwrap_or_default();
                     if !text.trim().is_empty() {
-                        summary = Some(truncate_summary(&text, 180));
+                        if summary.is_none() {
+                            summary = Some(truncate_summary(&text, 180));
+                        }
+                        if role == "assistant" && last_assistant_text.is_none() {
+                            last_assistant_text = Some(text);
+                        }
                     }
                 }
             }
         }
 
-        if summary.is_some() && last_active_at.is_some() {
+        if summary.is_some() && last_active_at.is_some() && last_assistant_text.is_some() {
             break;
         }
     }
 
     let session_id = session_id.or_else(|| infer_session_id_from_filename(path))?;
     let workspace_path = project_dir.clone().unwrap_or_default();
-    let title = project_dir
+    let title = first_user_text
         .as_deref()
-        .and_then(path_basename)
+        .map(|text| title_from_text(text, 60))
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            last_assistant_text
+                .as_deref()
+                .map(|text| title_from_text(text, 60))
+                .filter(|text| !text.is_empty())
+        })
+        .or_else(|| project_dir.as_deref().and_then(path_basename))
         .unwrap_or_else(|| "Untitled".to_string());
+
+    let started_at = created_at.unwrap_or_default();
 
     Some(SessionRecord {
         id: path.to_string_lossy().to_string(),
@@ -171,8 +201,8 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
         status: "active".to_string(),
         notes: String::new(),
         message_count: count_lines(path),
-        started_at: created_at.unwrap_or_default(),
-        last_active_at: last_active_at.unwrap_or_default(),
+        started_at: started_at.clone(),
+        last_active_at: last_active_at.unwrap_or(started_at),
     })
 }
 
@@ -306,6 +336,21 @@ fn extract_text_from_item(item: &Value) -> Option<String> {
     None
 }
 
+fn title_from_text(text: &str, max_chars: usize) -> String {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= max_chars {
+        return flat;
+    }
+    let mut result: String = flat.chars().take(max_chars).collect();
+    result.push_str("...");
+    result
+}
+
+fn is_codex_structural_prompt(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with("<environment_context>") || trimmed.starts_with("<image")
+}
+
 fn truncate_summary(text: &str, max_chars: usize) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -407,7 +452,11 @@ pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
             Ok(v) => v,
             Err(_) => continue,
         };
-        if value.get("isMeta").and_then(Value::as_bool).unwrap_or(false) {
+        if value
+            .get("isMeta")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             continue;
         }
         let message = match value.get("message") {
@@ -425,9 +474,9 @@ pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
         if role == "user" {
             if let Value::Array(items) = content_value {
                 if !items.is_empty()
-                    && items.iter().all(|i| {
-                        i.get("type").and_then(Value::as_str) == Some("tool_result")
-                    })
+                    && items
+                        .iter()
+                        .all(|i| i.get("type").and_then(Value::as_str) == Some("tool_result"))
                 {
                     role = "tool".to_string();
                 }
@@ -444,11 +493,12 @@ pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
 }
 
 fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
-    let (head, tail) = read_head_tail_lines(path, 10, 30).ok()?;
+    let (head, tail) = read_head_tail_lines(path, 80, 30).ok()?;
 
     let mut session_id: Option<String> = None;
     let mut project_dir: Option<String> = None;
     let mut created_at: Option<String> = None;
+    let mut first_user_text: Option<String> = None;
 
     for line in &head {
         let value: Value = match serde_json::from_str(line) {
@@ -470,47 +520,82 @@ fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
                 .and_then(Value::as_str)
                 .map(String::from);
         }
+        if first_user_text.is_none() {
+            let message = match value.get("message") {
+                Some(message) => message,
+                None => continue,
+            };
+            if message.get("role").and_then(Value::as_str) == Some("user") {
+                let text = message.get("content").map(extract_text).unwrap_or_default();
+                if !text.trim().is_empty() {
+                    first_user_text = Some(text);
+                }
+            }
+        }
         if session_id.is_some() && project_dir.is_some() && created_at.is_some() {
-            break;
+            if first_user_text.is_some() {
+                break;
+            }
         }
     }
 
-    let mut last_active_at = created_at.clone();
+    let mut last_active_at: Option<String> = None;
     let mut summary: Option<String> = None;
+    let mut last_assistant_text: Option<String> = None;
 
     for line in tail.iter().rev() {
         let value: Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        if value.get("isMeta").and_then(Value::as_bool).unwrap_or(false) {
+        if value
+            .get("isMeta")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             continue;
         }
-        if last_active_at.is_none() {
-            last_active_at = value
+        last_active_at = last_active_at.or_else(|| {
+            value
                 .get("timestamp")
                 .and_then(Value::as_str)
-                .map(String::from);
-        }
-        if summary.is_none() {
-            if let Some(content) = value.get("message").and_then(|m| m.get("content")) {
+                .map(String::from)
+        });
+        if let Some(message) = value.get("message") {
+            let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+            if let Some(content) = message.get("content") {
                 let text = extract_text(content);
                 if !text.trim().is_empty() {
-                    summary = Some(truncate_summary(&text, 180));
+                    if summary.is_none() {
+                        summary = Some(truncate_summary(&text, 180));
+                    }
+                    if role == "assistant" && last_assistant_text.is_none() {
+                        last_assistant_text = Some(text);
+                    }
                 }
             }
         }
-        if summary.is_some() && last_active_at.is_some() {
+        if summary.is_some() && last_active_at.is_some() && last_assistant_text.is_some() {
             break;
         }
     }
 
     let session_id = session_id.or_else(|| infer_session_id_from_filename(path))?;
     let workspace_path = project_dir.clone().unwrap_or_default();
-    let title = project_dir
+    let title = first_user_text
         .as_deref()
-        .and_then(path_basename)
+        .map(|text| title_from_text(text, 60))
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            last_assistant_text
+                .as_deref()
+                .map(|text| title_from_text(text, 60))
+                .filter(|text| !text.is_empty())
+        })
+        .or_else(|| project_dir.as_deref().and_then(path_basename))
         .unwrap_or_else(|| "Claude chat".to_string());
+
+    let started_at = created_at.unwrap_or_default();
 
     Some(SessionRecord {
         id: path.to_string_lossy().to_string(),
@@ -526,8 +611,8 @@ fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
         status: "active".to_string(),
         notes: String::new(),
         message_count: count_lines(path),
-        started_at: created_at.unwrap_or_default(),
-        last_active_at: last_active_at.unwrap_or_default(),
+        started_at: started_at.clone(),
+        last_active_at: last_active_at.unwrap_or(started_at),
     })
 }
 
@@ -567,10 +652,8 @@ pub fn scan_gemini_sessions() -> Vec<SessionRecord> {
 }
 
 pub fn load_gemini_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
-    let contents =
-        std::fs::read_to_string(path).map_err(|e| format!("Failed to open: {e}"))?;
-    let value: Value =
-        serde_json::from_str(&contents).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let contents = std::fs::read_to_string(path).map_err(|e| format!("Failed to open: {e}"))?;
+    let value: Value = serde_json::from_str(&contents).map_err(|e| format!("Invalid JSON: {e}"))?;
     let messages = match value.get("messages").and_then(Value::as_array) {
         Some(a) => a,
         None => return Ok(Vec::new()),
@@ -635,7 +718,7 @@ fn parse_gemini_session(path: &Path) -> Option<SessionRecord> {
     let title = if first_user_text.trim().is_empty() {
         "Gemini chat".to_string()
     } else {
-        truncate_summary(&first_user_text, 60)
+        title_from_text(&first_user_text, 60)
     };
     let summary = if first_user_text.trim().is_empty() {
         None

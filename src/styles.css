@@ -343,9 +343,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 
 .sessions-layout {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 0.85rem;
 }
+.sessions-layout > .card { min-width: 0; }
 
 /* ── 8-bit flat panels ──────────────────────────────────────────── */
 .card {
@@ -421,6 +422,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   font-size: 0.82rem;
   font-weight: 500;
 }
+.field-input-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.field-input-row input {
+  flex: 1;
+  min-width: 0;
+}
 .field-full { grid-column: 1 / -1; }
 
 .checkbox-field {
@@ -489,6 +499,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   color: var(--t2);
   transition: color 80ms, border-color 80ms, box-shadow 80ms, transform 80ms;
   box-shadow: 2px 2px 0 var(--b0);
+  flex-shrink: 0;
+}
+.browse-button {
+  min-width: 5.4rem;
+  justify-content: center;
+  padding-inline: 0.75rem;
   flex-shrink: 0;
 }
 .add-button:hover  { color: var(--a); border-color: var(--a); box-shadow: 2px 2px 0 var(--a-dk); }
@@ -594,6 +610,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 
 .provider-title { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.18rem; }
 .provider-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; flex-shrink: 0; }
+.session-detail-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+  max-width: min(100%, 22rem);
+}
 
 /* ── Session list rows ──────────────────────────────────────────── */
 .session-list { display: grid; gap: 0; margin-top: 0; }
@@ -684,16 +705,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   color: var(--t2);
 }
 
-.session-summary {
-  display: block;
-  margin-top: 0.3rem;
-  color: var(--t2);
-  font-size: 0.8rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ── Session detail ─────────────────────────────────────────────── */
 .session-detail-grid {
   display: grid;
@@ -718,6 +729,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   margin-top: 0.3rem;
   color: var(--a);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* ── Transcript ─────────────────────────────────────────────────── */
@@ -729,12 +742,29 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   gap: 0.55rem;
 }
 .message-list { display: grid; gap: 0.55rem; }
+.message-row {
+  display: flex;
+  width: 100%;
+}
+.message-row-user {
+  justify-content: flex-end;
+}
+.message-row-assistant,
+.message-row-tool,
+.message-row-system {
+  justify-content: flex-start;
+}
 
 .message-card {
   padding: 0.75rem;
   background: rgba(0,0,0,0.22);
   border: 1px solid var(--b0);
   border-left: 2px solid var(--a);
+  max-width: min(82%, 46rem);
+  width: fit-content;
+  min-width: 18rem;
+  box-shadow: 3px 3px 0 var(--b0);
+  position: relative;
 }
 .message-card-header {
   margin-bottom: 0.35rem;
@@ -744,7 +774,47 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
-.message-card p { margin: 0; white-space: pre-wrap; line-height: 1.6; font-size: 0.88rem; }
+.message-card { min-width: 0; }
+.message-card p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.6;
+  font-size: 0.88rem;
+}
+.message-card-user {
+  background: rgba(255,188,66,0.12);
+  border: 2px solid var(--a);
+  border-right: 3px solid var(--a);
+}
+.message-card-user .message-card-header {
+  color: var(--a);
+}
+.message-card-assistant {
+  background: rgba(95,173,86,0.11);
+  border: 2px solid var(--g);
+  border-left: 3px solid var(--g);
+}
+.message-card-assistant .message-card-header {
+  color: #7cd673;
+}
+.message-card-tool {
+  background: rgba(121, 104, 196, 0.14);
+  border: 2px solid #7968c4;
+  border-left: 3px solid #7968c4;
+}
+.message-card-tool .message-card-header {
+  color: #b8adff;
+}
+.message-card-system {
+  background: rgba(112,104,88,0.18);
+  border: 2px solid var(--t2);
+  border-left: 3px solid var(--t2);
+}
+.message-card-system .message-card-header {
+  color: var(--t2);
+}
 
 /* ── Misc ───────────────────────────────────────────────────────── */
 .loading-screen {
@@ -845,5 +915,3 @@ input:focus, textarea:focus, select:focus { border-color: var(--a); }
 @media (max-width: 720px) {
   .filter-row { grid-template-columns: 1fr; }
 }
-
-

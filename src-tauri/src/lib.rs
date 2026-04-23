@@ -8,10 +8,9 @@ mod session_manager;
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, delete_provider, delete_session, get_dashboard, get_session_messages,
-    launch_codex, save_provider, save_settings, AppState,
+    launch_codex, pick_directory, save_provider, save_settings, AppState,
 };
 use models::Provider;
-use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, Submenu};
@@ -31,8 +30,10 @@ pub fn run() {
         .manage(state)
         .manage(TrayHolder(Mutex::new(None)))
         .setup(|app| {
-            let icon = Image::from_bytes(include_bytes!("../icons/icon.ico"))?;
+            let icon = load_app_icon()?;
             let menu = build_menu(app.handle())?;
+
+            apply_main_window_icon(app.handle());
 
             let tray = TrayIconBuilder::new()
                 .icon(icon)
@@ -78,10 +79,23 @@ pub fn run() {
             launch_codex,
             get_session_messages,
             delete_session,
+            pick_directory,
             save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch Mini");
+}
+
+fn load_app_icon() -> tauri::Result<Image<'static>> {
+    Image::from_bytes(include_bytes!("../icons/icon.ico"))
+}
+
+fn apply_main_window_icon(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(icon) = load_app_icon() {
+            let _ = window.set_icon(icon);
+        }
+    }
 }
 
 fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
@@ -112,7 +126,17 @@ fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
             Ok(settings) => settings,
             Err(_) => return,
         };
-        agent_writer::write_provider(&provider, &PathBuf::from(settings.codex_config_dir))
+        let codex_dir = agent_writer::resolve_codex_dir(&settings.codex_config_dir);
+        let claude_dir = agent_writer::resolve_claude_dir(&settings.claude_config_dir);
+        let gemini_dir = agent_writer::resolve_gemini_dir(&settings.gemini_config_dir);
+        agent_writer::write_provider(
+            &provider,
+            &agent_writer::AgentDirs {
+                codex: &codex_dir,
+                claude: &claude_dir,
+                gemini: &gemini_dir,
+            },
+        )
     };
     if result.is_ok() {
         rebuild_tray(app);
@@ -122,7 +146,12 @@ fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
 fn rebuild_tray(app: &AppHandle) {
     let Ok(menu) = build_menu(app) else { return };
     let holder: State<'_, TrayHolder> = app.state();
-    if let Some(tray) = holder.0.lock().ok().and_then(|guard| guard.as_ref().cloned()) {
+    if let Some(tray) = holder
+        .0
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().cloned())
+    {
         let _ = tray.set_menu(Some(menu));
     }
 }
@@ -198,6 +227,9 @@ fn providers_for_agent(providers: &[Provider], agent: &str) -> Vec<Provider> {
 
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        if let Ok(icon) = load_app_icon() {
+            let _ = window.set_icon(icon);
+        }
         let _ = window.show();
         let _ = window.set_focus();
     }

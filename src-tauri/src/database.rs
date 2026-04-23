@@ -1,4 +1,6 @@
-use crate::agent_writer::default_codex_config_dir;
+use crate::agent_writer::{
+    default_claude_config_dir, default_codex_config_dir, default_gemini_config_dir,
+};
 use crate::error::AppError;
 use crate::models::{AppSettings, DashboardState, Provider, SessionRecord};
 use crate::session_manager;
@@ -28,7 +30,7 @@ impl Database {
         let providers = self.providers()?;
 
         Ok(DashboardState {
-            sessions: self.live_sessions(&settings.codex_config_dir, &providers),
+            sessions: self.live_sessions(&settings.codex_config_dir),
             providers,
             settings,
         })
@@ -163,6 +165,8 @@ impl Database {
     pub fn settings(&self) -> Result<AppSettings, AppError> {
         Ok(AppSettings {
             codex_config_dir: self.setting("codex_config_dir")?,
+            claude_config_dir: self.setting("claude_config_dir")?,
+            gemini_config_dir: self.setting("gemini_config_dir")?,
             default_workspace: self.setting("default_workspace")?,
             terminal_program: self.setting("terminal_program")?,
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
@@ -173,6 +177,8 @@ impl Database {
 
     pub fn save_settings(&self, settings: AppSettings) -> Result<AppSettings, AppError> {
         self.set_setting("codex_config_dir", settings.codex_config_dir.clone())?;
+        self.set_setting("claude_config_dir", settings.claude_config_dir.clone())?;
+        self.set_setting("gemini_config_dir", settings.gemini_config_dir.clone())?;
         self.set_setting("default_workspace", settings.default_workspace.clone())?;
         self.set_setting("terminal_program", settings.terminal_program.clone())?;
         self.set_setting(
@@ -220,12 +226,30 @@ impl Database {
         )?;
 
         // Forward-migrations for DBs created before agent/config_text existed.
-        ensure_column(&self.connection, "providers", "agent", "TEXT NOT NULL DEFAULT 'codex'")?;
-        ensure_column(&self.connection, "providers", "config_text", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(
+            &self.connection,
+            "providers",
+            "agent",
+            "TEXT NOT NULL DEFAULT 'codex'",
+        )?;
+        ensure_column(
+            &self.connection,
+            "providers",
+            "config_text",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
 
         self.ensure_setting(
             "codex_config_dir",
             default_codex_config_dir().to_string_lossy().to_string(),
+        )?;
+        self.ensure_setting(
+            "claude_config_dir",
+            default_claude_config_dir().to_string_lossy().to_string(),
+        )?;
+        self.ensure_setting(
+            "gemini_config_dir",
+            default_gemini_config_dir().to_string_lossy().to_string(),
         )?;
         self.ensure_setting("default_workspace", String::new())?;
         self.ensure_setting("terminal_program", "pwsh".to_string())?;
@@ -265,7 +289,7 @@ impl Database {
         Ok(())
     }
 
-    fn live_sessions(&self, codex_config_dir: &str, _providers: &[Provider]) -> Vec<SessionRecord> {
+    fn live_sessions(&self, codex_config_dir: &str) -> Vec<SessionRecord> {
         let mut all = session_manager::scan_codex_sessions(&PathBuf::from(codex_config_dir));
         all.extend(session_manager::scan_claude_sessions());
         all.extend(session_manager::scan_gemini_sessions());
@@ -274,12 +298,7 @@ impl Database {
     }
 }
 
-fn ensure_column(
-    conn: &Connection,
-    table: &str,
-    column: &str,
-    decl: &str,
-) -> Result<(), AppError> {
+fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<(), AppError> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let existing: Vec<String> = stmt
         .query_map([], |row| row.get::<_, String>(1))?

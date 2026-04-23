@@ -49,6 +49,8 @@ pub struct SessionMessage {
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub codex_config_dir: String,
+    pub claude_config_dir: String,
+    pub gemini_config_dir: String,
     pub default_workspace: String,
     pub terminal_program: String,
     pub auto_record_sessions: bool,

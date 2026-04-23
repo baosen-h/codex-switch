@@ -16,6 +16,8 @@ const emptyState: DashboardState = {
   sessions: [],
   settings: {
     codexConfigDir: "",
+    claudeConfigDir: "",
+    geminiConfigDir: "",
     defaultWorkspace: "",
     terminalProgram: "pwsh",
     autoRecordSessions: true,
@@ -26,6 +28,21 @@ const emptyState: DashboardState = {
 
 
 let toastSeq = 0;
+
+function upsertProvider(providers: Provider[], provider: Provider): Provider[] {
+  const index = providers.findIndex((item) => item.id === provider.id);
+  if (index === -1) return [...providers, provider];
+  const next = [...providers];
+  next[index] = provider;
+  return next;
+}
+
+function activateProviderInList(providers: Provider[], active: Provider): Provider[] {
+  const cleared = providers.map((provider) =>
+    provider.agent === active.agent ? { ...provider, isCurrent: false } : provider,
+  );
+  return upsertProvider(cleared, { ...active, isCurrent: true });
+}
 
 function App() {
   const [activePage, setActivePage] = useState<PageKey>("providers");
@@ -41,20 +58,7 @@ function App() {
   const lang: Lang = (data.settings.language as Lang) || "en";
   const themeMode = data.settings.theme || "system";
 
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  useEffect(() => {
-    applyTheme(themeMode);
-    if (themeMode !== "system") return;
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    const listener = () => applyTheme("system");
-    media.addEventListener("change", listener);
-    return () => media.removeEventListener("change", listener);
-  }, [themeMode]);
-
-  const refresh = async (nextMessage?: string) => {
+  const refresh = useCallback(async (nextMessage?: string) => {
     try {
       const dashboard = await appApi.getDashboard();
       setData(dashboard);
@@ -67,11 +71,29 @@ function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const runAction = async (action: () => Promise<void>, successMsg?: string) => {
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    applyTheme(themeMode);
+    if (themeMode !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const listener = () => applyTheme("system");
+    media.addEventListener("change", listener);
+    return () => media.removeEventListener("change", listener);
+  }, [themeMode]);
+
+  const runAction = async <T,>(
+    action: () => Promise<T>,
+    successMsg?: string,
+    onSuccess?: (result: T) => void,
+  ) => {
     try {
-      await action();
+      const result = await action();
+      onSuccess?.(result);
       if (successMsg) showToast.current(successMsg, "ok");
     } catch (caught) {
       showToast.current(
@@ -82,22 +104,40 @@ function App() {
   };
 
   const handleSaveProvider = async (provider: Provider) =>
-    runAction(async () => {
-      await appApi.saveProvider(provider);
-      await refresh();
-    }, "Provider saved.");
+    runAction(
+      () => appApi.saveProvider(provider),
+      "Provider saved.",
+      (saved) => {
+        setData((current) => ({
+          ...current,
+          providers: upsertProvider(current.providers, saved),
+        }));
+      },
+    );
 
   const handleDeleteProvider = async (id: string) =>
-    runAction(async () => {
-      await appApi.deleteProvider(id);
-      await refresh();
-    }, "Provider deleted.");
+    runAction(
+      () => appApi.deleteProvider(id),
+      "Provider deleted.",
+      () => {
+        setData((current) => ({
+          ...current,
+          providers: current.providers.filter((provider) => provider.id !== id),
+        }));
+      },
+    );
 
   const handleActivateProvider = async (id: string) =>
-    runAction(async () => {
-      await appApi.activateProvider(id);
-      await refresh();
-    }, "Provider activated.");
+    runAction(
+      () => appApi.activateProvider(id),
+      "Provider activated.",
+      (active) => {
+        setData((current) => ({
+          ...current,
+          providers: activateProviderInList(current.providers, active),
+        }));
+      },
+    );
 
   const handleSaveSettings = async (settings: AppSettings) =>
     runAction(async () => {
@@ -106,10 +146,16 @@ function App() {
     }, "Settings saved.");
 
   const handleDeleteSession = async (session: SessionRecord) =>
-    runAction(async () => {
-      await appApi.deleteSession(session.sourcePath);
-      await refresh();
-    }, "Session deleted.");
+    runAction(
+      () => appApi.deleteSession(session.sourcePath),
+      "Session deleted.",
+      () => {
+        setData((current) => ({
+          ...current,
+          sessions: current.sessions.filter((item) => item.id !== session.id),
+        }));
+      },
+    );
 
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { AgentKind, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatDate, timeAgo } from "../utils/time";
@@ -24,6 +24,25 @@ interface SessionsPageProps {
 
 type AgentFilter = AgentKind | "all";
 
+async function copyText(value: string) {
+  if (!value) return;
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.setAttribute("readonly", "true");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+}
+
 export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPageProps) {
   const { t, lang } = useI18n();
   const [query, setQuery] = useState("");
@@ -32,6 +51,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const deferredQuery = useDeferredValue(query);
 
   const roleLabels: Record<string, string> = {
     user: t("roleUser"),
@@ -41,7 +61,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   };
 
   const filteredSessions = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
     const byAgent =
       agentFilter === "all"
         ? sessions
@@ -62,7 +82,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
         .toLowerCase()
         .includes(normalizedQuery),
     );
-  }, [query, agentFilter, sessions]);
+  }, [deferredQuery, agentFilter, sessions]);
 
   const selectedSession =
     filteredSessions.find((session) => session.id === selectedSessionId) ??
@@ -82,19 +102,21 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
     }
   }, [selectedSession, selectedSessionId]);
 
+  const selectedSourcePath = selectedSession?.sourcePath ?? null;
+
   useEffect(() => {
-    if (!selectedSession) return;
+    if (!selectedSourcePath) return;
 
     let active = true;
     setIsLoadingMessages(true);
 
-    void onLoadMessages(selectedSession.sourcePath)
+    void onLoadMessages(selectedSourcePath)
       .then((messages) => { if (active) setSelectedMessages(messages); })
       .catch(() => { if (active) setSelectedMessages([]); })
       .finally(() => { if (active) setIsLoadingMessages(false); });
 
     return () => { active = false; };
-  }, [onLoadMessages, selectedSession]);
+  }, [onLoadMessages, selectedSourcePath]);
 
   const handleDelete = async (session: SessionRecord) => {
     setPendingDeleteId(null);
@@ -183,9 +205,6 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                           <div>
                             <strong>{session.title || "Untitled session"}</strong>
                             <p>{session.workspacePath}</p>
-                            {session.summary ? (
-                              <small className="session-summary">{session.summary}</small>
-                            ) : null}
                           </div>
                           <div className="session-meta">
                             <span>{session.providerName}</span>
@@ -228,10 +247,10 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                   <h3>{selectedSession.title || "Untitled session"}</h3>
                   <p>{selectedSession.workspacePath || t("unknownWorkspace")}</p>
                 </div>
-                <div className="provider-actions">
+                <div className="provider-actions session-detail-actions">
                   <button
                     className="secondary-button"
-                    onClick={() => void navigator.clipboard.writeText(selectedSession.resumeCommand)}
+                    onClick={() => void copyText(selectedSession.resumeCommand)}
                     type="button"
                   >
                     {t("copyResume")}
@@ -240,7 +259,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                     className="secondary-button"
                     onClick={() =>
                       selectedSession.workspacePath
-                        ? void navigator.clipboard.writeText(selectedSession.workspacePath)
+                        ? void copyText(selectedSession.workspacePath)
                         : undefined
                     }
                     type="button"
@@ -282,11 +301,16 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                 ) : selectedMessages.length ? (
                   <div className="message-list">
                     {selectedMessages.map((message, index) => (
-                      <div className="message-card" key={`${message.role}-${index}`}>
-                        <div className="message-card-header">
-                          <strong>{roleLabels[message.role] ?? message.role}</strong>
+                      <div
+                        className={`message-row message-row-${message.role}`}
+                        key={`${message.role}-${index}`}
+                      >
+                        <div className={`message-card message-card-${message.role}`}>
+                          <div className="message-card-header">
+                            <strong>{roleLabels[message.role] ?? message.role}</strong>
+                          </div>
+                          <p>{message.content}</p>
                         </div>
-                        <p>{message.content}</p>
                       </div>
                     ))}
                   </div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { appApi } from "../api/tauri";
 import type { AppSettings, ThemeMode } from "../types";
 import { useI18n } from "../i18n/context";
 import { switchThemeWithReveal } from "../utils/theme";
@@ -7,6 +8,12 @@ interface SettingsPageProps {
   settings: AppSettings;
   onSave: (settings: AppSettings) => Promise<void>;
 }
+
+type PathFieldKey =
+  | "codexConfigDir"
+  | "claudeConfigDir"
+  | "geminiConfigDir"
+  | "defaultWorkspace";
 
 export function SettingsPage({ settings, onSave }: SettingsPageProps) {
   const { t } = useI18n();
@@ -33,6 +40,39 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
     updateAndSave("theme", mode);
   };
 
+  const pickDirectory = async (field: PathFieldKey) => {
+    try {
+      const selected = await appApi.pickDirectory(draft[field]);
+      if (selected) updateDraft(field, selected);
+    } catch (error) {
+      console.error("Failed to pick directory", error);
+    }
+  };
+
+  const renderPathField = (
+    field: PathFieldKey,
+    label: string,
+    placeholder: string,
+  ) => (
+    <label className="field">
+      <span>{label}</span>
+      <div className="field-input-row">
+        <input
+          value={draft[field]}
+          onChange={(event) => updateDraft(field, event.target.value)}
+          placeholder={placeholder}
+        />
+        <button
+          className="secondary-button browse-button"
+          onClick={() => void pickDirectory(field)}
+          type="button"
+        >
+          {t("browse")}
+        </button>
+      </div>
+    </label>
+  );
+
   return (
     <section className="page settings-page">
       <header className="page-header">
@@ -43,22 +83,10 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
 
       <article className="card">
         <div className="form-grid">
-          <label className="field">
-            <span>{t("codexConfigDir")}</span>
-            <input
-              value={draft.codexConfigDir}
-              onChange={(event) => updateDraft("codexConfigDir", event.target.value)}
-              placeholder="C:\\Users\\you\\.codex"
-            />
-          </label>
-          <label className="field">
-            <span>{t("defaultWorkspace")}</span>
-            <input
-              value={draft.defaultWorkspace}
-              onChange={(event) => updateDraft("defaultWorkspace", event.target.value)}
-              placeholder="F:\\Projects"
-            />
-          </label>
+          {renderPathField("codexConfigDir", t("codexConfigDir"), "C:\\Users\\you\\.codex")}
+          {renderPathField("claudeConfigDir", t("claudeConfigDir"), "C:\\Users\\you\\.claude")}
+          {renderPathField("geminiConfigDir", t("geminiConfigDir"), "C:\\Users\\you\\.gemini")}
+          {renderPathField("defaultWorkspace", t("defaultWorkspace"), "F:\\Projects")}
           <label className="field">
             <span>{t("terminalProgram")}</span>
             <input

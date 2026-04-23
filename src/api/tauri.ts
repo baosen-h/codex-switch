@@ -29,6 +29,9 @@ export const appApi = {
   deleteSession(sourcePath: string): Promise<boolean> {
     return invoke("delete_session", { sourcePath });
   },
+  pickDirectory(initialPath?: string): Promise<string | null> {
+    return invoke("pick_directory", { initialPath });
+  },
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke("save_settings", { settings });
   },

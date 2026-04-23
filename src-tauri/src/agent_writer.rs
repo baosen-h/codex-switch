@@ -31,9 +31,7 @@ pub fn render_codex(provider: &Provider) -> String {
         "OPENAI_API_KEY": provider.api_key,
     }))
     .unwrap_or_else(|_| "{}".to_string());
-    format!(
-        "# ── ~/.codex/config.toml ──\n{toml}\n\n# ── ~/.codex/auth.json ──\n{auth}\n"
-    )
+    format!("# ── ~/.codex/config.toml ──\n{toml}\n\n# ── ~/.codex/auth.json ──\n{auth}\n")
 }
 
 pub fn render_claude(provider: &Provider) -> String {
@@ -52,7 +50,11 @@ pub fn render_claude(provider: &Provider) -> String {
 
 pub fn render_gemini(provider: &Provider) -> String {
     let model = provider.model.trim();
-    let selected_model = if model.is_empty() { "gemini-2.5-pro" } else { model };
+    let selected_model = if model.is_empty() {
+        "gemini-2.5-pro"
+    } else {
+        model
+    };
     let config = serde_json::to_string_pretty(&serde_json::json!({
         "selectedAuthType": "gemini-api-key",
         "model": selected_model,
@@ -105,14 +107,44 @@ fn build_codex_toml(provider: &Provider) -> String {
     lines.join("\n")
 }
 
+pub struct AgentDirs<'a> {
+    pub codex: &'a Path,
+    pub claude: &'a Path,
+    pub gemini: &'a Path,
+}
+
 /// Write the provider to disk, using the agent-specific layout.
 /// If `provider.config_text` is non-empty we use it verbatim (user edited the
 /// preview); otherwise we regenerate from fields.
-pub fn write_provider(provider: &Provider, codex_dir: &Path) -> Result<(), AppError> {
+pub fn write_provider(provider: &Provider, dirs: &AgentDirs) -> Result<(), AppError> {
     match provider.agent.as_str() {
-        AGENT_CLAUDE => write_claude(provider, &default_claude_config_dir()),
-        AGENT_GEMINI => write_gemini(provider, &default_gemini_config_dir()),
-        _ => write_codex(provider, codex_dir),
+        AGENT_CLAUDE => write_claude(provider, dirs.claude),
+        AGENT_GEMINI => write_gemini(provider, dirs.gemini),
+        _ => write_codex(provider, dirs.codex),
+    }
+}
+
+pub fn resolve_codex_dir(settings_value: &str) -> PathBuf {
+    if settings_value.trim().is_empty() {
+        default_codex_config_dir()
+    } else {
+        PathBuf::from(settings_value)
+    }
+}
+
+pub fn resolve_claude_dir(settings_value: &str) -> PathBuf {
+    if settings_value.trim().is_empty() {
+        default_claude_config_dir()
+    } else {
+        PathBuf::from(settings_value)
+    }
+}
+
+pub fn resolve_gemini_dir(settings_value: &str) -> PathBuf {
+    if settings_value.trim().is_empty() {
+        default_gemini_config_dir()
+    } else {
+        PathBuf::from(settings_value)
     }
 }
 

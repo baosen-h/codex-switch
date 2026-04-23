@@ -42,6 +42,8 @@ export type ThemeMode = "system" | "dark" | "light";
 
 export interface AppSettings {
   codexConfigDir: string;
+  claudeConfigDir: string;
+  geminiConfigDir: string;
   defaultWorkspace: string;
   terminalProgram: string;
   autoRecordSessions: boolean;
