@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentKind, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
-import { formatDate, timeAgo } from "../utils/time";
+import { formatConversationTime, timeAgo } from "../utils/time";
 
 const PixelX = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
@@ -56,12 +56,27 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_BATCH);
   const deferredQuery = useDeferredValue(query);
   const messageCache = useRef<Map<string, SessionMessage[]>>(new Map());
-
   const roleLabels: Record<string, string> = {
     user: t("roleUser"),
     assistant: t("roleAI"),
     tool: t("roleTool"),
     system: t("roleSystem"),
+  };
+
+  const shouldShowMessageTime = (
+    current: SessionMessage,
+    previous?: SessionMessage,
+  ): boolean => {
+    if (!current.timestamp) return false;
+    if (!previous?.timestamp) return true;
+
+    const currentTime = new Date(current.timestamp).getTime();
+    const previousTime = new Date(previous.timestamp).getTime();
+    if (Number.isNaN(currentTime) || Number.isNaN(previousTime)) {
+      return current.timestamp !== previous.timestamp;
+    }
+
+    return currentTime - previousTime >= 30 * 60 * 1000;
   };
 
   const filteredSessions = useMemo(() => {
@@ -105,7 +120,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   useEffect(() => {
     if (!selectedSession) {
       setSelectedMessages([]);
-      return;
+      setIsLoadingMessages(false);
     }
   }, [selectedSession, selectedSessionId]);
 
@@ -126,22 +141,28 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
 
     void onLoadMessages(selectedSourcePath)
       .then((messages) => {
-        if (active) {
-          messageCache.current.set(selectedSourcePath, messages);
-          setSelectedMessages(messages);
-        }
+        if (!active) return;
+        messageCache.current.set(selectedSourcePath, messages);
+        setSelectedMessages(messages);
       })
-      .catch(() => { if (active) setSelectedMessages([]); })
-      .finally(() => { if (active) setIsLoadingMessages(false); });
+      .catch(() => {
+        if (!active) return;
+        setSelectedMessages([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setIsLoadingMessages(false);
+      });
 
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [onLoadMessages, selectedSourcePath]);
 
   const handleDelete = async (session: SessionRecord) => {
     setPendingDeleteId(null);
     if (selectedSessionId === session.id) {
       setSelectedSessionId(null);
-      setSelectedMessages([]);
     }
     await onDelete(session);
   };
@@ -156,40 +177,36 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
 
   return (
     <section className="page">
-      <header className="page-header">
-        <div>
-          <h2>{t("sessions")}</h2>
+      <article className="card session-connected-card">
+        <div className="session-connected-top">
+          <div className="filter-row session-filter-row">
+            <label className="field session-filter-search">
+              <span>{t("search")}</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("searchPlaceholder")}
+              />
+            </label>
+            <label className="field session-filter-agent">
+              <span>{t("agentFilter")}</span>
+              <select
+                value={agentFilter}
+                onChange={(event) => setAgentFilter(event.target.value as AgentFilter)}
+              >
+                <option value="all">{t("tabAll")}</option>
+                <option value="codex">{t("agentCodex")}</option>
+                <option value="claude">{t("agentClaude")}</option>
+                <option value="gemini">{t("agentGemini")}</option>
+              </select>
+            </label>
+          </div>
         </div>
-      </header>
 
-      <article className="card narrow-card">
-        <div className="filter-row">
-          <label className="field">
-            <span>{t("search")}</span>
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("searchPlaceholder")}
-            />
-          </label>
-          <label className="field">
-            <span>{t("agentFilter")}</span>
-            <select
-              value={agentFilter}
-              onChange={(event) => setAgentFilter(event.target.value as AgentFilter)}
-            >
-              <option value="all">{t("tabAll")}</option>
-              <option value="codex">{t("agentCodex")}</option>
-              <option value="claude">{t("agentClaude")}</option>
-              <option value="gemini">{t("agentGemini")}</option>
-            </select>
-          </label>
-        </div>
-      </article>
-
-      <div className="sessions-layout">
-        <article className="card session-list-card" onScroll={handleSessionListScroll}>
-          <div className="session-list">
+        <div className="sessions-layout sessions-layout-connected">
+          <article className="session-panel session-list-panel">
+            <div className="session-scroll session-scroll-list" onScroll={handleSessionListScroll}>
+              <div className="session-list">
             {filteredSessions.length ? (
               visibleSessions.map((session) => {
                 const isSelected = selectedSession?.id === session.id;
@@ -232,6 +249,30 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                           <div>
                             <strong>{session.title || "Untitled session"}</strong>
                             <p>{session.workspacePath}</p>
+                            <div className="session-command-row">
+                              <button
+                                className="session-command-line"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void copyText(session.resumeCommand);
+                                }}
+                                type="button"
+                                title={session.resumeCommand}
+                              >
+                                {session.resumeCommand}
+                              </button>
+                              <button
+                                className="session-command-copy"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void copyText(session.resumeCommand);
+                                }}
+                                type="button"
+                                title={t("copyResume")}
+                              >
+                                ⧉
+                              </button>
+                            </div>
                           </div>
                           <div className="session-meta">
                             <span>{session.providerName}</span>
@@ -267,95 +308,55 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                 {visibleSessions.length}/{filteredSessions.length}
               </p>
             ) : null}
-          </div>
-        </article>
-
-        <article className="card">
-          {selectedSession ? (
-            <>
-              <div className="card-heading">
-                <div>
-                  <span className="eyebrow">{selectedSession.providerName}</span>
-                  <h3>{selectedSession.title || "Untitled session"}</h3>
-                  <p>{selectedSession.workspacePath || t("unknownWorkspace")}</p>
-                </div>
-                <div className="provider-actions session-detail-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => void copyText(selectedSession.resumeCommand)}
-                    type="button"
-                  >
-                    {t("copyResume")}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      selectedSession.workspacePath
-                        ? void copyText(selectedSession.workspacePath)
-                        : undefined
-                    }
-                    type="button"
-                  >
-                    {t("copyWorkspace")}
-                  </button>
-                </div>
               </div>
+            </div>
+          </article>
 
-              <div className="session-detail-grid">
-                <div>
-                  <span className="detail-label">{t("sessionId")}</span>
-                  <p>{selectedSession.sessionId}</p>
-                </div>
-                <div>
-                  <span className="detail-label">{t("started")}</span>
-                  <p>{selectedSession.startedAt ? formatDate(selectedSession.startedAt) : t("unknown")}</p>
-                </div>
-                <div>
-                  <span className="detail-label">{t("lastActive")}</span>
-                  <p>{selectedSession.lastActiveAt ? formatDate(selectedSession.lastActiveAt) : t("unknown")}</p>
-                </div>
-              </div>
-
-              <div className="resume-command-block">
-                <span className="detail-label">{t("resumeCommand")}</span>
-                <code>{selectedSession.resumeCommand}</code>
-              </div>
-
-              <div className="transcript-panel">
-                <div className="card-heading">
-                  <div>
-                    <span className="eyebrow">{t("transcript")}</span>
-                    <h3>{t("messages")}</h3>
+          <article className="session-panel session-detail-panel">
+            <div className="session-scroll session-scroll-detail">
+              {selectedSession ? (
+                <div className="session-chat-layout">
+                  <div className="session-chat-header">
+                    <h3>{selectedSession.title || "Untitled session"}</h3>
                   </div>
-                </div>
-                {isLoadingMessages ? (
-                  <p className="empty-state">{t("loadingTranscript")}</p>
-                ) : selectedMessages.length ? (
-                  <div className="message-list">
-                    {selectedMessages.map((message, index) => (
-                      <div
-                        className={`message-row message-row-${message.role}`}
-                        key={`${message.role}-${index}`}
-                      >
-                        <div className={`message-card message-card-${message.role}`}>
-                          <div className="message-card-header">
-                            <strong>{roleLabels[message.role] ?? message.role}</strong>
+
+                  <div className="session-message-pane">
+                    {isLoadingMessages ? (
+                      <p className="empty-state">{t("loadingTranscript")}</p>
+                    ) : selectedMessages.length ? (
+                      <div className="message-list">
+                        {selectedMessages.map((message, index) => (
+                          <div key={`${selectedSession.id}-${message.role}-${index}`}>
+                            {shouldShowMessageTime(message, selectedMessages[index - 1]) ? (
+                              <div className="message-time">
+                                {formatConversationTime(message.timestamp ?? "", lang)}
+                              </div>
+                            ) : null}
+                            <div
+                              className={`message-row message-row-${message.role}`}
+                            >
+                              <div className={`message-card message-card-${message.role}`}>
+                                <div className="message-card-header">
+                                  <strong>{roleLabels[message.role] ?? message.role}</strong>
+                                </div>
+                                <p>{message.content}</p>
+                              </div>
+                            </div>
                           </div>
-                          <p>{message.content}</p>
-                        </div>
+                        ))}
                       </div>
-                    ))}
+                    ) : (
+                      <p className="empty-state">{t("noMessages")}</p>
+                    )}
                   </div>
-                ) : (
-                  <p className="empty-state">{t("noMessages")}</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="empty-state">{t("selectSession")}</p>
-          )}
-        </article>
-      </div>
+                </div>
+              ) : (
+                <p className="empty-state">{t("selectSession")}</p>
+              )}
+            </div>
+          </article>
+        </div>
+      </article>
     </section>
   );
 }

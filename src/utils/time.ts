@@ -38,3 +38,29 @@ export function timeAgo(raw: string, lang: Lang = "en"): string {
   if (months < 12) return `${months}mo ago`;
   return `${Math.floor(months / 12)}y ago`;
 }
+
+export function formatConversationTime(raw: string, lang: Lang = "en"): string {
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+
+  const now = new Date();
+  const sameYear = d.getFullYear() === now.getFullYear();
+  const sameDay =
+    sameYear &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+
+  const p = (n: number) => String(n).padStart(2, "0");
+
+  if (lang === "zh") {
+    if (sameDay) return `${p(d.getHours())}:${p(d.getMinutes())}`;
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  if (sameDay) return `${p(d.getHours())}:${p(d.getMinutes())}`;
+  const month = d.toLocaleString("en-US", { month: "short" });
+  return sameYear
+    ? `${month} ${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`
+    : `${d.getFullYear()} ${month} ${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}

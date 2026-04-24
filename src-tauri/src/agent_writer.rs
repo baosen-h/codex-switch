@@ -80,10 +80,6 @@ fn build_codex_toml(provider: &Provider) -> String {
         lines.push("model_provider = \"custom\"".to_string());
     }
     lines.push(format!("model = \"{}\"", provider.model.trim()));
-    lines.push(format!(
-        "model_reasoning_effort = \"{}\"",
-        provider.reasoning_effort.trim()
-    ));
     lines.push("disable_response_storage = true".to_string());
 
     if has_custom {

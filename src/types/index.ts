@@ -37,6 +37,7 @@ export interface SessionRecord {
 export interface SessionMessage {
   role: string;
   content: string;
+  timestamp?: string;
 }
 
 export type ThemeMode = "system" | "dark" | "light";

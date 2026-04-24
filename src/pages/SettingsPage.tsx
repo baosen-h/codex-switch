@@ -87,12 +87,6 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
 
   return (
     <section className="page settings-page">
-      <header className="page-header">
-        <div>
-          <h2>{t("settingsTitle")}</h2>
-        </div>
-      </header>
-
       <article className="card">
         <div className="form-grid">
           {renderPathField("codexConfigDir", t("codexConfigDir"), "C:\\Users\\you\\.codex")}

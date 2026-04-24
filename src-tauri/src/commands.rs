@@ -43,12 +43,31 @@ pub fn save_provider(
     state: State<'_, AppState>,
     provider: Provider,
 ) -> Result<Provider, String> {
-    let saved = state
+    let db = state
         .db
         .lock()
-        .map_err(|_| "Failed to lock database".to_string())?
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    let saved = db
         .save_provider(provider)
         .map_err(|error| error.to_string())?;
+
+    if saved.is_current {
+        let settings = db.settings().map_err(|error| error.to_string())?;
+        let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
+        let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
+        let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+        write_provider(
+            &saved,
+            &AgentDirs {
+                codex: &codex_dir,
+                claude: &claude_dir,
+                gemini: &gemini_dir,
+            },
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    drop(db);
     notify_tray(&app);
     Ok(saved)
 }

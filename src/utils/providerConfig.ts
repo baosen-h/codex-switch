@@ -30,13 +30,11 @@ export function providerEndpointLabel(provider: Pick<Provider, "websiteUrl" | "b
 
 function renderCodexPreview(provider: Provider): string {
   const model = provider.model.trim() || "gpt-5.4";
-  const effort = provider.reasoningEffort.trim() || "high";
   const baseUrl = provider.baseUrl.trim();
   const hasCustom = Boolean(baseUrl);
   const lines: string[] = ["# ── ~/.codex/config.toml ──"];
   if (hasCustom) lines.push('model_provider = "custom"');
   lines.push(`model = "${model}"`);
-  lines.push(`model_reasoning_effort = "${effort}"`);
   lines.push("disable_response_storage = true");
   if (hasCustom) {
     lines.push("model_context_window = 1000000");
@@ -86,6 +84,79 @@ export function renderProviderPreview(provider: Provider): string {
   if (provider.agent === "claude") return renderClaudePreview(provider);
   if (provider.agent === "gemini") return renderGeminiPreview(provider);
   return renderCodexPreview(provider);
+}
+
+function matchQuotedValue(text: string, key: string): string {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`${escapedKey}\\s*=\\s*"([^"]*)"`, "i"));
+  return match?.[1] ?? "";
+}
+
+function matchEnvValue(text: string, key: string): string {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = text.match(new RegExp(`^${escapedKey}=(.*)$`, "im"));
+  return match?.[1]?.trim() ?? "";
+}
+
+function parseJsonBlock(text: string): Record<string, unknown> | null {
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
+
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function parseCodexPreview(preview: string, current: Provider): Partial<Provider> {
+  const lines = preview.split(/\r?\n/);
+  const authStart = lines.findIndex((line) => line.includes("auth.json"));
+  const configSection = authStart === -1 ? lines : lines.slice(0, authStart);
+  const authSection = authStart === -1 ? [] : lines.slice(authStart + 1);
+  const extraStart = configSection.findIndex((line) => line.trim().startsWith("[experimental]"));
+  const extraToml =
+    extraStart === -1 ? current.extraToml : configSection.slice(extraStart).join("\n").trim();
+  const authJson = parseJsonBlock(authSection.join("\n"));
+  const apiKeyValue = authJson?.OPENAI_API_KEY;
+
+  return {
+    model: matchQuotedValue(preview, "model"),
+    baseUrl: matchQuotedValue(preview, "base_url"),
+    apiKey: typeof apiKeyValue === "string" ? apiKeyValue : "",
+    extraToml,
+  };
+}
+
+function parseClaudePreview(preview: string): Partial<Provider> {
+  const body = parseJsonBlock(preview);
+  const env =
+    body && typeof body.env === "object" && body.env !== null
+      ? (body.env as Record<string, unknown>)
+      : {};
+
+  return {
+    apiKey: typeof env.ANTHROPIC_AUTH_TOKEN === "string" ? env.ANTHROPIC_AUTH_TOKEN : "",
+    baseUrl: typeof env.ANTHROPIC_BASE_URL === "string" ? env.ANTHROPIC_BASE_URL : "",
+    model: typeof env.ANTHROPIC_MODEL === "string" ? env.ANTHROPIC_MODEL : "",
+  };
+}
+
+function parseGeminiPreview(preview: string): Partial<Provider> {
+  const config = parseJsonBlock(preview);
+
+  return {
+    model: typeof config?.model === "string" ? config.model : "",
+    apiKey: matchEnvValue(preview, "GEMINI_API_KEY"),
+    baseUrl: matchEnvValue(preview, "GOOGLE_GEMINI_BASE_URL"),
+  };
+}
+
+export function parseProviderPreview(preview: string, current: Provider): Partial<Provider> {
+  if (current.agent === "claude") return parseClaudePreview(preview);
+  if (current.agent === "gemini") return parseGeminiPreview(preview);
+  return parseCodexPreview(preview, current);
 }
 
 export function renderInstructionTemplate(agent: AgentKind): string {
@@ -140,7 +211,6 @@ GOOGLE_GEMINI_BASE_URL=https://api.example.com`;
 - Base URL
 - API key
 - Model
-- Reasoning effort
 
 2. Save the provider
 
@@ -148,7 +218,6 @@ GOOGLE_GEMINI_BASE_URL=https://api.example.com`;
 config.toml
 model_provider = "custom"
 model = "gpt-5.4"
-model_reasoning_effort = "high"
 
 [model_providers.custom]
 name = "Example"

@@ -43,6 +43,11 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
         };
 
         let payload_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+        let timestamp = value
+            .get("timestamp")
+            .and_then(timestamp_to_string)
+            .or_else(|| payload.get("timestamp").and_then(timestamp_to_string));
+
         let (role, content) = match payload_type {
             "message" => {
                 let role = payload
@@ -75,7 +80,11 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
             continue;
         }
 
-        messages.push(SessionMessage { role, content });
+        messages.push(SessionMessage {
+            role,
+            content,
+            timestamp,
+        });
     }
 
     Ok(messages)
@@ -487,7 +496,11 @@ pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
         if content.trim().is_empty() {
             continue;
         }
-        messages.push(SessionMessage { role, content });
+        messages.push(SessionMessage {
+            role,
+            content,
+            timestamp: value.get("timestamp").and_then(timestamp_to_string),
+        });
     }
     Ok(messages)
 }
@@ -681,6 +694,11 @@ pub fn load_gemini_messages(path: &Path) -> Result<Vec<SessionMessage>, String> 
         out.push(SessionMessage {
             role: role.to_string(),
             content,
+            timestamp: msg
+                .get("timestamp")
+                .and_then(timestamp_to_string)
+                .or_else(|| msg.get("createTime").and_then(timestamp_to_string))
+                .or_else(|| msg.get("time").and_then(timestamp_to_string)),
         });
     }
     Ok(out)

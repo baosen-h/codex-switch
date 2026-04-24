@@ -7,6 +7,7 @@ import {
   agentTabs,
   defaultModelForAgent,
   emptyProvider,
+  parseProviderPreview,
   providerEndpointLabel,
   renderInstructionTemplate,
   renderProviderPreview,
@@ -98,7 +99,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
 
   const updatePreview = (value: string) => {
     setPreviewDirty(true);
-    setDraft((cur) => ({ ...cur, configText: value }));
+    setDraft((cur) => ({
+      ...cur,
+      ...parseProviderPreview(value, cur),
+      configText: value,
+    }));
   };
 
   const resetPreview = () => {
@@ -129,10 +134,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
     const isEditing = Boolean(draft.id);
     return (
       <section className="page providers-page">
-        <header className="page-header">
-          <h2>{isEditing ? t("editProvider") : t("newProvider")}</h2>
-        </header>
-
         <article className="card">
           <div className="card-heading">
             <div>
@@ -193,14 +194,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
               </button>
               {showAdvanced && (
                 <div className="form-grid">
-                  <label className="field">
-                    <span>{t("reasoningEffort")}</span>
-                    <select value={draft.reasoningEffort} onChange={(e) => updateDraft("reasoningEffort", e.target.value)}>
-                      <option value="low">low</option>
-                      <option value="medium">medium</option>
-                      <option value="high">high</option>
-                    </select>
-                  </label>
                   <label className="field field-full">
                     <span>{t("extraToml")}</span>
                     <textarea value={draft.extraToml} onChange={(e) => updateDraft("extraToml", e.target.value)} placeholder={`[experimental]\nproject_doc = "AGENTS.md"`} rows={4} />
@@ -250,46 +243,35 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
 
   return (
     <section className="page providers-page">
-      <header className="page-header">
-        <h2>{t("providers")}</h2>
-      </header>
-
-      <article className="card">
-        <div className="provider-tabs">
-          {agentTabs.map((agent) => (
-            <button
-              key={agent}
-              type="button"
-              className={`provider-tab ${activeAgent === agent ? "active" : ""}`}
-              onClick={() => setActiveAgent(agent)}
-            >
-              {iconForAgent(agent)}
-              <span>{agentLabel(agent)}</span>
-              <small>{tabCounts[agent]}</small>
-            </button>
-          ))}
-        </div>
-
-        <div className="card-heading" style={{ marginTop: "0.85rem" }}>
-          <div>
-            <span className="eyebrow">{t("available")}</span>
-            <h3>{visibleProviders.length} {t("configured")}</h3>
+      <article className="card provider-connected-card">
+        <div className="provider-toolbar">
+          <div className="provider-tabs provider-tabs-connected">
+            {agentTabs.map((agent) => (
+              <button
+                key={agent}
+                type="button"
+                className={`provider-tab ${activeAgent === agent ? "active" : ""}`}
+                onClick={() => setActiveAgent(agent)}
+              >
+                {iconForAgent(agent)}
+                <span>{agentLabel(agent)}</span>
+                <small>{tabCounts[agent]}</small>
+              </button>
+            ))}
           </div>
-          <button className="add-button" onClick={() => openForm()} type="button" title="Add provider">
+          <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title="Add provider">
             <AddIcon />
-            <span>{t("add")}</span>
           </button>
         </div>
 
         <div className="provider-list">
           {visibleProviders.length ? (
             visibleProviders.map((provider) => (
-              <div className="provider-row" key={provider.id}>
+              <div className={`provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
                     {iconForAgent(provider.agent)}
                     <strong>{provider.name}</strong>
-                    {provider.isCurrent ? <span className="pill">Active</span> : null}
                   </div>
                   <p>{provider.model || "—"}</p>
                   {provider.websiteUrl.trim() ? (
@@ -304,7 +286,9 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
                 </div>
                 <div className="provider-actions">
                   <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>
-                  <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">{t("enable")}</button>
+                  {!provider.isCurrent ? (
+                    <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">{t("enable")}</button>
+                  ) : null}
                   <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">{t("del")}</button>
                 </div>
               </div>
