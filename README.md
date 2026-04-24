@@ -54,12 +54,26 @@ npm run tauri build
 
 ## Release
 
+Build the Windows installers:
+
+```bash
+npm run build
+npm run tauri build
+```
+
+Then upload the generated files from:
+
+```text
+src-tauri/target/release/bundle/msi/
+src-tauri/target/release/bundle/nsis/
+```
+
+If you want to version the release with git:
+
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
-
-GitHub Actions can build the Windows packages and publish them to Releases.
 
 ## License
 
