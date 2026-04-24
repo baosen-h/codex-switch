@@ -172,6 +172,40 @@ pub fn delete_session(source_path: String) -> Result<bool, String> {
     Ok(true)
 }
 
+#[tauri::command]
+pub fn open_external_url(url: String) -> Result<bool, String> {
+    if url.trim().is_empty() {
+        return Err("URL is empty".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(true);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(true);
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(true);
+    }
+}
+
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub fn pick_directory(initial_path: Option<String>) -> Result<Option<String>, String> {

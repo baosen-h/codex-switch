@@ -39,9 +39,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Codex Switch Mini ${{ github.ref_name }}
+          releaseName: Codex Switch ${{ github.ref_name }}
           releaseBody: |
-            Windows release for Codex Switch Mini.
+            Windows release for Codex Switch.
 
             Download the MSI installer for standard installation, or the NSIS EXE if you prefer that format.
           releaseDraft: true

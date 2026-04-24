@@ -18,7 +18,8 @@ impl Database {
     pub fn new() -> Result<Self, AppError> {
         let app_dir = Self::app_data_dir()?;
         fs::create_dir_all(&app_dir)?;
-        let connection = Connection::open(app_dir.join("codex-switch-mini.db"))?;
+        Self::migrate_legacy_database_files(&app_dir)?;
+        let connection = Connection::open(app_dir.join("codex-switch.db"))?;
 
         let database = Self { connection };
         database.initialize()?;
@@ -199,7 +200,37 @@ impl Database {
     fn app_data_dir() -> Result<PathBuf, AppError> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::message("Unable to determine home directory"))?;
-        Ok(home.join(".codex-switch-mini"))
+        Ok(home.join(".codex-switch"))
+    }
+
+    fn migrate_legacy_database_files(app_dir: &PathBuf) -> Result<(), AppError> {
+        let home = dirs::home_dir()
+            .ok_or_else(|| AppError::message("Unable to determine home directory"))?;
+        let legacy_dir = home.join(".codex-switch-mini");
+        let target_db = app_dir.join("codex-switch.db");
+        let target_wal = app_dir.join("codex-switch.db-wal");
+        let target_shm = app_dir.join("codex-switch.db-shm");
+
+        if !target_db.exists() {
+            let legacy_db = legacy_dir.join("codex-switch-mini.db");
+            if legacy_db.exists() {
+                fs::create_dir_all(app_dir)?;
+                fs::copy(&legacy_db, &target_db)?;
+            }
+        }
+        if !target_wal.exists() {
+            let legacy_wal = legacy_dir.join("codex-switch-mini.db-wal");
+            if legacy_wal.exists() {
+                fs::copy(&legacy_wal, &target_wal)?;
+            }
+        }
+        if !target_shm.exists() {
+            let legacy_shm = legacy_dir.join("codex-switch-mini.db-shm");
+            if legacy_shm.exists() {
+                fs::copy(&legacy_shm, &target_shm)?;
+            }
+        }
+        Ok(())
     }
 
     fn initialize(&self) -> Result<(), AppError> {

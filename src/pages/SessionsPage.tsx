@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentKind, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatDate, timeAgo } from "../utils/time";
@@ -52,6 +52,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
+  const messageCache = useRef<Map<string, SessionMessage[]>>(new Map());
 
   const roleLabels: Record<string, string> = {
     user: t("roleUser"),
@@ -87,18 +88,12 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   const selectedSession =
     filteredSessions.find((session) => session.id === selectedSessionId) ??
     sessions.find((session) => session.id === selectedSessionId) ??
-    filteredSessions[0] ??
     null;
 
   useEffect(() => {
     if (!selectedSession) {
-      setSelectedSessionId(null);
       setSelectedMessages([]);
       return;
-    }
-
-    if (selectedSession.id !== selectedSessionId) {
-      setSelectedSessionId(selectedSession.id);
     }
   }, [selectedSession, selectedSessionId]);
 
@@ -107,11 +102,23 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   useEffect(() => {
     if (!selectedSourcePath) return;
 
+    const cached = messageCache.current.get(selectedSourcePath);
+    if (cached) {
+      setSelectedMessages(cached);
+      setIsLoadingMessages(false);
+      return;
+    }
+
     let active = true;
     setIsLoadingMessages(true);
 
     void onLoadMessages(selectedSourcePath)
-      .then((messages) => { if (active) setSelectedMessages(messages); })
+      .then((messages) => {
+        if (active) {
+          messageCache.current.set(selectedSourcePath, messages);
+          setSelectedMessages(messages);
+        }
+      })
       .catch(() => { if (active) setSelectedMessages([]); })
       .finally(() => { if (active) setIsLoadingMessages(false); });
 

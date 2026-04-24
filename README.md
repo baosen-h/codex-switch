@@ -1,6 +1,6 @@
-# Codex Switch Mini
+# Codex Switch
 
-Codex Switch Mini is a Windows-first desktop app for managing local provider settings for:
+Codex Switch is a Windows-first desktop app for managing local provider settings for:
 
 - Codex
 - Claude Code
@@ -19,9 +19,9 @@ It gives you one place to edit provider profiles, switch the active profile for 
 
 ## Privacy
 
-Codex Switch Mini stores provider metadata and API keys locally on your machine.
+Codex Switch stores provider metadata and API keys locally on your machine.
 
-- Database location: inside your user profile under `.codex-switch-mini`
+- Database location: inside your user profile under `.codex-switch`
 - API keys are not sent to any remote server by this app
 - Generated config files are written to the local agent config directories you choose
 

@@ -8,7 +8,7 @@ mod session_manager;
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, delete_provider, delete_session, get_dashboard, get_session_messages,
-    launch_codex, pick_directory, save_provider, save_settings, AppState,
+    launch_codex, open_external_url, pick_directory, save_provider, save_settings, AppState,
 };
 use models::Provider;
 use std::sync::Mutex;
@@ -37,7 +37,7 @@ pub fn run() {
 
             let tray = TrayIconBuilder::new()
                 .icon(icon)
-                .tooltip("Codex Switch Mini")
+                .tooltip("Codex Switch")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(on_menu_event)
@@ -79,11 +79,12 @@ pub fn run() {
             launch_codex,
             get_session_messages,
             delete_session,
+            open_external_url,
             pick_directory,
             save_settings
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Codex Switch Mini");
+        .expect("error while running Codex Switch");
 }
 
 fn load_app_icon() -> tauri::Result<Image<'static>> {

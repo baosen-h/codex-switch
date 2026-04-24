@@ -87,3 +87,77 @@ export function renderProviderPreview(provider: Provider): string {
   if (provider.agent === "gemini") return renderGeminiPreview(provider);
   return renderCodexPreview(provider);
 }
+
+export function renderInstructionTemplate(agent: AgentKind): string {
+  if (agent === "claude") {
+    return `Claude Code template (example only)
+
+1. Fill in:
+- Name
+- Base URL
+- API key
+- Model
+
+2. Save the provider
+
+3. Expected Claude env shape:
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "your-token",
+    "ANTHROPIC_BASE_URL": "https://api.example.com",
+    "ANTHROPIC_MODEL": "claude-opus-4-5"
+  }
+}`;
+  }
+
+  if (agent === "gemini") {
+    return `Gemini template (example only)
+
+1. Fill in:
+- Name
+- Base URL (optional)
+- API key
+- Model
+
+2. Save the provider
+
+3. Expected Gemini shape:
+config.json
+{
+  "selectedAuthType": "gemini-api-key",
+  "model": "gemini-2.5-pro"
+}
+
+.env
+GEMINI_API_KEY=your-key
+GOOGLE_GEMINI_BASE_URL=https://api.example.com`;
+  }
+
+  return `Codex template (example only)
+
+1. Fill in:
+- Name
+- Base URL
+- API key
+- Model
+- Reasoning effort
+
+2. Save the provider
+
+3. Expected Codex shape:
+config.toml
+model_provider = "custom"
+model = "gpt-5.4"
+model_reasoning_effort = "high"
+
+[model_providers.custom]
+name = "Example"
+wire_api = "responses"
+requires_openai_auth = true
+base_url = "https://api.example.com/v1"
+
+auth.json
+{
+  "OPENAI_API_KEY": "your-key"
+}`;
+}

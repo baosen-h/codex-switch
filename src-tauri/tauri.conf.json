@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Codex Switch Mini",
+  "productName": "Codex Switch",
   "version": "0.1.0",
-  "identifier": "com.baosenh.codex-switch-mini",
+  "identifier": "com.baosenh.codex-switch",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   "app": {
     "windows": [
       {
-        "title": "Codex Switch Mini",
+        "title": "Codex Switch",
         "width": 960,
         "height": 640,
         "minWidth": 880,

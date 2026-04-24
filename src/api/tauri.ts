@@ -29,6 +29,9 @@ export const appApi = {
   deleteSession(sourcePath: string): Promise<boolean> {
     return invoke("delete_session", { sourcePath });
   },
+  openExternalUrl(url: string): Promise<boolean> {
+    return invoke("open_external_url", { url });
+  },
   pickDirectory(initialPath?: string): Promise<string | null> {
     return invoke("pick_directory", { initialPath });
   },

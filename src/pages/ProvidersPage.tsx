@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { appApi } from "../api/tauri";
 import type { AgentKind, Provider } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
@@ -7,6 +8,7 @@ import {
   defaultModelForAgent,
   emptyProvider,
   providerEndpointLabel,
+  renderInstructionTemplate,
   renderProviderPreview,
 } from "../utils/providerConfig";
 
@@ -109,6 +111,14 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
     closeForm();
   };
 
+  const openWebsite = async (url: string) => {
+    try {
+      await appApi.openExternalUrl(url);
+    } catch (error) {
+      console.error("Failed to open website", error);
+    }
+  };
+
   const agentLabel = (agent: AgentKind): string => {
     if (agent === "claude") return t("agentClaude");
     if (agent === "gemini") return t("agentGemini");
@@ -209,6 +219,20 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
             />
           </div>
 
+          <div className="template-guide-block">
+            <div className="preview-header">
+              <span className="detail-label">{t("templateGuide")}</span>
+            </div>
+            <p className="preview-hint">{t("templateGuideHint")}</p>
+            <textarea
+              className="config-preview template-preview"
+              value={renderInstructionTemplate(draft.agent)}
+              readOnly
+              rows={12}
+              spellCheck={false}
+            />
+          </div>
+
           <div className="actions">
             <button
               className="primary-button"
@@ -268,7 +292,15 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
                     {provider.isCurrent ? <span className="pill">Active</span> : null}
                   </div>
                   <p>{provider.model || "—"}</p>
-                  <small>{providerEndpointLabel(provider) || t("openaiDefault")}</small>
+                  {provider.websiteUrl.trim() ? (
+                    <button
+                      className="provider-link"
+                      onClick={() => void openWebsite(provider.websiteUrl)}
+                      type="button"
+                    >
+                      {providerEndpointLabel(provider)}
+                    </button>
+                  ) : null}
                 </div>
                 <div className="provider-actions">
                   <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>

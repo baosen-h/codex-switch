@@ -15,6 +15,14 @@ type PathFieldKey =
   | "geminiConfigDir"
   | "defaultWorkspace";
 
+const shellOptions = [
+  { label: "PowerShell", value: "pwsh" },
+  { label: "Bash", value: "bash" },
+  { label: "CMD", value: "cmd" },
+  { label: "Fish", value: "fish" },
+  { label: "Nushell", value: "nu" },
+];
+
 export function SettingsPage({ settings, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
@@ -39,6 +47,10 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
     switchThemeWithReveal(mode, rect.left + rect.width / 2, rect.top + rect.height / 2);
     updateAndSave("theme", mode);
   };
+
+  const selectedShell = shellOptions.some((option) => option.value === draft.terminalProgram)
+    ? draft.terminalProgram
+    : "__custom__";
 
   const pickDirectory = async (field: PathFieldKey) => {
     try {
@@ -89,12 +101,28 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
           {renderPathField("defaultWorkspace", t("defaultWorkspace"), "F:\\Projects")}
           <label className="field">
             <span>{t("terminalProgram")}</span>
-            <input
-              value={draft.terminalProgram}
-              onChange={(event) => updateDraft("terminalProgram", event.target.value)}
-              placeholder="pwsh"
-            />
+            <select
+              value={selectedShell}
+              onChange={(event) =>
+                updateDraft("terminalProgram", event.target.value === "__custom__" ? "" : event.target.value)
+              }
+            >
+              {shellOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+              <option value="__custom__">Custom</option>
+            </select>
           </label>
+          {selectedShell === "__custom__" ? (
+            <label className="field">
+              <span>Custom shell command</span>
+              <input
+                value={draft.terminalProgram}
+                onChange={(event) => updateDraft("terminalProgram", event.target.value)}
+                placeholder="pwsh"
+              />
+            </label>
+          ) : null}
           <label className="field">
             <span>{t("language")}</span>
             <select

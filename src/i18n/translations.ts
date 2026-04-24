@@ -73,6 +73,8 @@ const en = {
   agentGemini: "Gemini",
   configPreview: "Config preview",
   configPreviewHint: "Edit fields above, or modify the preview directly — whatever is here is what gets written.",
+  templateGuide: "Template guide",
+  templateGuideHint: "Reference only. This block is not written to your config files.",
   loading: "LOADING...",
 };
 
@@ -149,6 +151,8 @@ const zh: typeof en = {
   agentGemini: "Gemini",
   configPreview: "配置预览",
   configPreviewHint: "上方字段或预览可直接编辑 — 保存时以预览内容为准。",
+  templateGuide: "模板参考",
+  templateGuideHint: "仅作说明，不会写入实际配置文件。",
   loading: "加载中...",
 };
 
