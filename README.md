@@ -22,6 +22,8 @@ This project is mainly for learning and communication. Please review the code ca
 
 Download the latest installer from GitHub Releases, then:
 
+https://github.com/baosen-h/codex-switch/releases/latest
+
 1. Open the app
 2. Go to **Settings**
 3. Confirm your config directories
