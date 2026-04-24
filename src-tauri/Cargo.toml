@@ -1,5 +1,5 @@
 [package]
-name = "codex-switch-mini"
+name = "codex-switch"
 version = "0.1.0"
 description = "Desktop manager for switching Codex, Claude Code, and Gemini provider configs"
 authors = ["baosen-h"]
@@ -9,7 +9,7 @@ license = "MIT"
 [package.metadata]
 
 [lib]
-name = "codex_switch_mini_lib"
+name = "codex_switch_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

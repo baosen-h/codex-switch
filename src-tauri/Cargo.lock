@@ -331,7 +331,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "codex-switch-mini"
+name = "codex-switch"
 version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",

@@ -23,6 +23,8 @@ interface SessionsPageProps {
 }
 
 type AgentFilter = AgentKind | "all";
+const INITIAL_SESSION_BATCH = 80;
+const SESSION_BATCH_SIZE = 80;
 
 async function copyText(value: string) {
   if (!value) return;
@@ -51,6 +53,7 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_BATCH);
   const deferredQuery = useDeferredValue(query);
   const messageCache = useRef<Map<string, SessionMessage[]>>(new Map());
 
@@ -89,6 +92,15 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
     filteredSessions.find((session) => session.id === selectedSessionId) ??
     sessions.find((session) => session.id === selectedSessionId) ??
     null;
+
+  const visibleSessions = useMemo(
+    () => filteredSessions.slice(0, visibleCount),
+    [filteredSessions, visibleCount],
+  );
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_SESSION_BATCH);
+  }, [deferredQuery, agentFilter, sessions.length]);
 
   useEffect(() => {
     if (!selectedSession) {
@@ -134,6 +146,14 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
     await onDelete(session);
   };
 
+  const handleSessionListScroll = (event: React.UIEvent<HTMLElement>) => {
+    const element = event.currentTarget;
+    const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
+    if (remaining < 120 && visibleCount < filteredSessions.length) {
+      setVisibleCount((current) => Math.min(current + SESSION_BATCH_SIZE, filteredSessions.length));
+    }
+  };
+
   return (
     <section className="page">
       <header className="page-header">
@@ -168,10 +188,10 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
       </article>
 
       <div className="sessions-layout">
-        <article className="card">
+        <article className="card session-list-card" onScroll={handleSessionListScroll}>
           <div className="session-list">
             {filteredSessions.length ? (
-              filteredSessions.map((session) => {
+              visibleSessions.map((session) => {
                 const isSelected = selectedSession?.id === session.id;
                 const isPendingDelete = pendingDeleteId === session.id;
 
@@ -242,6 +262,11 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                 {sessions.length ? t("noSessionsFilter") : t("noSessions")}
               </p>
             )}
+            {visibleSessions.length < filteredSessions.length ? (
+              <p className="empty-state">
+                {visibleSessions.length}/{filteredSessions.length}
+              </p>
+            ) : null}
           </div>
         </article>
 

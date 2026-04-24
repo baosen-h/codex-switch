@@ -128,7 +128,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
   if (view === "form") {
     const isEditing = Boolean(draft.id);
     return (
-      <section className="page">
+      <section className="page providers-page">
         <header className="page-header">
           <h2>{isEditing ? t("editProvider") : t("newProvider")}</h2>
         </header>
@@ -170,6 +170,20 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
               <span>{t("apiKey")}</span>
               <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
             </label>
+          </div>
+
+          <div className="template-inline-block">
+            <div className="preview-header">
+              <span className="detail-label">{t("templateGuide")}</span>
+            </div>
+            <p className="preview-hint">{t("templateGuideHint")}</p>
+            <textarea
+              className="config-preview template-preview compact-template-preview"
+              value={renderInstructionTemplate(draft.agent)}
+              readOnly
+              rows={8}
+              spellCheck={false}
+            />
           </div>
 
           {draft.agent === "codex" && (
@@ -219,20 +233,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
             />
           </div>
 
-          <div className="template-guide-block">
-            <div className="preview-header">
-              <span className="detail-label">{t("templateGuide")}</span>
-            </div>
-            <p className="preview-hint">{t("templateGuideHint")}</p>
-            <textarea
-              className="config-preview template-preview"
-              value={renderInstructionTemplate(draft.agent)}
-              readOnly
-              rows={12}
-              spellCheck={false}
-            />
-          </div>
-
           <div className="actions">
             <button
               className="primary-button"
@@ -249,7 +249,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
   }
 
   return (
-    <section className="page">
+    <section className="page providers-page">
       <header className="page-header">
         <h2>{t("providers")}</h2>
       </header>
