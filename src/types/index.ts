@@ -6,6 +6,7 @@ export interface Provider {
   agent: AgentKind;
   baseUrl: string;
   apiKey: string;
+  websiteUrl: string;
   model: string;
   reasoningEffort: string;
   extraToml: string;

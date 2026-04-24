@@ -8,6 +8,7 @@ pub struct Provider {
     pub agent: String,
     pub base_url: String,
     pub api_key: String,
+    pub website_url: String,
     pub model: String,
     pub reasoning_effort: String,
     pub extra_toml: String,

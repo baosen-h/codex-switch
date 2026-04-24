@@ -140,10 +140,16 @@ function App() {
     );
 
   const handleSaveSettings = async (settings: AppSettings) =>
-    runAction(async () => {
-      await appApi.saveSettings(settings);
-      await refresh();
-    }, "Settings saved.");
+    runAction(
+      () => appApi.saveSettings(settings),
+      "Settings saved.",
+      (saved) => {
+        setData((current) => ({
+          ...current,
+          settings: saved,
+        }));
+      },
+    );
 
   const handleDeleteSession = async (session: SessionRecord) =>
     runAction(

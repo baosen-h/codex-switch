@@ -39,7 +39,7 @@ impl Database {
     pub fn providers(&self) -> Result<Vec<Provider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            SELECT id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
             FROM providers
             ORDER BY is_current DESC, updated_at DESC
             "#,
@@ -53,7 +53,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+                SELECT id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
                 FROM providers
                 WHERE id = ?1
                 "#,
@@ -90,13 +90,14 @@ impl Database {
         self.connection.execute(
             r#"
             INSERT INTO providers (
-              id, name, agent, base_url, api_key, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?10, ?11)
+              id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?11, ?12)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               agent = excluded.agent,
               base_url = excluded.base_url,
               api_key = excluded.api_key,
+              website_url = excluded.website_url,
               model = excluded.model,
               reasoning_effort = excluded.reasoning_effort,
               extra_toml = excluded.extra_toml,
@@ -109,6 +110,7 @@ impl Database {
                 agent,
                 provider.base_url.trim(),
                 provider.api_key.trim(),
+                provider.website_url.trim(),
                 provider.model.trim(),
                 provider.reasoning_effort.trim(),
                 provider.extra_toml.trim(),
@@ -209,6 +211,7 @@ impl Database {
               agent TEXT NOT NULL DEFAULT 'codex',
               base_url TEXT NOT NULL DEFAULT '',
               api_key TEXT NOT NULL DEFAULT '',
+              website_url TEXT NOT NULL DEFAULT '',
               model TEXT NOT NULL,
               reasoning_effort TEXT NOT NULL DEFAULT 'high',
               extra_toml TEXT NOT NULL DEFAULT '',
@@ -237,6 +240,22 @@ impl Database {
             "providers",
             "config_text",
             "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "providers",
+            "website_url",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+
+        self.connection.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_providers_agent_current
+            ON providers(agent, is_current);
+
+            CREATE INDEX IF NOT EXISTS idx_providers_updated_at
+            ON providers(updated_at DESC);
+            "#,
         )?;
 
         self.ensure_setting(
@@ -327,12 +346,13 @@ fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {
         agent: row.get(2)?,
         base_url: row.get(3)?,
         api_key: row.get(4)?,
-        model: row.get(5)?,
-        reasoning_effort: row.get(6)?,
-        extra_toml: row.get(7)?,
-        config_text: row.get(8)?,
-        is_current: row.get::<_, i64>(9)? == 1,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        website_url: row.get(5)?,
+        model: row.get(6)?,
+        reasoning_effort: row.get(7)?,
+        extra_toml: row.get(8)?,
+        config_text: row.get(9)?,
+        is_current: row.get::<_, i64>(10)? == 1,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }

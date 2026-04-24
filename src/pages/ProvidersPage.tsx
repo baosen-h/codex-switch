@@ -2,93 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentKind, Provider } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
+import {
+  agentTabs,
+  defaultModelForAgent,
+  emptyProvider,
+  providerEndpointLabel,
+  renderProviderPreview,
+} from "../utils/providerConfig";
 
 interface ProvidersPageProps {
   providers: Provider[];
   onSave: (provider: Provider) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onActivate: (id: string) => Promise<void>;
-}
-
-const emptyProvider: Provider = {
-  id: "",
-  name: "",
-  agent: "codex",
-  baseUrl: "",
-  apiKey: "",
-  model: "",
-  reasoningEffort: "high",
-  extraToml: "",
-  configText: "",
-  isCurrent: false,
-  createdAt: "",
-  updatedAt: "",
-};
-
-const AGENT_TABS: AgentKind[] = ["codex", "claude", "gemini"];
-
-const defaultModelForAgent = (agent: AgentKind): string => {
-  if (agent === "claude") return "claude-opus-4-5";
-  if (agent === "gemini") return "gemini-2.5-pro";
-  return "gpt-5.4";
-};
-
-function renderCodexPreview(p: Provider): string {
-  const model = p.model.trim() || "gpt-5.4";
-  const effort = p.reasoningEffort.trim() || "high";
-  const baseUrl = p.baseUrl.trim();
-  const hasCustom = Boolean(baseUrl);
-  const lines: string[] = ["# ── ~/.codex/config.toml ──"];
-  if (hasCustom) lines.push('model_provider = "custom"');
-  lines.push(`model = "${model}"`);
-  lines.push(`model_reasoning_effort = "${effort}"`);
-  lines.push("disable_response_storage = true");
-  if (hasCustom) {
-    lines.push("model_context_window = 1000000");
-    lines.push("model_auto_compact_token_limit = 900000");
-    lines.push("[model_providers]");
-    lines.push("[model_providers.custom]");
-    lines.push(`name = "${(p.name || "custom").trim()}"`);
-    lines.push('wire_api = "responses"');
-    lines.push("requires_openai_auth = true");
-    lines.push(`base_url = "${baseUrl}"`);
-  }
-  if (p.extraToml.trim()) {
-    lines.push("");
-    lines.push(p.extraToml.trim());
-  }
-  lines.push("");
-  lines.push("# ── ~/.codex/auth.json ──");
-  lines.push(JSON.stringify({ OPENAI_API_KEY: p.apiKey }, null, 2));
-  return lines.join("\n") + "\n";
-}
-
-function renderClaudePreview(p: Provider): string {
-  const body = {
-    env: {
-      ANTHROPIC_AUTH_TOKEN: p.apiKey,
-      ANTHROPIC_BASE_URL: p.baseUrl.trim(),
-      ANTHROPIC_MODEL: p.model.trim(),
-    },
-  };
-  return `// ── ~/.claude/settings.json ──\n${JSON.stringify(body, null, 2)}\n`;
-}
-
-function renderGeminiPreview(p: Provider): string {
-  const model = p.model.trim() || "gemini-2.5-pro";
-  const config = { selectedAuthType: "gemini-api-key", model };
-  const envLines = [`GEMINI_API_KEY=${p.apiKey}`];
-  if (p.baseUrl.trim()) envLines.push(`GOOGLE_GEMINI_BASE_URL=${p.baseUrl.trim()}`);
-  return (
-    `// ── ~/.gemini/config.json ──\n${JSON.stringify(config, null, 2)}\n\n` +
-    `# ── ~/.gemini/.env ──\n${envLines.join("\n")}\n`
-  );
-}
-
-function renderPreview(p: Provider): string {
-  if (p.agent === "claude") return renderClaudePreview(p);
-  if (p.agent === "gemini") return renderGeminiPreview(p);
-  return renderCodexPreview(p);
 }
 
 const AddIcon = () => (
@@ -140,17 +66,17 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
   // Auto-regen preview from form fields while user hasn't touched the preview.
   useEffect(() => {
     if (view !== "form" || previewDirty) return;
-    const regenerated = renderPreview(draft);
+    const regenerated = renderProviderPreview(draft);
     if (regenerated !== draft.configText) {
       setDraft((cur) => ({ ...cur, configText: regenerated }));
     }
-  }, [draft.agent, draft.name, draft.baseUrl, draft.apiKey, draft.model, draft.reasoningEffort, draft.extraToml, view, previewDirty]);
+  }, [draft.agent, draft.name, draft.baseUrl, draft.apiKey, draft.websiteUrl, draft.model, draft.reasoningEffort, draft.extraToml, view, previewDirty]);
 
   const openForm = (provider?: Provider) => {
     const base = provider ?? { ...emptyProvider, agent: activeAgent, model: defaultModelForAgent(activeAgent) };
     const initial: Provider = {
       ...base,
-      configText: base.configText || renderPreview(base),
+      configText: base.configText || renderProviderPreview(base),
     };
     setDraft(initial);
     setShowAdvanced(Boolean(provider));
@@ -175,7 +101,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
 
   const resetPreview = () => {
     setPreviewDirty(false);
-    setDraft((cur) => ({ ...cur, configText: renderPreview(cur) }));
+    setDraft((cur) => ({ ...cur, configText: renderProviderPreview(cur) }));
   };
 
   const handleSubmit = async () => {
@@ -225,6 +151,10 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
             <label className="field">
               <span>{t("baseUrl")}</span>
               <input value={draft.baseUrl} onChange={(e) => updateDraft("baseUrl", e.target.value)} placeholder="https://api.example.com/v1" />
+            </label>
+            <label className="field">
+              <span>{t("officialWebsite")}</span>
+              <input value={draft.websiteUrl} onChange={(e) => updateDraft("websiteUrl", e.target.value)} placeholder="https://example.com" />
             </label>
             <label className="field">
               <span>{t("apiKey")}</span>
@@ -302,7 +232,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
 
       <article className="card">
         <div className="provider-tabs">
-          {AGENT_TABS.map((agent) => (
+          {agentTabs.map((agent) => (
             <button
               key={agent}
               type="button"
@@ -338,7 +268,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onActivate }: Provi
                     {provider.isCurrent ? <span className="pill">Active</span> : null}
                   </div>
                   <p>{provider.model || "—"}</p>
-                  <small>{provider.baseUrl || t("openaiDefault")}</small>
+                  <small>{providerEndpointLabel(provider) || t("openaiDefault")}</small>
                 </div>
                 <div className="provider-actions">
                   <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>

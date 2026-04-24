@@ -1,72 +1,145 @@
 # Codex Switch Mini
 
-Private desktop utility for managing Codex providers and Codex session continuity.
+Codex Switch Mini is a Windows-first desktop app for managing local provider settings for:
 
-## Purpose
+- Codex
+- Claude Code
+- Gemini
 
-- Switch Codex providers from a clean desktop UI.
-- Let the app write Codex config instead of manually editing local files.
-- Record provider/workspace/session relationships so previous chats are easier to find and resume.
+It gives you one place to edit provider profiles, switch the active profile for each agent, browse local session history, and update the config directories these tools use on your machine.
 
-## Initial Scope
+## Features
 
-- Windows-first.
-- Codex-only.
-- Private/internal use only.
-- No public open-source packaging required.
-- No automatic backup feature.
+- Multi-agent provider management for Codex, Claude Code, and Gemini
+- Local profile storage in SQLite
+- Config preview before writing provider settings
+- Session browser with transcript viewer and resume command copy
+- Settings UI for config directories, workspace defaults, theme, and language
+- Native Windows bundle output via Tauri (`.msi` and NSIS `.exe`)
 
-## Current Stack
+## Privacy
 
-- Tauri 2 desktop shell.
-- React + TypeScript frontend.
-- Rust backend.
-- SQLite local app database.
+Codex Switch Mini stores provider metadata and API keys locally on your machine.
 
-## Implemented Scaffold
+- Database location: inside your user profile under `.codex-switch-mini`
+- API keys are not sent to any remote server by this app
+- Generated config files are written to the local agent config directories you choose
 
-- Sidebar-based desktop UI with:
-  - Dashboard
-  - Providers
-  - Sessions
-  - Settings
-- Provider CRUD form for:
-  - name
-  - base URL
-  - API key
-  - model
-  - reasoning effort
-  - extra TOML
-- Provider activation flow that is designed to write:
-  - `auth.json`
-  - `config.toml`
-- Session recording foundation:
-  - workspace path
-  - provider relation
-  - title
-  - notes
-  - session reference
-  - status
-- SQLite-backed settings for:
-  - Codex config directory
-  - default workspace
-  - terminal program
-  - auto-record behavior
+Please review the code before using it with production credentials.
 
-## Validation Status
+## Install on Windows
 
-- Frontend dependencies installed.
-- Frontend production build passes with `npm run build`.
-- Rust/Tauri build has not been validated yet because the Rust toolchain is not available in the current environment.
+Download the latest installer from the GitHub Releases page:
 
-## Local Setup
+- `.msi` for standard Windows installation
+- `.exe` (NSIS) if you prefer the alternative installer
 
-1. Install Node.js 20+.
-2. Install Rust via `rustup`.
-3. From the repository root, run:
-   - `npm install`
-   - `npm run tauri dev`
+After installation:
 
-## Repository Status
+1. Open the app
+2. Go to **Settings**
+3. Confirm your local config directories
+4. Add providers under **Agents**
+5. Activate the provider you want for each agent
 
-This repository is initialized and already pushed to the private GitHub remote. The first working scaffold is now in place.
+## How to Use
+
+### Add a provider
+
+1. Open **Agents**
+2. Select the target agent tab (`Codex`, `Claude Code`, or `Gemini`)
+3. Click **Add**
+4. Fill in:
+   - Name
+   - Model
+   - Base URL
+   - API key
+   - Official website (optional)
+   - Agent-specific extras
+5. Save the profile
+
+### Switch the active provider
+
+Click **Enable** on the provider row for the agent you want to switch.
+
+The app writes the corresponding local config files for that agent.
+
+### Browse sessions
+
+Open **Sessions** to:
+
+- search local sessions
+- filter by agent
+- inspect transcripts
+- copy resume commands
+- copy workspace paths
+
+### Settings
+
+Open **Settings** to configure:
+
+- Codex config directory
+- Claude Code config directory
+- Gemini config directory
+- Default workspace
+- Terminal program
+- Language
+- Theme
+
+On Windows, you can use the mouse-based folder picker instead of typing paths manually.
+
+## Local Development
+
+### Requirements
+
+- Node.js 20+
+- Rust stable toolchain
+- Windows WebView2 runtime
+
+### Run locally
+
+```bash
+npm install
+npm run tauri dev
+```
+
+### Build production bundles
+
+```bash
+npm run build
+npm run tauri build
+```
+
+Expected Windows bundle outputs:
+
+- `src-tauri/target/release/bundle/msi/*.msi`
+- `src-tauri/target/release/bundle/nsis/*.exe`
+
+## Publish a Release
+
+This repo includes a GitHub Actions workflow for Windows releases.
+
+### Recommended flow
+
+1. Commit your changes
+2. Create a version tag, for example:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+3. GitHub Actions builds the Windows bundles
+4. The workflow creates or updates a GitHub Release
+5. Users can download the `.msi` from the release page
+
+## Project Structure
+
+- `src/` — React + TypeScript frontend
+- `src-tauri/src/` — Rust backend and local config/session logic
+- `docs/` — notes and schema documentation
+- `scripts/` — helper scripts
+
+## License
+
+MIT. See `LICENSE`.

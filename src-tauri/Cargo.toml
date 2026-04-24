@@ -1,9 +1,10 @@
 [package]
 name = "codex-switch-mini"
 version = "0.1.0"
-description = "Private Codex provider and session manager"
+description = "Desktop manager for switching Codex, Claude Code, and Gemini provider configs"
 authors = ["baosen-h"]
 edition = "2021"
+license = "MIT"
 
 [package.metadata]
 
@@ -22,3 +23,8 @@ serde_json = "1"
 tauri = { version = "2.0.0", features = ["image-ico", "tray-icon"] }
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

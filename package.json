@@ -1,7 +1,8 @@
 {
-  "name": "codex-switch-mini",
+  "name": "codex-switch",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
