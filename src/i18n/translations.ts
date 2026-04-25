@@ -75,6 +75,15 @@ const en = {
   configPreviewHint: "Edit fields above, or modify the preview directly — whatever is here is what gets written.",
   templateGuide: "Template guide",
   templateGuideHint: "Reference only. This block is not written to your config files.",
+  handoffFast: "Fast",
+  handoffFastHint: "Instant compact handoff",
+  handoffSlow: "Slow",
+  handoffSlowHint: "Codex summary, best context",
+  copyHandoff: "Copy handoff",
+  loadingHandoff: "Generating handoff...",
+  handoffPreparing: "Preparing...",
+  handoffCopied: "Handoff copied.",
+  handoffGenerateError: "Failed to generate handoff.",
   loading: "LOADING...",
 };
 
@@ -153,6 +162,15 @@ const zh: typeof en = {
   configPreviewHint: "上方字段或预览可直接编辑 — 保存时以预览内容为准。",
   templateGuide: "模板参考",
   templateGuideHint: "仅作说明，不会写入实际配置文件。",
+  handoffFast: "快速",
+  handoffFastHint: "立即生成简短交接",
+  handoffSlow: "完整",
+  handoffSlowHint: "使用 Codex 总结，保留更多上下文",
+  copyHandoff: "复制交接",
+  loadingHandoff: "正在生成交接...",
+  handoffPreparing: "生成中...",
+  handoffCopied: "交接内容已复制。",
+  handoffGenerateError: "生成交接内容失败。",
   loading: "加载中...",
 };
 

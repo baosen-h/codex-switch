@@ -168,8 +168,10 @@ function App() {
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
+      onBuildHandoff={appApi.buildSessionHandoff}
       onLoadMessages={appApi.getSessionMessages}
       onDelete={handleDeleteSession}
+      onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "settings" ? (
     <SettingsPage settings={data.settings} onSave={handleSaveSettings} />

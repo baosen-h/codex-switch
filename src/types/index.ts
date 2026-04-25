@@ -40,6 +40,16 @@ export interface SessionMessage {
   timestamp?: string;
 }
 
+export type HandoffMode = "fast" | "slow";
+
+export interface HandoffPreview {
+  mode: string;
+  title: string;
+  sessionId: string;
+  sourceAgent: string;
+  content: string;
+}
+
 export type ThemeMode = "system" | "dark" | "light";
 
 export interface AppSettings {

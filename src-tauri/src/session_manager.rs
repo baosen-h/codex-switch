@@ -90,6 +90,46 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
     Ok(messages)
 }
 
+pub fn session_messages_for_path(path: &Path) -> Result<Vec<SessionMessage>, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let in_claude = path
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
+
+    if ext == "json" {
+        return load_gemini_messages(path);
+    }
+    if in_claude {
+        return load_claude_messages(path);
+    }
+    load_codex_messages(path)
+}
+
+pub fn session_record_for_path(path: &Path) -> Result<SessionRecord, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let in_claude = path
+        .components()
+        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
+
+    if ext == "json" {
+        return parse_gemini_session(path)
+            .ok_or_else(|| "Failed to parse Gemini session".to_string());
+    }
+    if in_claude {
+        return parse_claude_session(path)
+            .ok_or_else(|| "Failed to parse Claude session".to_string());
+    }
+    parse_session(path).ok_or_else(|| "Failed to parse Codex session".to_string())
+}
+
 fn parse_session(path: &Path) -> Option<SessionRecord> {
     let (head, tail) = read_head_tail_lines(path, 80, 30).ok()?;
 

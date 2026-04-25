@@ -50,6 +50,16 @@ pub struct SessionMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct HandoffPreview {
+    pub mode: String,
+    pub title: String,
+    pub session_id: String,
+    pub source_agent: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub codex_config_dir: String,
     pub claude_config_dir: String,

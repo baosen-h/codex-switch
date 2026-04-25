@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentKind, SessionMessage, SessionRecord } from "../types";
+import type { AgentKind, HandoffMode, HandoffPreview, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatConversationTime, timeAgo } from "../utils/time";
 
@@ -16,10 +16,26 @@ const PixelX = () => (
   </svg>
 );
 
+const CopyIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+  </svg>
+);
+
+const TerminalIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </svg>
+);
+
 interface SessionsPageProps {
   sessions: SessionRecord[];
+  onBuildHandoff: (sourcePath: string, mode: HandoffMode) => Promise<HandoffPreview>;
   onLoadMessages: (sourcePath: string) => Promise<SessionMessage[]>;
   onDelete: (session: SessionRecord) => Promise<void>;
+  onNotify: (message: string, type: "ok" | "err") => void;
 }
 
 type AgentFilter = AgentKind | "all";
@@ -45,23 +61,44 @@ async function copyText(value: string) {
   }
 }
 
-export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPageProps) {
+export function SessionsPage({
+  sessions,
+  onBuildHandoff,
+  onLoadMessages,
+  onDelete,
+  onNotify,
+}: SessionsPageProps) {
   const { t, lang } = useI18n();
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState<AgentFilter>("all");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMessages, setSelectedMessages] = useState<SessionMessage[]>([]);
+  const [copyMenuSessionId, setCopyMenuSessionId] = useState<string | null>(null);
+  const [copyingHandoffKey, setCopyingHandoffKey] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_BATCH);
   const deferredQuery = useDeferredValue(query);
   const messageCache = useRef<Map<string, SessionMessage[]>>(new Map());
+  const handoffCache = useRef<Map<string, HandoffPreview>>(new Map());
   const roleLabels: Record<string, string> = {
     user: t("roleUser"),
     assistant: t("roleAI"),
     tool: t("roleTool"),
     system: t("roleSystem"),
   };
+  const handoffChoices: Array<{ mode: HandoffMode; title: string; description: string }> = [
+    {
+      mode: "fast",
+      title: t("handoffFast"),
+      description: t("handoffFastHint"),
+    },
+    {
+      mode: "slow",
+      title: t("handoffSlow"),
+      description: t("handoffSlowHint"),
+    },
+  ];
 
   const shouldShowMessageTime = (
     current: SessionMessage,
@@ -175,6 +212,30 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
     }
   };
 
+  const handoffCacheKey = (session: SessionRecord, mode: HandoffMode) =>
+    `${session.sessionId}:${session.lastActiveAt}:${mode}`;
+
+  const handleCopyHandoff = async (session: SessionRecord, mode: HandoffMode) => {
+    const cacheKey = handoffCacheKey(session, mode);
+    const progressKey = `${session.id}:${mode}`;
+    setCopyMenuSessionId(null);
+    setCopyingHandoffKey(progressKey);
+    try {
+      const preview =
+        handoffCache.current.get(cacheKey) ?? (await onBuildHandoff(session.sourcePath, mode));
+      handoffCache.current.set(cacheKey, preview);
+      await copyText(preview.content);
+      onNotify(t("handoffCopied"), "ok");
+    } catch (caught) {
+      onNotify(
+        caught instanceof Error ? caught.message : t("handoffGenerateError"),
+        "err",
+      );
+    } finally {
+      setCopyingHandoffKey((current) => (current === progressKey ? null : current));
+    }
+  };
+
   return (
     <section className="page">
       <article className="card session-connected-card">
@@ -211,6 +272,10 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
               visibleSessions.map((session) => {
                 const isSelected = selectedSession?.id === session.id;
                 const isPendingDelete = pendingDeleteId === session.id;
+                const activeHandoffMode = copyingHandoffKey?.startsWith(`${session.id}:`)
+                  ? copyingHandoffKey.split(":")[1]
+                  : null;
+                const isCopyMenuOpen = copyMenuSessionId === session.id;
 
                 return (
                   <div
@@ -246,12 +311,21 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                         onKeyDown={(e) => e.key === "Enter" && setSelectedSessionId(session.id)}
                       >
                         <div className="session-row">
-                          <div>
-                            <strong>{session.title || "Untitled session"}</strong>
+                          <div className="session-info">
+                            <div className="session-header">
+                              <strong>{session.title || "Untitled session"}</strong>
+                              <div className="session-badges">
+                                <span className="session-badge session-badge--agent">{session.providerName}</span>
+                                <span className="session-badge session-badge--count">{session.messageCount} {t("messagesSuffix")}</span>
+                                {session.lastActiveAt ? (
+                                  <span className="session-badge session-badge--time">{timeAgo(session.lastActiveAt, lang)}</span>
+                                ) : null}
+                              </div>
+                            </div>
                             <p>{session.workspacePath}</p>
-                            <div className="session-command-row">
+                            <div className="session-actions-row">
                               <button
-                                className="session-command-line"
+                                className="session-action-btn session-action-btn--resume"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   void copyText(session.resumeCommand);
@@ -259,27 +333,58 @@ export function SessionsPage({ sessions, onLoadMessages, onDelete }: SessionsPag
                                 type="button"
                                 title={session.resumeCommand}
                               >
-                                {session.resumeCommand}
+                                <TerminalIcon />
+                                <span>{session.resumeCommand}</span>
+                                <CopyIcon />
                               </button>
-                              <button
-                                className="session-command-copy"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void copyText(session.resumeCommand);
-                                }}
-                                type="button"
-                                title={t("copyResume")}
-                              >
-                                ⧉
-                              </button>
+                              <div className="session-handoff-row" onClick={(e) => e.stopPropagation()}>
+                                {activeHandoffMode ? (
+                                  <div className="session-handoff-progress" aria-label={t("loadingHandoff")}>
+                                    <span className="session-handoff-progress-bar" />
+                                    <span className="session-handoff-progress-label">{t("handoffPreparing")}</span>
+                                  </div>
+                                ) : isCopyMenuOpen ? (
+                                  <div className="session-handoff-pills">
+                                    {handoffChoices.map((choice) => (
+                                      <button
+                                        key={choice.mode}
+                                        className={`session-handoff-pill session-handoff-pill--${choice.mode}`}
+                                        onClick={() => void handleCopyHandoff(session, choice.mode)}
+                                        type="button"
+                                        title={choice.description}
+                                      >
+                                        <span className="session-handoff-pill-icon">
+                                          {choice.mode === "fast" ? "⚡" : "📋"}
+                                        </span>
+                                        <span className="session-handoff-pill-label">{choice.title}</span>
+                                      </button>
+                                    ))}
+                                    <button
+                                      className="session-handoff-pill-close"
+                                      onClick={() => setCopyMenuSessionId(null)}
+                                      type="button"
+                                      title="Cancel"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    className="session-handoff-trigger"
+                                    onClick={() =>
+                                      setCopyMenuSessionId((current) =>
+                                        current === session.id ? null : session.id,
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    {t("copyHandoff")}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="session-meta">
-                            <span>{session.providerName}</span>
-                            <small>{session.messageCount} {t("messagesSuffix")}</small>
-                            {session.lastActiveAt ? (
-                              <small>{timeAgo(session.lastActiveAt, lang)}</small>
-                            ) : null}
                             <button
                               className="session-delete-btn"
                               onClick={(e) => {

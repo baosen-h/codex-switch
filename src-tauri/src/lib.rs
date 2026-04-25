@@ -2,13 +2,15 @@ mod agent_writer;
 mod commands;
 mod database;
 mod error;
+mod handoff;
 mod models;
 mod session_manager;
 
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
-    activate_provider, delete_provider, delete_session, get_dashboard, get_session_messages,
-    launch_codex, open_external_url, pick_directory, save_provider, save_settings, AppState,
+    activate_provider, build_session_handoff, delete_provider, delete_session, get_dashboard,
+    get_session_messages, launch_codex, open_external_url, pick_directory, save_provider,
+    save_settings, AppState,
 };
 use models::Provider;
 use std::sync::Mutex;
@@ -78,6 +80,7 @@ pub fn run() {
             activate_provider,
             launch_codex,
             get_session_messages,
+            build_session_handoff,
             delete_session,
             open_external_url,
             pick_directory,

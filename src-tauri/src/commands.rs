@@ -4,7 +4,10 @@ use crate::agent_writer::{
 };
 use crate::database::Database;
 use crate::error::AppError;
-use crate::models::{AppSettings, DashboardState, LaunchRequest, Provider, SessionMessage};
+use crate::handoff;
+use crate::models::{
+    AppSettings, DashboardState, HandoffPreview, LaunchRequest, Provider, SessionMessage,
+};
 use crate::session_manager;
 use std::path::PathBuf;
 use std::process::Command;
@@ -167,22 +170,33 @@ pub fn save_settings(
 #[tauri::command]
 pub fn get_session_messages(source_path: String) -> Result<Vec<SessionMessage>, String> {
     let path = PathBuf::from(&source_path);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let in_claude = path
-        .components()
-        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
+    session_manager::session_messages_for_path(&path).map_err(|e| e.to_string())
+}
 
-    if ext == "json" {
-        return session_manager::load_gemini_messages(&path).map_err(|e| e.to_string());
-    }
-    if in_claude {
-        return session_manager::load_claude_messages(&path).map_err(|e| e.to_string());
-    }
-    session_manager::load_codex_messages(&path).map_err(|e| e.to_string())
+#[tauri::command]
+pub fn build_session_handoff(
+    state: State<'_, AppState>,
+    source_path: String,
+    mode: String,
+) -> Result<HandoffPreview, String> {
+    let path = PathBuf::from(&source_path);
+    let use_codex_provider = mode.trim().eq_ignore_ascii_case("slow");
+    let source_record = if use_codex_provider {
+        None
+    } else {
+        Some(session_manager::session_record_for_path(&path).map_err(|e| e.to_string())?)
+    };
+    let provider_agent = source_record
+        .as_ref()
+        .map(|record| record.agent.as_str())
+        .unwrap_or(AGENT_CODEX);
+    let provider = state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .current_provider_for_agent(provider_agent)
+        .ok();
+    handoff::build_session_handoff(&path, &mode, provider.as_ref())
 }
 
 #[tauri::command]

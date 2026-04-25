@@ -319,9 +319,9 @@ input:focus, textarea:focus, select:focus {
 /* ── Floating toast ─────────────────────────────────────────────── */
 .floating-toast {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  right: 1.4rem;
+  bottom: 1.4rem;
+  transform: none;
   z-index: 200;
   padding: 0.55rem 0.9rem;
   font-family: var(--mono);
@@ -336,13 +336,17 @@ input:focus, textarea:focus, select:focus {
 }
 .floating-toast-ok  { background: rgba(95,173,86,0.12);  color: #7cd673; border-color: var(--g); }
 .floating-toast-err { background: rgba(217,64,64,0.12);  color: #f07070; border-color: var(--err); }
-@keyframes toast-slide { from { opacity:0; transform: translate(-50%, calc(-50% + 8px)); } to { opacity:1; transform: translate(-50%, -50%); } }
+@keyframes toast-slide { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: none; } }
 
 /* ── Page structure ─────────────────────────────────────────────── */
 .page { display: flex; flex-direction: column; gap: 0.85rem; animation: page-enter 220ms cubic-bezier(0.22, 1, 0.36, 1); }
 @keyframes page-enter {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+@keyframes handoff-progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
 }
 .page-header { flex-shrink: 0; }
 .page-header p { display: none; }
@@ -442,9 +446,7 @@ input:focus, textarea:focus, select:focus {
 
 /* Monospace for data values */
 .session-detail-grid p,
-.resume-command-block code,
-.session-meta span,
-.session-meta small {
+.resume-command-block code {
   font-family: var(--mono);
   font-size: 0.78rem;
 }
@@ -796,37 +798,143 @@ input:focus, textarea:focus, select:focus {
 .session-editor.selected:hover { background: rgba(76,130,255,0.18); }
 
 .session-row {
-  align-items: stretch;
+  align-items: flex-start;
 }
 
-.session-row > div:first-child {
+.session-info {
   min-width: 0;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 0.35rem;
 }
 
-.session-command-row {
+.session-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.session-header strong {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.session-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.session-badge--agent {
+  background: rgba(76, 130, 255, 0.12);
+  color: var(--a);
+  border: 1px solid rgba(76, 130, 255, 0.2);
+}
+
+.session-badge--count {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--t2);
+  border: 1px solid var(--b0);
+}
+
+.session-badge--time {
+  background: transparent;
+  color: var(--t2);
+  border: 1px solid transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.session-actions-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  flex-wrap: wrap;
   min-width: 0;
+}
+
+.session-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 0;
+  border: 1px solid var(--b0);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--t2);
+}
+
+.session-action-btn span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.session-action-btn--resume {
+  color: var(--a);
+  border-color: rgba(76, 130, 255, 0.18);
+  background: rgba(76, 130, 255, 0.04);
+  max-width: 280px;
+}
+
+.session-action-btn--resume:hover {
+  background: rgba(76, 130, 255, 0.12);
+  border-color: rgba(76, 130, 255, 0.35);
+}
+
+.session-action-btn--resume svg:first-child {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.session-action-btn--resume svg:last-child {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.session-action-btn--resume:hover svg:last-child {
+  opacity: 0.7;
 }
 
 .session-delete-btn {
   background: transparent;
-  border: 1px solid var(--b1);
+  border: 1px solid var(--b0);
+  border-radius: 6px;
   color: var(--t2);
-  padding: 3px 5px;
+  padding: 5px 6px;
   line-height: 1;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 1px 1px 0 var(--b0);
-  transition: color 80ms, border-color 80ms, box-shadow 80ms, transform 80ms;
+  transition: all 0.15s ease;
+  opacity: 0.5;
 }
-.session-delete-btn:hover { color: var(--err); border-color: var(--err); box-shadow: 1px 1px 0 rgba(217,64,64,0.4); }
-.session-delete-btn:active { transform: translate(1px,1px); box-shadow: none; }
+.session-editor:hover .session-delete-btn { opacity: 0.8; }
+.session-delete-btn:hover { color: var(--err); border-color: var(--err); background: rgba(255, 91, 91, 0.08); opacity: 1; }
+.session-delete-btn:active { transform: scale(0.92); }
 
 .delete-confirm {
   padding: 0.55rem 0.75rem;
@@ -853,56 +961,165 @@ input:focus, textarea:focus, select:focus {
   font-size: 0.78rem;
 }
 
-/* Text truncation — scope to text nodes only, not pill badges */
-.session-row > div:first-child { min-width: 0; }
-.session-row > div:first-child strong,
-.session-row > div:first-child p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+/* Text truncation */
+.session-info p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 
 .provider-info strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .provider-info p, .provider-info small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .provider-title { display: flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap; margin-bottom: 0.18rem; }
 
-.session-command-line {
-  flex: 1;
-  text-align: left;
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--a);
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.session-command-line:hover {
-  color: #86a8ff;
-  text-decoration: underline;
+.session-handoff-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
-.session-command-copy {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  border: 1px solid var(--b1);
-  background: transparent;
-  color: var(--t2);
-  border-radius: 0;
-}
-.session-command-copy:hover {
+.session-handoff-trigger {
+  border: 1px solid var(--a);
+  background: rgba(76, 130, 255, 0.08);
   color: var(--a);
+  padding: 0.3rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-handoff-trigger:hover {
+  background: rgba(76, 130, 255, 0.18);
+  border-color: #6b9aff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(76, 130, 255, 0.2);
+}
+
+/* ── Handoff pill buttons ──────────────────────────────────────── */
+.session-handoff-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  animation: handoff-pills-in 0.18s ease-out;
+}
+
+@keyframes handoff-pills-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.session-handoff-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.session-handoff-pill--fast {
+  background: rgba(76, 130, 255, 0.12);
+  color: #6b9aff;
+  border-color: rgba(76, 130, 255, 0.25);
+}
+
+.session-handoff-pill--fast:hover {
+  background: rgba(76, 130, 255, 0.22);
   border-color: var(--a);
+  box-shadow: 0 4px 14px rgba(76, 130, 255, 0.18);
+  transform: translateY(-1px);
+}
+
+.session-handoff-pill--slow {
+  background: rgba(87, 208, 136, 0.1);
+  color: var(--g);
+  border-color: rgba(87, 208, 136, 0.22);
+}
+
+.session-handoff-pill--slow:hover {
+  background: rgba(87, 208, 136, 0.2);
+  border-color: var(--g);
+  box-shadow: 0 4px 14px rgba(87, 208, 136, 0.16);
+  transform: translateY(-1px);
+}
+
+.session-handoff-pill-icon {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.session-handoff-pill-label {
+  line-height: 1;
+}
+
+.session-handoff-pill-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--t2);
+  font-size: 0.65rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-handoff-pill-close:hover {
+  background: rgba(255, 91, 91, 0.15);
+  color: var(--err);
+}
+
+/* ── Progress indicator ────────────────────────────────────────── */
+.session-handoff-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.session-handoff-progress-bar {
+  position: relative;
+  flex: 0 0 80px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(76, 130, 255, 0.12);
+}
+
+.session-handoff-progress-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--a), transparent);
+  animation: handoff-progress 1.15s ease-in-out infinite;
+}
+
+.session-handoff-progress-label {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--t2);
+  animation: handoff-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes handoff-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
 }
 
 .session-meta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.15rem;
+  align-items: flex-start;
   flex-shrink: 0;
-  color: var(--t2);
+  padding-top: 0.15rem;
 }
 
 /* ── Session detail ─────────────────────────────────────────────── */

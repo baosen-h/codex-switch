@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppSettings,
   DashboardState,
+  HandoffMode,
+  HandoffPreview,
   LaunchRequest,
   Provider,
   SessionMessage,
@@ -25,6 +27,9 @@ export const appApi = {
   },
   getSessionMessages(sourcePath: string): Promise<SessionMessage[]> {
     return invoke("get_session_messages", { sourcePath });
+  },
+  buildSessionHandoff(sourcePath: string, mode: HandoffMode): Promise<HandoffPreview> {
+    return invoke("build_session_handoff", { sourcePath, mode });
   },
   deleteSession(sourcePath: string): Promise<boolean> {
     return invoke("delete_session", { sourcePath });

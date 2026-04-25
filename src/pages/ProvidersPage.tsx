@@ -37,7 +37,12 @@ const BackIcon = () => (
   </svg>
 );
 
-export function ProvidersPage({ providers, onSave, onDelete, onActivate }: ProvidersPageProps) {
+export function ProvidersPage({
+  providers,
+  onSave,
+  onDelete,
+  onActivate,
+}: ProvidersPageProps) {
   const { t } = useI18n();
   const [view, setView] = useState<"list" | "form">("list");
   const [draft, setDraft] = useState<Provider>(emptyProvider);
