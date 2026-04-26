@@ -13,7 +13,7 @@ use commands::{
     save_settings, AppState,
 };
 use models::Provider;
-use std::sync::Mutex;
+use std::{sync::Mutex, thread, time::Duration};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -106,13 +106,25 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id().as_ref().to_string();
     match id.as_str() {
         TRAY_SHOW_ID => show_main_window(app),
-        TRAY_QUIT_ID => app.exit(0),
+        TRAY_QUIT_ID => quit_app(app),
         other => {
             if let Some(provider_id) = other.strip_prefix(TRAY_PROVIDER_PREFIX) {
                 activate_provider_from_tray(app, provider_id);
             }
         }
     }
+}
+
+fn quit_app(app: &AppHandle) {
+    remove_tray_icon(app);
+    app.exit(0);
+}
+
+fn remove_tray_icon(app: &AppHandle) {
+    let holder: State<'_, TrayHolder> = app.state();
+    let tray = holder.0.lock().ok().and_then(|mut guard| guard.take());
+    drop(tray);
+    thread::sleep(Duration::from_millis(80));
 }
 
 fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
