@@ -84,7 +84,7 @@ pub fn run() {
             delete_session,
             open_external_url,
             pick_directory,
-            save_settings
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch");

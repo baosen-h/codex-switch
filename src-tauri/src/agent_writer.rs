@@ -83,8 +83,6 @@ fn build_codex_toml(provider: &Provider) -> String {
     lines.push("disable_response_storage = true".to_string());
 
     if has_custom {
-        lines.push("model_context_window = 1000000".to_string());
-        lines.push("model_auto_compact_token_limit = 900000".to_string());
         lines.push("[model_providers]".to_string());
         lines.push("[model_providers.custom]".to_string());
         let name = provider.name.trim();
