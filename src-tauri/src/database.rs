@@ -174,6 +174,7 @@ impl Database {
             terminal_program: self.setting("terminal_program")?,
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
             language: self.setting("language")?,
+            background_color: self.setting("background_color")?,
             theme: self.setting("theme")?,
         })
     }
@@ -193,6 +194,7 @@ impl Database {
             },
         )?;
         self.set_setting("language", settings.language.clone())?;
+        self.set_setting("background_color", settings.background_color.clone())?;
         self.set_setting("theme", settings.theme.clone())?;
         self.settings()
     }
@@ -305,7 +307,14 @@ impl Database {
         self.ensure_setting("terminal_program", "pwsh".to_string())?;
         self.ensure_setting("auto_record_sessions", "true".to_string())?;
         self.ensure_setting("language", "en".to_string())?;
-        self.ensure_setting("theme", "system".to_string())?;
+        self.ensure_setting("background_color", "system".to_string())?;
+        self.ensure_setting("theme", "anime".to_string())?;
+
+        let theme = self.setting("theme")?;
+        if matches!(theme.as_str(), "system" | "dark" | "light") {
+            self.set_setting("background_color", theme)?;
+            self.set_setting("theme", "anime".to_string())?;
+        }
 
         Ok(())
     }

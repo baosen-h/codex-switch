@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { appApi } from "../api/tauri";
-import type { AppSettings, ThemeMode } from "../types";
+import type { AppSettings, AppTheme, BackgroundColorMode } from "../types";
 import { useI18n } from "../i18n/context";
-import { switchThemeWithReveal } from "../utils/theme";
+import { applyTheme, switchBackgroundColorWithReveal } from "../utils/theme";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -41,10 +41,16 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
     void onSave(next);
   };
 
-  const handleThemeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const mode = event.target.value as ThemeMode;
+  const handleBackgroundColorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const mode = event.target.value as BackgroundColorMode;
     const rect = event.currentTarget.getBoundingClientRect();
-    switchThemeWithReveal(mode, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    switchBackgroundColorWithReveal(mode, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    updateAndSave("backgroundColor", mode);
+  };
+
+  const handleThemeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const mode = event.target.value as AppTheme;
+    applyTheme(mode);
     updateAndSave("theme", mode);
   };
 
@@ -128,11 +134,17 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
             </select>
           </label>
           <label className="field">
+            <span>{t("backgroundColor")}</span>
+            <select value={draft.backgroundColor} onChange={handleBackgroundColorChange}>
+              <option value="system">{t("backgroundAuto")}</option>
+              <option value="dark">{t("backgroundDark")}</option>
+              <option value="light">{t("backgroundLight")}</option>
+            </select>
+          </label>
+          <label className="field">
             <span>{t("theme")}</span>
             <select value={draft.theme} onChange={handleThemeChange}>
-              <option value="system">{t("themeSystem")}</option>
-              <option value="dark">{t("themeDark")}</option>
-              <option value="light">{t("themeLight")}</option>
+              <option value="anime">{t("themeAnime")}</option>
             </select>
           </label>
           <label className="checkbox-field">

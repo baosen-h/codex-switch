@@ -68,6 +68,7 @@ pub struct AppSettings {
     pub terminal_program: String,
     pub auto_record_sessions: bool,
     pub language: String,
+    pub background_color: String,
     pub theme: String,
 }
 

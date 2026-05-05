@@ -53,10 +53,20 @@ export function Sidebar({ activePage, onSelect }: SidebarProps) {
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="#0d0d15" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <rect x="4" y="1" width="12" height="3"/>
-            <rect x="1" y="4" width="5" height="12"/>
-            <rect x="4" y="16" width="12" height="3"/>
+          <svg width="31" height="31" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path
+              d="M17.5 5H9.25C6.9 5 5 6.9 5 9.25v5.5C5 17.1 6.9 19 9.25 19h8.25"
+              stroke="currentColor"
+              strokeLinecap="square"
+              strokeLinejoin="miter"
+              strokeWidth="3"
+            />
+            <path
+              d="M11 12h7"
+              stroke="currentColor"
+              strokeLinecap="square"
+              strokeWidth="3"
+            />
           </svg>
         </div>
         <h1>Codex Switch</h1>

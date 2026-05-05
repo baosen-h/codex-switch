@@ -1,6 +1,6 @@
-import type { ThemeMode } from "../types";
+import type { AppTheme, BackgroundColorMode } from "../types";
 
-export function applyTheme(mode: ThemeMode): void {
+export function applyBackgroundColor(mode: BackgroundColorMode): void {
   const root = document.documentElement;
   const resolved =
     mode === "system"
@@ -8,12 +8,20 @@ export function applyTheme(mode: ThemeMode): void {
         ? "light"
         : "dark"
       : mode;
-  root.dataset.theme = resolved;
+  root.dataset.backgroundColor = resolved;
+}
+
+export function applyTheme(theme: AppTheme): void {
+  document.documentElement.dataset.theme = theme;
 }
 
 type StartViewTransition = (callback: () => void) => { finished: Promise<void> };
 
-export function switchThemeWithReveal(mode: ThemeMode, originX: number, originY: number): void {
+export function switchBackgroundColorWithReveal(
+  mode: BackgroundColorMode,
+  originX: number,
+  originY: number,
+): void {
   const root = document.documentElement;
   root.style.setProperty("--reveal-x", `${originX}px`);
   root.style.setProperty("--reveal-y", `${originY}px`);
@@ -22,8 +30,8 @@ export function switchThemeWithReveal(mode: ThemeMode, originX: number, originY:
     .startViewTransition;
 
   if (typeof startViewTransition !== "function") {
-    applyTheme(mode);
+    applyBackgroundColor(mode);
     return;
   }
-  startViewTransition.call(document, () => applyTheme(mode));
+  startViewTransition.call(document, () => applyBackgroundColor(mode));
 }

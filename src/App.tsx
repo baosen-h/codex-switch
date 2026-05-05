@@ -9,7 +9,7 @@ import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
-import { applyTheme } from "./utils/theme";
+import { applyBackgroundColor, applyTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
   providers: [],
@@ -22,7 +22,8 @@ const emptyState: DashboardState = {
     terminalProgram: "pwsh",
     autoRecordSessions: true,
     language: "en",
-    theme: "system",
+    backgroundColor: "system",
+    theme: "anime",
   },
 };
 
@@ -56,7 +57,8 @@ function App() {
   });
 
   const lang: Lang = (data.settings.language as Lang) || "en";
-  const themeMode = data.settings.theme || "system";
+  const backgroundColorMode = data.settings.backgroundColor || "system";
+  const theme = data.settings.theme || "anime";
 
   const refresh = useCallback(async (nextMessage?: string) => {
     try {
@@ -78,13 +80,17 @@ function App() {
   }, [refresh]);
 
   useEffect(() => {
-    applyTheme(themeMode);
-    if (themeMode !== "system") return;
+    applyTheme(theme);
+  }, [theme]);
+
+  useEffect(() => {
+    applyBackgroundColor(backgroundColorMode);
+    if (backgroundColorMode !== "system") return;
     const media = window.matchMedia("(prefers-color-scheme: light)");
-    const listener = () => applyTheme("system");
+    const listener = () => applyBackgroundColor("system");
     media.addEventListener("change", listener);
     return () => media.removeEventListener("change", listener);
-  }, [themeMode]);
+  }, [backgroundColorMode]);
 
   const runAction = async <T,>(
     action: () => Promise<T>,

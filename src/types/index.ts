@@ -50,7 +50,8 @@ export interface HandoffPreview {
   content: string;
 }
 
-export type ThemeMode = "system" | "dark" | "light";
+export type BackgroundColorMode = "system" | "dark" | "light";
+export type AppTheme = "anime";
 
 export interface AppSettings {
   codexConfigDir: string;
@@ -60,7 +61,8 @@ export interface AppSettings {
   terminalProgram: string;
   autoRecordSessions: boolean;
   language: string;
-  theme: ThemeMode;
+  backgroundColor: BackgroundColorMode;
+  theme: AppTheme;
 }
 
 export interface DashboardState {
