@@ -6,12 +6,18 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    AppSettings, DashboardState, HandoffPreview, LaunchRequest, Provider, SessionMessage,
+    AppSettings, DashboardState, HandoffPreview, LaunchRequest, ModelListRequest, Provider,
+    RemoteModel, SessionMessage,
 };
 use crate::session_manager;
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use serde_json::Value;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 pub struct AppState {
@@ -122,6 +128,52 @@ pub fn activate_provider(
     notify_tray(&app);
 
     Ok(provider)
+}
+
+#[tauri::command]
+pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
+    let url = model_list_url(&request.base_url)?;
+    let api_key = request.api_key.trim();
+
+    let mut headers = HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_static("application/json"));
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static("codex-switch/0.1.3"),
+    );
+
+    if !api_key.is_empty() {
+        let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
+            .map_err(|error| format!("Invalid API key header: {error}"))?;
+        let x_api_key = HeaderValue::from_str(api_key)
+            .map_err(|error| format!("Invalid API key header: {error}"))?;
+        headers.insert(AUTHORIZATION, bearer);
+        headers.insert("X-Api-Key", x_api_key);
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = client
+        .get(&url)
+        .headers(headers)
+        .send()
+        .map_err(|error| format!("Failed to fetch model list: {error}"))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .map_err(|error| format!("Failed to parse model list response: {error}"))?;
+
+    if !status.is_success() {
+        return Err(extract_api_error(&body).unwrap_or_else(|| {
+            format!("Model list request failed with HTTP status {status}")
+        }));
+    }
+
+    Ok(extract_models(&body))
 }
 
 #[tauri::command]
@@ -287,6 +339,107 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 #[tauri::command]
 pub fn pick_directory(_initial_path: Option<String>) -> Result<Option<String>, String> {
     Err("Folder picker is only implemented on Windows in this build.".to_string())
+}
+
+fn model_list_url(base_url: &str) -> Result<String, String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Base URL is empty".to_string());
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let base = if let Some(prefix) = lower.strip_suffix("/chat/completions") {
+        &trimmed[..prefix.len()]
+    } else if let Some(prefix) = lower.strip_suffix("/responses") {
+        &trimmed[..prefix.len()]
+    } else {
+        trimmed
+    };
+
+    let lower_base = base.to_ascii_lowercase();
+    if lower_base.ends_with("/models") {
+        Ok(base.to_string())
+    } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
+        Ok(format!("{base}/models"))
+    } else {
+        Ok(format!("{base}/v1/models"))
+    }
+}
+
+fn extract_api_error(value: &Value) -> Option<String> {
+    value
+        .pointer("/error/message")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("message").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn extract_models(value: &Value) -> Vec<RemoteModel> {
+    let candidates = value
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| value.get("models").and_then(Value::as_array));
+
+    let mut seen = HashSet::new();
+    let mut models = Vec::new();
+
+    if let Some(items) = candidates {
+        for item in items {
+            if let Some(model) = model_from_value(item) {
+                if seen.insert(model.id.clone()) {
+                    models.push(model);
+                }
+            }
+        }
+        return models;
+    }
+
+    if let Some(items) = value.as_array() {
+        for item in items {
+            if let Some(model) = model_from_value(item) {
+                if seen.insert(model.id.clone()) {
+                    models.push(model);
+                }
+            }
+        }
+    }
+
+    models
+}
+
+fn model_from_value(value: &Value) -> Option<RemoteModel> {
+    if let Some(id) = value.as_str().map(str::trim).filter(|id| !id.is_empty()) {
+        return Some(RemoteModel {
+            id: id.to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+        });
+    }
+
+    let id = first_string(value, &["id", "model", "name", "model_id"])?;
+    let name =
+        first_string(value, &["display_name", "displayName", "model_name"]).filter(|name| name != &id);
+    let owned_by = first_string(value, &["owned_by", "ownedBy", "organization", "publisher"]);
+    let description = first_string(value, &["description", "summary", "desc"]);
+
+    Some(RemoteModel {
+        id,
+        name,
+        owned_by,
+        description,
+    })
+}
+
+fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    })
 }
 
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {

@@ -5,7 +5,9 @@ import type {
   HandoffMode,
   HandoffPreview,
   LaunchRequest,
+  ModelListRequest,
   Provider,
+  RemoteModel,
   SessionMessage,
 } from "../types";
 
@@ -21,6 +23,9 @@ export const appApi = {
   },
   activateProvider(id: string): Promise<Provider> {
     return invoke("activate_provider", { id });
+  },
+  listProviderModels(request: ModelListRequest): Promise<RemoteModel[]> {
+    return invoke("list_provider_models", { request });
   },
   launchCodex(payload: LaunchRequest): Promise<boolean> {
     return invoke("launch_codex", { request: payload });

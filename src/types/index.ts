@@ -16,6 +16,18 @@ export interface Provider {
   updatedAt: string;
 }
 
+export interface ModelListRequest {
+  baseUrl: string;
+  apiKey: string;
+}
+
+export interface RemoteModel {
+  id: string;
+  name?: string;
+  ownedBy?: string;
+  description?: string;
+}
+
 export interface SessionRecord {
   id: string;
   providerId: string;
