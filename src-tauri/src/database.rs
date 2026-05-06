@@ -2,7 +2,7 @@ use crate::agent_writer::{
     default_claude_config_dir, default_codex_config_dir, default_gemini_config_dir,
 };
 use crate::error::AppError;
-use crate::models::{AppSettings, DashboardState, Provider, SessionRecord};
+use crate::models::{ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord};
 use crate::session_manager;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
@@ -28,9 +28,11 @@ impl Database {
 
     pub fn dashboard(&self) -> Result<DashboardState, AppError> {
         let settings = self.settings()?;
+        let api_providers = self.api_providers()?;
         let providers = self.providers()?;
 
         Ok(DashboardState {
+            api_providers,
             sessions: self.live_sessions(&settings.codex_config_dir),
             providers,
             settings,
@@ -40,7 +42,7 @@ impl Database {
     pub fn providers(&self) -> Result<Vec<Provider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
             FROM providers
             ORDER BY is_current DESC, updated_at DESC
             "#,
@@ -54,7 +56,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+                SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
                 FROM providers
                 WHERE id = ?1
                 "#,
@@ -91,11 +93,12 @@ impl Database {
         self.connection.execute(
             r#"
             INSERT INTO providers (
-              id, name, agent, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?11, ?12)
+              id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?12, ?13)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               agent = excluded.agent,
+              api_provider_id = excluded.api_provider_id,
               base_url = excluded.base_url,
               api_key = excluded.api_key,
               website_url = excluded.website_url,
@@ -109,6 +112,7 @@ impl Database {
                 provider_id,
                 provider.name.trim(),
                 agent,
+                provider.api_provider_id.trim(),
                 provider.base_url.trim(),
                 provider.api_key.trim(),
                 provider.website_url.trim(),
@@ -122,6 +126,95 @@ impl Database {
         )?;
 
         self.provider_by_id(&provider_id)
+    }
+
+    pub fn api_providers(&self) -> Result<Vec<ApiProvider>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            FROM api_providers
+            ORDER BY enabled DESC, updated_at DESC, name ASC
+            "#,
+        )?;
+
+        let rows = statement.query_map([], map_api_provider)?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn api_provider_by_id(&self, id: &str) -> Result<ApiProvider, AppError> {
+        self.connection
+            .query_row(
+                r#"
+                SELECT id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+                FROM api_providers
+                WHERE id = ?1
+                "#,
+                params![id],
+                map_api_provider,
+            )
+            .map_err(AppError::from)
+    }
+
+    pub fn save_api_provider(&self, provider: ApiProvider) -> Result<ApiProvider, AppError> {
+        let now = current_time_string();
+        let provider_id = if provider.id.trim().is_empty() {
+            format!("api-provider-{}", Uuid::new_v4())
+        } else {
+            provider.id.clone()
+        };
+
+        let created_at = self
+            .connection
+            .query_row(
+                "SELECT created_at FROM api_providers WHERE id = ?1",
+                params![provider_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| now.clone());
+        let models_json =
+            serde_json::to_string(&provider.models).unwrap_or_else(|_| "[]".to_string());
+
+        self.connection.execute(
+            r#"
+            INSERT INTO api_providers (
+              id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              provider_type = excluded.provider_type,
+              base_url = excluded.base_url,
+              api_key = excluded.api_key,
+              website_url = excluded.website_url,
+              models_json = excluded.models_json,
+              enabled = excluded.enabled,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                provider_id,
+                provider.name.trim(),
+                normalized_api_provider_type(&provider.provider_type),
+                provider.base_url.trim(),
+                provider.api_key.trim(),
+                provider.website_url.trim(),
+                models_json,
+                if provider.enabled { 1 } else { 0 },
+                created_at,
+                now,
+            ],
+        )?;
+
+        self.api_provider_by_id(&provider_id)
+    }
+
+    pub fn delete_api_provider(&self, id: &str) -> Result<bool, AppError> {
+        self.connection
+            .execute("DELETE FROM api_providers WHERE id = ?1", params![id])?;
+        self.connection.execute(
+            "UPDATE providers SET api_provider_id = '' WHERE api_provider_id = ?1",
+            params![id],
+        )?;
+        Ok(true)
     }
 
     pub fn delete_provider(&self, id: &str) -> Result<bool, AppError> {
@@ -242,6 +335,7 @@ impl Database {
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               agent TEXT NOT NULL DEFAULT 'codex',
+              api_provider_id TEXT NOT NULL DEFAULT '',
               base_url TEXT NOT NULL DEFAULT '',
               api_key TEXT NOT NULL DEFAULT '',
               website_url TEXT NOT NULL DEFAULT '',
@@ -258,6 +352,19 @@ impl Database {
               key TEXT PRIMARY KEY,
               value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS api_providers (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              provider_type TEXT NOT NULL DEFAULT 'openai-compatible',
+              base_url TEXT NOT NULL DEFAULT '',
+              api_key TEXT NOT NULL DEFAULT '',
+              website_url TEXT NOT NULL DEFAULT '',
+              models_json TEXT NOT NULL DEFAULT '[]',
+              enabled INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -267,6 +374,12 @@ impl Database {
             "providers",
             "agent",
             "TEXT NOT NULL DEFAULT 'codex'",
+        )?;
+        ensure_column(
+            &self.connection,
+            "providers",
+            "api_provider_id",
+            "TEXT NOT NULL DEFAULT ''",
         )?;
         ensure_column(
             &self.connection,
@@ -288,8 +401,13 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_providers_updated_at
             ON providers(updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_api_providers_updated_at
+            ON api_providers(updated_at DESC);
             "#,
         )?;
+
+        self.seed_api_providers_from_agent_configs()?;
 
         self.ensure_setting(
             "codex_config_dir",
@@ -316,6 +434,35 @@ impl Database {
             self.set_setting("theme", "anime".to_string())?;
         }
 
+        Ok(())
+    }
+
+    fn seed_api_providers_from_agent_configs(&self) -> Result<(), AppError> {
+        self.connection.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO api_providers (
+              id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            )
+            SELECT
+              'api-from-' || id,
+              name,
+              'openai-compatible',
+              base_url,
+              api_key,
+              website_url,
+              '[]',
+              1,
+              created_at,
+              updated_at
+            FROM providers
+            WHERE trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '';
+
+            UPDATE providers
+            SET api_provider_id = 'api-from-' || id
+            WHERE trim(api_provider_id) = ''
+              AND (trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '');
+            "#,
+        )?;
         Ok(())
     }
 
@@ -384,15 +531,43 @@ fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {
         id: row.get(0)?,
         name: row.get(1)?,
         agent: row.get(2)?,
+        api_provider_id: row.get(3)?,
+        base_url: row.get(4)?,
+        api_key: row.get(5)?,
+        website_url: row.get(6)?,
+        model: row.get(7)?,
+        reasoning_effort: row.get(8)?,
+        extra_toml: row.get(9)?,
+        config_text: row.get(10)?,
+        is_current: row.get::<_, i64>(11)? == 1,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
+    })
+}
+
+fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Error> {
+    let models_json: String = row.get(6)?;
+    let models: Vec<RemoteModel> = serde_json::from_str(&models_json).unwrap_or_default();
+
+    Ok(ApiProvider {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        provider_type: row.get(2)?,
         base_url: row.get(3)?,
         api_key: row.get(4)?,
         website_url: row.get(5)?,
-        model: row.get(6)?,
-        reasoning_effort: row.get(7)?,
-        extra_toml: row.get(8)?,
-        config_text: row.get(9)?,
-        is_current: row.get::<_, i64>(10)? == 1,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        models,
+        enabled: row.get::<_, i64>(7)? == 1,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
+}
+
+fn normalized_api_provider_type(provider_type: &str) -> String {
+    let trimmed = provider_type.trim();
+    if trimmed.is_empty() {
+        "openai-compatible".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }

@@ -1,25 +1,38 @@
 import { useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
-import type { AgentKind, Provider, RemoteModel } from "../types";
+import type { ApiProvider, ApiProviderType, RemoteModel } from "../types";
 import { useI18n } from "../i18n/context";
-import { iconForAgent } from "../components/BrandIcons";
-import {
-  agentTabs,
-  defaultModelForAgent,
-  emptyProvider,
-  patchProviderPreviewField,
-  patchProviderPreviewFromFields,
-  providerEndpointLabel,
-  renderInstructionTemplate,
-  renderProviderPreview,
-} from "../utils/providerConfig";
 
 interface ProvidersPageProps {
-  providers: Provider[];
-  onSave: (provider: Provider) => Promise<void>;
+  providers: ApiProvider[];
+  onSave: (provider: ApiProvider) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onActivate: (id: string) => Promise<void>;
+  onNotify: (message: string, type: "ok" | "err") => void;
 }
+
+const providerTypes: Array<{ value: ApiProviderType; label: string; baseUrl: string; websiteUrl: string }> = [
+  { value: "openai-compatible", label: "OpenAI Compatible", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
+  { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", websiteUrl: "https://platform.openai.com" },
+  { value: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", websiteUrl: "https://console.anthropic.com" },
+  { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", websiteUrl: "https://aistudio.google.com" },
+  { value: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", websiteUrl: "https://openrouter.ai" },
+  { value: "new-api", label: "New API", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
+  { value: "ollama", label: "Ollama", baseUrl: "http://localhost:11434/v1", websiteUrl: "https://ollama.com" },
+  { value: "huggingface", label: "Hugging Face", baseUrl: "https://router.huggingface.co/v1", websiteUrl: "https://huggingface.co" },
+];
+
+const emptyApiProvider: ApiProvider = {
+  id: "",
+  name: "",
+  providerType: "openai-compatible",
+  baseUrl: "",
+  apiKey: "",
+  websiteUrl: "",
+  models: [],
+  enabled: true,
+  createdAt: "",
+  updatedAt: "",
+};
 
 const AddIcon = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
@@ -47,120 +60,60 @@ const RefreshIcon = () => (
   </svg>
 );
 
-const ChevronDownIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-    <path d="M3.5 5.25 7 8.75l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
-
-export function ProvidersPage({
-  providers,
-  onSave,
-  onDelete,
-  onActivate,
-}: ProvidersPageProps) {
+export function ProvidersPage({ providers, onSave, onDelete, onNotify }: ProvidersPageProps) {
   const { t } = useI18n();
   const [view, setView] = useState<"list" | "form">("list");
-  const [draft, setDraft] = useState<Provider>(emptyProvider);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [activeAgent, setActiveAgent] = useState<AgentKind>("codex");
-  const [modelOptions, setModelOptions] = useState<RemoteModel[]>([]);
-  const [modelSearch, setModelSearch] = useState("");
-  const [isModelListOpen, setIsModelListOpen] = useState(false);
+  const [draft, setDraft] = useState<ApiProvider>(emptyApiProvider);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
 
   const sortedProviders = useMemo(
     () =>
       [...providers].sort((a, b) => {
-        if (a.isCurrent && !b.isCurrent) return -1;
-        if (!a.isCurrent && b.isCurrent) return 1;
+        if (a.enabled && !b.enabled) return -1;
+        if (!a.enabled && b.enabled) return 1;
         return a.name.localeCompare(b.name);
       }),
     [providers],
   );
 
-  const tabCounts = useMemo(() => {
-    const counts: Record<AgentKind, number> = { codex: 0, claude: 0, gemini: 0 };
-    providers.forEach((p) => { counts[p.agent]++; });
-    return counts;
-  }, [providers]);
-
-  const visibleProviders = useMemo(
-    () => sortedProviders.filter((p) => p.agent === activeAgent),
-    [sortedProviders, activeAgent],
-  );
-
-  const filteredModelOptions = useMemo(() => {
-    const query = modelSearch.trim().toLowerCase();
-    if (!query) return modelOptions;
-
-    return modelOptions.filter((model) =>
-      [model.id, model.name, model.ownedBy, model.description]
-        .filter(Boolean)
-        .some((value) => value!.toLowerCase().includes(query)),
-    );
-  }, [modelOptions, modelSearch]);
-
-  const openForm = (provider?: Provider) => {
-    const base = provider ?? { ...emptyProvider, agent: activeAgent, model: defaultModelForAgent(activeAgent) };
-    const initial: Provider = {
-      ...base,
-      configText: base.configText || renderProviderPreview(base),
-    };
-    setDraft(initial);
-    setModelOptions([]);
-    setModelSearch("");
-    setIsModelListOpen(false);
+  const openForm = (provider?: ApiProvider) => {
+    setDraft(provider ?? emptyApiProvider);
     setModelListError(null);
-    setShowAdvanced(Boolean(provider));
     setView("form");
   };
 
   const closeForm = () => {
-    setDraft(emptyProvider);
-    setModelOptions([]);
-    setModelSearch("");
-    setIsModelListOpen(false);
+    setDraft(emptyApiProvider);
     setModelListError(null);
-    setShowAdvanced(false);
     setView("list");
   };
 
-  const updateDraft = (field: keyof Provider, value: string) => {
+  const updateDraft = <K extends keyof ApiProvider>(field: K, value: ApiProvider[K]) => {
+    setDraft((current) => ({ ...current, [field]: value }));
     if (field === "baseUrl" || field === "apiKey") {
-      setModelOptions([]);
-      setModelSearch("");
-      setIsModelListOpen(false);
       setModelListError(null);
     }
-
-    setDraft((cur) => {
-      const next = { ...cur, [field]: value };
-      return {
-        ...next,
-        configText: patchProviderPreviewField(next, field, value),
-      };
-    });
   };
 
-  const updatePreview = (value: string) => {
-    setDraft((cur) => ({
-      ...cur,
-      configText: value,
+  const applyProviderType = (providerType: ApiProviderType) => {
+    const preset = providerTypes.find((item) => item.value === providerType);
+    const previousPreset = providerTypes.find((item) => item.value === draft.providerType);
+    setDraft((current) => ({
+      ...current,
+      providerType,
+      baseUrl:
+        !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
+          ? preset?.baseUrl || ""
+          : current.baseUrl,
+      websiteUrl:
+        !current.websiteUrl || current.websiteUrl === previousPreset?.websiteUrl
+          ? preset?.websiteUrl || ""
+          : current.websiteUrl,
     }));
   };
 
-  const resetPreview = () => {
-    setDraft((cur) => ({ ...cur, configText: patchProviderPreviewFromFields(cur) }));
-  };
-
-  const handleSubmit = async () => {
-    await onSave(draft);
-    closeForm();
-  };
-
-  const loadModelOptions = async () => {
+  const refreshModels = async () => {
     if (!draft.baseUrl.trim()) {
       setModelListError(t("modelBaseUrlRequired"));
       return;
@@ -168,21 +121,25 @@ export function ProvidersPage({
 
     setIsLoadingModels(true);
     setModelListError(null);
-    setIsModelListOpen(true);
-
     try {
       const models = await appApi.listProviderModels({
+        providerType: draft.providerType,
         baseUrl: draft.baseUrl,
         apiKey: draft.apiKey,
       });
-      setModelOptions(models);
-      setModelSearch("");
+      setDraft((current) => ({ ...current, models }));
+      onNotify(`${models.length} ${t("modelsLoaded")}`, "ok");
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setModelListError(detail || t("modelListError"));
     } finally {
       setIsLoadingModels(false);
     }
+  };
+
+  const handleSubmit = async () => {
+    await onSave(draft);
+    closeForm();
   };
 
   const openWebsite = async (url: string) => {
@@ -193,12 +150,6 @@ export function ProvidersPage({
     }
   };
 
-  const agentLabel = (agent: AgentKind): string => {
-    if (agent === "claude") return t("agentClaude");
-    if (agent === "gemini") return t("agentGemini");
-    return t("agentCodex");
-  };
-
   if (view === "form") {
     const isEditing = Boolean(draft.id);
     return (
@@ -206,12 +157,8 @@ export function ProvidersPage({
         <article className="card provider-edit-card">
           <div className="card-heading provider-edit-heading">
             <div>
-              <span className="eyebrow">{isEditing ? t("edit") : "New"}</span>
-              <h3>{isEditing ? draft.name || "Draft" : t("addProvider")}</h3>
-              <div className="agent-chip">
-                {iconForAgent(draft.agent)}
-                <span>{agentLabel(draft.agent)}</span>
-              </div>
+              <span className="eyebrow">{isEditing ? t("edit") : t("newProvider")}</span>
+              <h3>{draft.name || t("apiProvider")}</h3>
             </div>
             <button className="back-button" onClick={closeForm} type="button">
               <BackIcon />
@@ -219,140 +166,71 @@ export function ProvidersPage({
             </button>
           </div>
 
-          <div className="provider-editor-layout">
+          <div className="provider-editor-layout api-provider-editor-layout">
             <div className="provider-form-panel">
               <div className="form-grid compact-form-grid">
                 <label className="field">
                   <span>{t("name")}</span>
-                  <input value={draft.name} onChange={(e) => updateDraft("name", e.target.value)} placeholder="My Provider" />
+                  <input value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} placeholder="OpenRouter" />
                 </label>
-                <label className="field model-picker-field">
-                  <span>{t("model")}</span>
-                  <div className="model-picker">
-                    <div className="model-picker-control">
-                      <input
-                        value={draft.model}
-                        onChange={(e) => {
-                          updateDraft("model", e.target.value);
-                          setModelSearch(e.target.value);
-                          if (modelOptions.length) setIsModelListOpen(true);
-                        }}
-                        onFocus={() => {
-                          if (modelOptions.length) setIsModelListOpen(true);
-                        }}
-                        placeholder={defaultModelForAgent(draft.agent)}
-                      />
-                      <button
-                        className="model-picker-button"
-                        disabled={!modelOptions.length && isLoadingModels}
-                        onClick={() => {
-                          setModelSearch("");
-                          if (modelOptions.length) {
-                            setIsModelListOpen((open) => !open);
-                          } else {
-                            void loadModelOptions();
-                          }
-                        }}
-                        title={t("chooseModel")}
-                        type="button"
-                      >
-                        <ChevronDownIcon />
-                      </button>
-                      <button
-                        className="model-picker-button model-picker-fetch"
-                        disabled={!draft.baseUrl.trim() || isLoadingModels}
-                        onClick={() => void loadModelOptions()}
-                        title={modelOptions.length ? t("refreshModels") : t("fetchModels")}
-                        type="button"
-                      >
-                        <RefreshIcon />
-                      </button>
-                    </div>
-                    {isLoadingModels ? (
-                      <p className="model-picker-status">{t("loadingModels")}</p>
-                    ) : modelListError ? (
-                      <p className="model-picker-status model-picker-status-error">{modelListError}</p>
-                    ) : null}
-                    {isModelListOpen ? (
-                      <div className="model-picker-menu">
-                        {filteredModelOptions.length ? (
-                          filteredModelOptions.map((model) => (
-                            <button
-                              className={`model-picker-option ${draft.model === model.id ? "active" : ""}`}
-                              key={model.id}
-                              onClick={() => {
-                                updateDraft("model", model.id);
-                                setModelSearch("");
-                                setIsModelListOpen(false);
-                              }}
-                              type="button"
-                            >
-                              <span className="model-picker-option-title">{model.name || model.id}</span>
-                              <span className="model-picker-option-meta">
-                                {model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || t("modelFromProvider")}
-                              </span>
-                            </button>
-                          ))
-                        ) : (
-                          <div className="model-picker-empty">
-                            {isLoadingModels ? t("loadingModels") : t("noModelsFound")}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
+                <label className="field">
+                  <span>{t("providerType")}</span>
+                  <select value={draft.providerType} onChange={(event) => applyProviderType(event.target.value as ApiProviderType)}>
+                    {providerTypes.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
                 </label>
                 <label className="field">
                   <span>{t("baseUrl")}</span>
-                  <input value={draft.baseUrl} onChange={(e) => updateDraft("baseUrl", e.target.value)} placeholder="https://api.example.com/v1" />
+                  <input value={draft.baseUrl} onChange={(event) => updateDraft("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" />
                 </label>
                 <label className="field">
                   <span>{t("officialWebsite")}</span>
-                  <input value={draft.websiteUrl} onChange={(e) => updateDraft("websiteUrl", e.target.value)} placeholder="https://example.com" />
+                  <input value={draft.websiteUrl} onChange={(event) => updateDraft("websiteUrl", event.target.value)} placeholder="https://example.com" />
                 </label>
                 <label className="field field-full">
                   <span>{t("apiKey")}</span>
-                  <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
+                  <input value={draft.apiKey} onChange={(event) => updateDraft("apiKey", event.target.value)} placeholder="sk-..." type="password" />
+                </label>
+                <label className="checkbox-field">
+                  <input checked={draft.enabled} onChange={(event) => updateDraft("enabled", event.target.checked)} type="checkbox" />
+                  <span>{t("providerEnabled")}</span>
                 </label>
               </div>
 
-              <div className="template-inline-block">
+              <div className="provider-models-panel">
                 <div className="preview-header">
-                  <span className="detail-label">{t("templateGuide")}</span>
+                  <span className="detail-label">{t("modelList")}</span>
+                  <button
+                    className="secondary-button icon-text-button"
+                    disabled={!draft.baseUrl.trim() || isLoadingModels}
+                    onClick={() => void refreshModels()}
+                    type="button"
+                  >
+                    <RefreshIcon />
+                    <span>{draft.models.length ? t("refreshModels") : t("fetchModels")}</span>
+                  </button>
                 </div>
-                <p className="preview-hint">{t("templateGuideHint")}</p>
-                <textarea
-                  className="config-preview template-preview compact-template-preview"
-                  value={renderInstructionTemplate(draft.agent)}
-                  readOnly
-                  rows={8}
-                  spellCheck={false}
-                />
+                {isLoadingModels ? <p className="model-picker-status">{t("loadingModels")}</p> : null}
+                {modelListError ? <p className="model-picker-status model-picker-status-error">{modelListError}</p> : null}
+                <div className="api-model-list">
+                  {draft.models.length ? (
+                    draft.models.map((model) => (
+                      <div className="api-model-pill" key={model.id}>
+                        <strong>{model.name || model.id}</strong>
+                        <span>{model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || t("modelFromProvider")}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-state">{t("noModelsFound")}</p>
+                  )}
+                </div>
               </div>
-
-            </div>
-
-            <div className="preview-block provider-preview-panel">
-              <div className="preview-header">
-                <span className="detail-label">{t("configPreview")}</span>
-              </div>
-              <p className="preview-hint">{t("configPreviewHint")}</p>
-              <textarea
-                className="config-preview provider-config-preview"
-                value={draft.configText}
-                onChange={(e) => updatePreview(e.target.value)}
-                rows={26}
-                spellCheck={false}
-              />
             </div>
 
             <div className="actions">
-              <button
-                className="primary-button"
-                disabled={!draft.name.trim()}
-                onClick={() => void handleSubmit()}
-                type="button"
-              >
+              <button className="primary-button" disabled={!draft.name.trim()} onClick={() => void handleSubmit()} type="button">
                 {isEditing ? t("save") : t("create")}
               </button>
             </div>
@@ -367,55 +245,41 @@ export function ProvidersPage({
       <article className="card provider-connected-card">
         <div className="provider-toolbar">
           <div className="provider-tabs provider-tabs-connected">
-            {agentTabs.map((agent) => (
-              <button
-                key={agent}
-                type="button"
-                className={`provider-tab ${activeAgent === agent ? "active" : ""}`}
-                onClick={() => setActiveAgent(agent)}
-              >
-                {iconForAgent(agent)}
-                <span>{agentLabel(agent)}</span>
-                <small>{tabCounts[agent]}</small>
-              </button>
-            ))}
+            <button className="provider-tab active" type="button">
+              <span>{t("apiProviders")}</span>
+              <small>{providers.length}</small>
+            </button>
           </div>
-          <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title="Add provider">
+          <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title={t("addProvider")}>
             <AddIcon />
           </button>
         </div>
 
         <div className="provider-list">
-          {visibleProviders.length ? (
-            visibleProviders.map((provider) => (
-              <div className={`provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
+          {sortedProviders.length ? (
+            sortedProviders.map((provider) => (
+              <div className={`provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
-                    {iconForAgent(provider.agent)}
                     <strong>{provider.name}</strong>
+                    <small>{provider.providerType}</small>
                   </div>
-                  <p>{provider.model || "—"}</p>
+                  <p>{provider.baseUrl || t("openaiDefault")}</p>
                   {provider.websiteUrl.trim() ? (
-                    <button
-                      className="provider-link"
-                      onClick={() => void openWebsite(provider.websiteUrl)}
-                      type="button"
-                    >
-                      {providerEndpointLabel(provider)}
+                    <button className="provider-link" onClick={() => void openWebsite(provider.websiteUrl)} type="button">
+                      {provider.websiteUrl}
                     </button>
                   ) : null}
                 </div>
                 <div className="provider-actions">
+                  <span className="provider-model-count">{provider.models.length} {t("models")}</span>
                   <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>
-                  {!provider.isCurrent ? (
-                    <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">{t("enable")}</button>
-                  ) : null}
                   <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">{t("del")}</button>
                 </div>
               </div>
             ))
           ) : (
-            <p className="empty-state">{t("noProviders")}</p>
+            <p className="empty-state">{t("noApiProviders")}</p>
           )}
         </div>
       </article>

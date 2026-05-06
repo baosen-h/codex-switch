@@ -6,8 +6,8 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    AppSettings, DashboardState, HandoffPreview, LaunchRequest, ModelListRequest, Provider,
-    RemoteModel, SessionMessage,
+    ApiProvider, AppSettings, DashboardState, HandoffPreview, LaunchRequest, ModelListRequest,
+    Provider, RemoteModel, SessionMessage,
 };
 use crate::session_manager;
 use reqwest::blocking::Client;
@@ -98,6 +98,29 @@ pub fn delete_provider(
 }
 
 #[tauri::command]
+pub fn save_api_provider(
+    state: State<'_, AppState>,
+    provider: ApiProvider,
+) -> Result<ApiProvider, String> {
+    state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .save_api_provider(provider)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_api_provider(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .delete_api_provider(&id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn activate_provider(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -132,7 +155,8 @@ pub fn activate_provider(
 
 #[tauri::command]
 pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
-    let url = model_list_url(&request.base_url)?;
+    let provider_type = normalized_provider_type(&request.provider_type);
+    let url = model_list_url(&provider_type, &request.base_url)?;
     let api_key = request.api_key.trim();
 
     let mut headers = HeaderMap::new();
@@ -143,12 +167,19 @@ pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel
     );
 
     if !api_key.is_empty() {
-        let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
-            .map_err(|error| format!("Invalid API key header: {error}"))?;
         let x_api_key = HeaderValue::from_str(api_key)
             .map_err(|error| format!("Invalid API key header: {error}"))?;
-        headers.insert(AUTHORIZATION, bearer);
-        headers.insert("X-Api-Key", x_api_key);
+        if provider_type == "anthropic" {
+            headers.insert("x-api-key", x_api_key);
+            headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        } else if provider_type == "gemini" {
+            headers.insert("x-goog-api-key", x_api_key);
+        } else {
+            let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
+                .map_err(|error| format!("Invalid API key header: {error}"))?;
+            headers.insert(AUTHORIZATION, bearer);
+            headers.insert("X-Api-Key", x_api_key);
+        }
     }
 
     let client = Client::builder()
@@ -341,7 +372,16 @@ pub fn pick_directory(_initial_path: Option<String>) -> Result<Option<String>, S
     Err("Folder picker is only implemented on Windows in this build.".to_string())
 }
 
-fn model_list_url(base_url: &str) -> Result<String, String> {
+fn normalized_provider_type(provider_type: &str) -> String {
+    let trimmed = provider_type.trim();
+    if trimmed.is_empty() {
+        "openai-compatible".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
+fn model_list_url(provider_type: &str, base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         return Err("Base URL is empty".to_string());
@@ -357,7 +397,15 @@ fn model_list_url(base_url: &str) -> Result<String, String> {
     };
 
     let lower_base = base.to_ascii_lowercase();
-    if lower_base.ends_with("/models") {
+    if provider_type == "gemini" {
+        if lower_base.ends_with("/models") {
+            Ok(base.to_string())
+        } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
+            Ok(format!("{base}/models"))
+        } else {
+            Ok(format!("{base}/v1beta/models"))
+        }
+    } else if lower_base.ends_with("/models") {
         Ok(base.to_string())
     } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
         Ok(format!("{base}/models"))
@@ -410,14 +458,14 @@ fn extract_models(value: &Value) -> Vec<RemoteModel> {
 fn model_from_value(value: &Value) -> Option<RemoteModel> {
     if let Some(id) = value.as_str().map(str::trim).filter(|id| !id.is_empty()) {
         return Some(RemoteModel {
-            id: id.to_string(),
+            id: normalize_model_id(id.to_string()),
             name: None,
             owned_by: None,
             description: None,
         });
     }
 
-    let id = first_string(value, &["id", "model", "name", "model_id"])?;
+    let id = normalize_model_id(first_string(value, &["id", "model", "name", "model_id"])?);
     let name =
         first_string(value, &["display_name", "displayName", "model_name"]).filter(|name| name != &id);
     let owned_by = first_string(value, &["owned_by", "ownedBy", "organization", "publisher"]);
@@ -429,6 +477,12 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
         owned_by,
         description,
     })
+}
+
+fn normalize_model_id(id: String) -> String {
+    id.strip_prefix("models/")
+        .map(str::to_string)
+        .unwrap_or(id)
 }
 
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {

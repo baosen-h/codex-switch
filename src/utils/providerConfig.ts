@@ -4,6 +4,7 @@ export const emptyProvider: Provider = {
   id: "",
   name: "",
   agent: "codex",
+  apiProviderId: "",
   baseUrl: "",
   apiKey: "",
   websiteUrl: "",

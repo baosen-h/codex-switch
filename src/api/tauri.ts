@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ApiProvider,
   AppSettings,
   DashboardState,
   HandoffMode,
@@ -17,6 +18,12 @@ export const appApi = {
   },
   saveProvider(provider: Provider): Promise<Provider> {
     return invoke("save_provider", { provider });
+  },
+  saveApiProvider(provider: ApiProvider): Promise<ApiProvider> {
+    return invoke("save_api_provider", { provider });
+  },
+  deleteApiProvider(id: string): Promise<boolean> {
+    return invoke("delete_api_provider", { id });
   },
   deleteProvider(id: string): Promise<boolean> {
     return invoke("delete_provider", { id });

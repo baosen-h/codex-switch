@@ -6,6 +6,7 @@ pub struct Provider {
     pub id: String,
     pub name: String,
     pub agent: String,
+    pub api_provider_id: String,
     pub base_url: String,
     pub api_key: String,
     pub website_url: String,
@@ -20,7 +21,24 @@ pub struct Provider {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ApiProvider {
+    pub id: String,
+    pub name: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub website_url: String,
+    pub models: Vec<RemoteModel>,
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelListRequest {
+    #[serde(default)]
+    pub provider_type: String,
     pub base_url: String,
     pub api_key: String,
 }
@@ -94,6 +112,7 @@ pub struct AppSettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardState {
+    pub api_providers: Vec<ApiProvider>,
     pub providers: Vec<Provider>,
     pub sessions: Vec<SessionRecord>,
     pub settings: AppSettings,

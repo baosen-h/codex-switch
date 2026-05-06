@@ -5,13 +5,15 @@ import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { I18nProvider } from "./i18n/context";
 import type { Lang } from "./i18n/translations";
+import { AgentsPage } from "./pages/AgentsPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import type { AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
+import type { ApiProvider, AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
 import { applyBackgroundColor, applyTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
+  apiProviders: [],
   providers: [],
   sessions: [],
   settings: {
@@ -38,6 +40,14 @@ function upsertProvider(providers: Provider[], provider: Provider): Provider[] {
   return next;
 }
 
+function upsertApiProvider(providers: ApiProvider[], provider: ApiProvider): ApiProvider[] {
+  const index = providers.findIndex((item) => item.id === provider.id);
+  if (index === -1) return [...providers, provider];
+  const next = [...providers];
+  next[index] = provider;
+  return next;
+}
+
 function activateProviderInList(providers: Provider[], active: Provider): Provider[] {
   const cleared = providers.map((provider) =>
     provider.agent === active.agent ? { ...provider, isCurrent: false } : provider,
@@ -46,7 +56,7 @@ function activateProviderInList(providers: Provider[], active: Provider): Provid
 }
 
 function App() {
-  const [activePage, setActivePage] = useState<PageKey>("providers");
+  const [activePage, setActivePage] = useState<PageKey>("agents");
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -133,6 +143,33 @@ function App() {
       },
     );
 
+  const handleSaveApiProvider = async (provider: ApiProvider) =>
+    runAction(
+      () => appApi.saveApiProvider(provider),
+      "Provider saved.",
+      (saved) => {
+        setData((current) => ({
+          ...current,
+          apiProviders: upsertApiProvider(current.apiProviders, saved),
+        }));
+      },
+    );
+
+  const handleDeleteApiProvider = async (id: string) =>
+    runAction(
+      () => appApi.deleteApiProvider(id),
+      "Provider deleted.",
+      () => {
+        setData((current) => ({
+          ...current,
+          apiProviders: current.apiProviders.filter((provider) => provider.id !== id),
+          providers: current.providers.map((provider) =>
+            provider.apiProviderId === id ? { ...provider, apiProviderId: "" } : provider,
+          ),
+        }));
+      },
+    );
+
   const handleActivateProvider = async (id: string) =>
     runAction(
       () => appApi.activateProvider(id),
@@ -171,6 +208,13 @@ function App() {
 
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
+  ) : activePage === "providers" ? (
+    <ProvidersPage
+      providers={data.apiProviders}
+      onDelete={handleDeleteApiProvider}
+      onSave={handleSaveApiProvider}
+      onNotify={(message, type) => showToast.current(message, type)}
+    />
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
@@ -182,7 +226,8 @@ function App() {
   ) : activePage === "settings" ? (
     <SettingsPage settings={data.settings} onSave={handleSaveSettings} />
   ) : (
-    <ProvidersPage
+    <AgentsPage
+      apiProviders={data.apiProviders}
       providers={data.providers}
       onActivate={handleActivateProvider}
       onDelete={handleDeleteProvider}

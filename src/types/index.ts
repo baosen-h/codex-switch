@@ -4,6 +4,7 @@ export interface Provider {
   id: string;
   name: string;
   agent: AgentKind;
+  apiProviderId: string;
   baseUrl: string;
   apiKey: string;
   websiteUrl: string;
@@ -16,7 +17,31 @@ export interface Provider {
   updatedAt: string;
 }
 
+export type ApiProviderType =
+  | "openai-compatible"
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "ollama"
+  | "new-api"
+  | "openrouter"
+  | "huggingface";
+
+export interface ApiProvider {
+  id: string;
+  name: string;
+  providerType: ApiProviderType;
+  baseUrl: string;
+  apiKey: string;
+  websiteUrl: string;
+  models: RemoteModel[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ModelListRequest {
+  providerType?: ApiProviderType;
   baseUrl: string;
   apiKey: string;
 }
@@ -78,12 +103,13 @@ export interface AppSettings {
 }
 
 export interface DashboardState {
+  apiProviders: ApiProvider[];
   providers: Provider[];
   sessions: SessionRecord[];
   settings: AppSettings;
 }
 
-export type PageKey = "providers" | "sessions" | "settings";
+export type PageKey = "agents" | "providers" | "sessions" | "settings";
 
 export interface LaunchRequest {
   workspacePath: string;
