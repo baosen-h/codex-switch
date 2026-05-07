@@ -2,9 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   ApiProvider,
   AppSettings,
+  ChatRequest,
+  ChatResponse,
   DashboardState,
   HandoffMode,
   HandoffPreview,
+  ImageGenerationRequest,
+  ImageGenerationResponse,
   LaunchRequest,
   ModelListRequest,
   Provider,
@@ -33,6 +37,12 @@ export const appApi = {
   },
   listProviderModels(request: ModelListRequest): Promise<RemoteModel[]> {
     return invoke("list_provider_models", { request });
+  },
+  sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
+    return invoke("send_chat_message", { request });
+  },
+  generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResponse> {
+    return invoke("generate_image", { request });
   },
   launchCodex(payload: LaunchRequest): Promise<boolean> {
     return invoke("launch_codex", { request: payload });

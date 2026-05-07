@@ -9,8 +9,9 @@ mod session_manager;
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, build_session_handoff, delete_api_provider, delete_provider,
-    delete_session, get_dashboard, get_session_messages, launch_codex, list_provider_models,
-    open_external_url, pick_directory, save_api_provider, save_provider, save_settings, AppState,
+    delete_session, generate_image, get_dashboard, get_session_messages, launch_codex,
+    list_provider_models, open_external_url, pick_directory, save_api_provider, save_provider,
+    save_settings, send_chat_message, AppState,
 };
 use models::Provider;
 use std::{sync::Mutex, thread, time::Duration};
@@ -80,6 +81,8 @@ pub fn run() {
             save_provider,
             delete_provider,
             activate_provider,
+            send_chat_message,
+            generate_image,
             launch_codex,
             get_session_messages,
             build_session_handoff,

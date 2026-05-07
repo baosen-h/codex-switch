@@ -6,8 +6,9 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    ApiProvider, AppSettings, DashboardState, HandoffPreview, LaunchRequest, ModelListRequest,
-    Provider, RemoteModel, SessionMessage,
+    ApiProvider, AppSettings, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
+    ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, ModelListRequest, Provider,
+    RemoteModel, SessionMessage,
 };
 use crate::session_manager;
 use reqwest::blocking::Client;
@@ -208,6 +209,127 @@ pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel
 }
 
 #[tauri::command]
+pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
+    let provider_type = normalized_provider_type(&request.provider.provider_type);
+    let api_key = request.provider.api_key.trim();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = if provider_type == "anthropic" {
+        let url = anthropic_messages_url(&request.provider.base_url)?;
+        let mut headers = json_headers();
+        add_anthropic_auth_headers(&mut headers, api_key)?;
+        client
+            .post(url)
+            .headers(headers)
+            .json(&serde_json::json!({
+                "model": request.model.trim(),
+                "max_tokens": 4096,
+                "messages": request.messages.iter().filter(|message| message.role != "system").map(|message| {
+                    serde_json::json!({
+                        "role": if message.role == "assistant" { "assistant" } else { "user" },
+                        "content": message.content
+                    })
+                }).collect::<Vec<Value>>(),
+            }))
+            .send()
+    } else if provider_type == "gemini" {
+        let url = gemini_generate_url(&request.provider.base_url, &request.model)?;
+        let mut headers = json_headers();
+        add_gemini_auth_headers(&mut headers, api_key)?;
+        client
+            .post(url)
+            .headers(headers)
+            .json(&serde_json::json!({
+                "contents": request.messages.iter().filter(|message| message.role != "system").map(|message| {
+                    serde_json::json!({
+                        "role": if message.role == "assistant" { "model" } else { "user" },
+                        "parts": [{ "text": message.content }]
+                    })
+                }).collect::<Vec<Value>>(),
+            }))
+            .send()
+    } else {
+        let url = chat_completions_url(&request.provider.base_url)?;
+        let mut headers = json_headers();
+        add_openai_auth_headers(&mut headers, api_key)?;
+        client
+            .post(url)
+            .headers(headers)
+            .json(&serde_json::json!({
+                "model": request.model.trim(),
+                "messages": request.messages,
+            }))
+            .send()
+    }
+    .map_err(|error| format!("Failed to send chat request: {error}"))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .map_err(|error| format!("Failed to parse chat response: {error}"))?;
+    if !status.is_success() {
+        return Err(extract_api_error(&body)
+            .unwrap_or_else(|| format!("Chat request failed with HTTP status {status}")));
+    }
+
+    let content = extract_chat_content(&provider_type, &body)
+        .ok_or_else(|| "Chat response did not contain text content".to_string())?;
+    Ok(ChatResponse { content })
+}
+
+#[tauri::command]
+pub fn generate_image(
+    request: ImageGenerationRequest,
+) -> Result<ImageGenerationResponse, String> {
+    let provider_type = normalized_provider_type(&request.provider.provider_type);
+    if provider_type == "anthropic" {
+        return Err("This provider does not expose an image generation endpoint here.".to_string());
+    }
+    if provider_type == "gemini" {
+        return Err("Gemini image generation is not wired in this page yet.".to_string());
+    }
+
+    let url = images_generations_url(&request.provider.base_url)?;
+    let mut headers = json_headers();
+    add_openai_auth_headers(&mut headers, request.provider.api_key.trim())?;
+    let count = request.count.clamp(1, 4);
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .post(url)
+        .headers(headers)
+        .json(&serde_json::json!({
+            "model": request.model.trim(),
+            "prompt": request.prompt.trim(),
+            "size": request.size.trim(),
+            "n": count,
+        }))
+        .send()
+        .map_err(|error| format!("Failed to send image request: {error}"))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .map_err(|error| format!("Failed to parse image response: {error}"))?;
+    if !status.is_success() {
+        return Err(extract_api_error(&body)
+            .unwrap_or_else(|| format!("Image request failed with HTTP status {status}")));
+    }
+
+    let images = extract_images(&body);
+    if images.is_empty() {
+        return Err("Image response did not contain image URLs or base64 data.".to_string());
+    }
+    Ok(ImageGenerationResponse { images })
+}
+
+#[tauri::command]
 pub fn launch_codex(state: State<'_, AppState>, request: LaunchRequest) -> Result<bool, String> {
     let db = state
         .db
@@ -381,6 +503,113 @@ fn normalized_provider_type(provider_type: &str) -> String {
     }
 }
 
+fn json_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_static("application/json"));
+    headers.insert("Content-Type", HeaderValue::from_static("application/json"));
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static("codex-switch/0.1.3"),
+    );
+    headers
+}
+
+fn add_openai_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(), String> {
+    if api_key.is_empty() {
+        return Ok(());
+    }
+    let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
+    let x_api_key =
+        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    headers.insert(AUTHORIZATION, bearer);
+    headers.insert("X-Api-Key", x_api_key);
+    Ok(())
+}
+
+fn add_anthropic_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(), String> {
+    if api_key.is_empty() {
+        return Ok(());
+    }
+    let x_api_key =
+        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    headers.insert("x-api-key", x_api_key);
+    headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+    Ok(())
+}
+
+fn add_gemini_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(), String> {
+    if api_key.is_empty() {
+        return Ok(());
+    }
+    let x_api_key =
+        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    headers.insert("x-goog-api-key", x_api_key);
+    Ok(())
+}
+
+fn api_base_url(base_url: &str) -> Result<String, String> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err("Base URL is empty".to_string());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    let base = if let Some(prefix) = lower.strip_suffix("/chat/completions") {
+        &trimmed[..prefix.len()]
+    } else if let Some(prefix) = lower.strip_suffix("/images/generations") {
+        &trimmed[..prefix.len()]
+    } else if let Some(prefix) = lower.strip_suffix("/messages") {
+        &trimmed[..prefix.len()]
+    } else if let Some(prefix) = lower.strip_suffix("/responses") {
+        &trimmed[..prefix.len()]
+    } else if let Some(prefix) = lower.strip_suffix("/models") {
+        &trimmed[..prefix.len()]
+    } else {
+        trimmed
+    };
+    Ok(base.trim_end_matches('/').to_string())
+}
+
+fn chat_completions_url(base_url: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
+        Ok(format!("{base}/chat/completions"))
+    } else {
+        Ok(format!("{base}/v1/chat/completions"))
+    }
+}
+
+fn anthropic_messages_url(base_url: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    if base.to_ascii_lowercase().ends_with("/v1") {
+        Ok(format!("{base}/messages"))
+    } else {
+        Ok(format!("{base}/v1/messages"))
+    }
+}
+
+fn gemini_generate_url(base_url: &str, model: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    let escaped_model = model.trim().trim_start_matches("models/");
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
+        Ok(format!("{base}/models/{escaped_model}:generateContent"))
+    } else {
+        Ok(format!("{base}/v1beta/models/{escaped_model}:generateContent"))
+    }
+}
+
+fn images_generations_url(base_url: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
+        Ok(format!("{base}/images/generations"))
+    } else {
+        Ok(format!("{base}/v1/images/generations"))
+    }
+}
+
 fn model_list_url(provider_type: &str, base_url: &str) -> Result<String, String> {
     let trimmed = base_url.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -420,6 +649,70 @@ fn extract_api_error(value: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .or_else(|| value.get("message").and_then(Value::as_str))
         .map(str::to_string)
+}
+
+fn extract_chat_content(provider_type: &str, value: &Value) -> Option<String> {
+    if provider_type == "anthropic" {
+        return value
+            .get("content")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                let parts = items
+                    .iter()
+                    .filter_map(|item| item.get("text").and_then(Value::as_str))
+                    .collect::<Vec<&str>>();
+                if parts.is_empty() {
+                    None
+                } else {
+                    Some(parts.join("\n"))
+                }
+            });
+    }
+
+    if provider_type == "gemini" {
+        return value
+            .pointer("/candidates/0/content/parts")
+            .and_then(Value::as_array)
+            .and_then(|parts| {
+                let text = parts
+                    .iter()
+                    .filter_map(|part| part.get("text").and_then(Value::as_str))
+                    .collect::<Vec<&str>>();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text.join("\n"))
+                }
+            });
+    }
+
+    value
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/choices/0/text").and_then(Value::as_str))
+        .map(str::to_string)
+}
+
+fn extract_images(value: &Value) -> Vec<String> {
+    value
+        .get("data")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    item.get("url")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| {
+                            item.get("b64_json")
+                                .and_then(Value::as_str)
+                                .map(|data| format!("data:image/png;base64,{data}"))
+                        })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn extract_models(value: &Value) -> Vec<RemoteModel> {

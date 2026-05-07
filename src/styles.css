@@ -356,7 +356,9 @@ input:focus, textarea:focus, select:focus {
 
 /* Settings + Providers: fill full height */
 .settings-page,
-.providers-page { flex: 1; display: flex; flex-direction: column; }
+.providers-page,
+.talking-page,
+.drawing-page { flex: 1; display: flex; flex-direction: column; }
 .settings-page .card,
 .providers-page > .card { flex: 1; }
 
@@ -908,6 +910,11 @@ input:focus, textarea:focus, select:focus {
 }
 
 .provider-title { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.18rem; }
+.provider-title-text {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
 .provider-info {
   min-width: 0;
   overflow: hidden;
@@ -922,6 +929,30 @@ input:focus, textarea:focus, select:focus {
   font-family: var(--mono);
   font-size: 0.74rem;
   white-space: nowrap;
+}
+
+.provider-avatar {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--b1);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.02)),
+    color-mix(in srgb, var(--p2) 78%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.provider-avatar img {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+  display: block;
+}
+.provider-avatar span {
+  font-family: var(--pixel);
+  font-size: 0.52rem;
+  color: var(--t1);
 }
 .session-detail-actions {
   margin-left: auto;
@@ -1528,6 +1559,12 @@ input:focus, textarea:focus, select:focus {
   margin-bottom: 0.25rem;
 }
 
+.provider-edit-title {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .provider-editor-layout {
   display: flex;
   flex-direction: column;
@@ -1599,6 +1636,228 @@ input:focus, textarea:focus, select:focus {
 .api-model-pill span {
   color: var(--t2);
   font-size: 0.72rem;
+}
+
+/* ── Talking + Drawing pages ───────────────────────────────────── */
+.chat-shell,
+.drawing-shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  background:
+    linear-gradient(135deg, rgb(var(--accent-rgb) / 0.03), transparent 42%),
+    var(--content-surface);
+  border-top: 1px solid var(--b0);
+}
+
+.chat-shell {
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+
+.conversation-rail,
+.drawing-control-panel {
+  min-height: 0;
+  padding: 1rem;
+  border-right: 1px solid var(--b0);
+  background: color-mix(in srgb, var(--content-row-surface) 84%, transparent);
+}
+
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  margin-bottom: 0.85rem;
+}
+
+.conversation-topic {
+  width: 100%;
+  min-height: 74px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.75rem;
+  text-align: left;
+  color: var(--t1);
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--p2) 60%, transparent);
+}
+.conversation-topic.active {
+  border-color: rgb(var(--accent-rgb) / 0.58);
+  background: rgb(var(--accent-rgb) / 0.13);
+}
+.conversation-topic span {
+  color: var(--t2);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.chat-main-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.chat-topbar {
+  display: grid;
+  grid-template-columns: minmax(170px, 260px) minmax(180px, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--b0);
+  background: color-mix(in srgb, var(--content-row-surface) 72%, transparent);
+}
+
+.chat-select {
+  min-width: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+.chat-select span {
+  color: var(--t2);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.chat-messages {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.2rem;
+}
+
+.chat-message {
+  display: flex;
+}
+.chat-message-user { justify-content: flex-end; }
+.chat-message-ai { justify-content: flex-start; }
+.chat-message-body {
+  max-width: min(720px, 78%);
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--p2) 72%, transparent);
+  color: var(--t1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.chat-message-user .chat-message-body {
+  border-color: rgb(var(--accent-rgb) / 0.56);
+  background: rgb(var(--accent-rgb) / 0.18);
+}
+
+.chat-empty-state,
+.drawing-empty-artboard {
+  flex: 1;
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  gap: 0.65rem;
+  color: var(--t2);
+  font-family: var(--mono);
+  text-align: center;
+}
+.chat-thinking {
+  width: fit-content;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  color: var(--t2);
+  background: color-mix(in srgb, var(--p2) 60%, transparent);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.chat-inputbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.9rem 1rem 1rem;
+  border-top: 1px solid var(--b0);
+  background: color-mix(in srgb, var(--content-row-surface) 78%, transparent);
+}
+.chat-inputbar textarea {
+  min-height: 78px;
+  resize: vertical;
+}
+.chat-send-button {
+  min-width: 112px;
+  min-height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.drawing-shell {
+  grid-template-columns: 330px minmax(0, 1fr);
+}
+
+.drawing-control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+}
+.drawing-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.drawing-provider-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--p2) 56%, transparent);
+}
+.drawing-provider-card div {
+  min-width: 0;
+  display: grid;
+}
+.drawing-provider-card strong,
+.drawing-provider-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawing-provider-card span {
+  color: var(--t2);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.drawing-artboard {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.2rem;
+}
+.generated-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.generated-image-frame {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--p2) 62%, transparent);
+}
+.generated-image-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .preview-header {

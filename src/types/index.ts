@@ -53,6 +53,33 @@ export interface RemoteModel {
   description?: string;
 }
 
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface ChatRequest {
+  provider: ApiProvider;
+  model: string;
+  messages: ChatMessage[];
+}
+
+export interface ChatResponse {
+  content: string;
+}
+
+export interface ImageGenerationRequest {
+  provider: ApiProvider;
+  model: string;
+  prompt: string;
+  size: string;
+  count: number;
+}
+
+export interface ImageGenerationResponse {
+  images: string[];
+}
+
 export interface SessionRecord {
   id: string;
   providerId: string;
@@ -109,7 +136,7 @@ export interface DashboardState {
   settings: AppSettings;
 }
 
-export type PageKey = "agents" | "providers" | "sessions" | "settings";
+export type PageKey = "providers" | "agents" | "talking" | "drawing" | "sessions" | "settings";
 
 export interface LaunchRequest {
   workspacePath: string;

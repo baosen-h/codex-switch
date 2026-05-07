@@ -6,9 +6,11 @@ import { TitleBar } from "./components/TitleBar";
 import { I18nProvider } from "./i18n/context";
 import type { Lang } from "./i18n/translations";
 import { AgentsPage } from "./pages/AgentsPage";
+import { DrawingPage } from "./pages/DrawingPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TalkingPage } from "./pages/TalkingPage";
 import type { ApiProvider, AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
 import { applyBackgroundColor, applyTheme } from "./utils/theme";
 
@@ -56,7 +58,7 @@ function activateProviderInList(providers: Provider[], active: Provider): Provid
 }
 
 function App() {
-  const [activePage, setActivePage] = useState<PageKey>("agents");
+  const [activePage, setActivePage] = useState<PageKey>("providers");
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -213,6 +215,16 @@ function App() {
       providers={data.apiProviders}
       onDelete={handleDeleteApiProvider}
       onSave={handleSaveApiProvider}
+      onNotify={(message, type) => showToast.current(message, type)}
+    />
+  ) : activePage === "talking" ? (
+    <TalkingPage
+      providers={data.apiProviders}
+      onNotify={(message, type) => showToast.current(message, type)}
+    />
+  ) : activePage === "drawing" ? (
+    <DrawingPage
+      providers={data.apiProviders}
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "sessions" ? (

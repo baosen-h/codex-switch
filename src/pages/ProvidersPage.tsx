@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
+import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
 import type { ApiProvider, ApiProviderType, RemoteModel } from "../types";
 import { useI18n } from "../i18n/context";
 
@@ -158,7 +159,10 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
           <div className="card-heading provider-edit-heading">
             <div>
               <span className="eyebrow">{isEditing ? t("edit") : t("newProvider")}</span>
-              <h3>{draft.name || t("apiProvider")}</h3>
+              <div className="provider-edit-title">
+                <ProviderTypeAvatar providerType={draft.providerType} size={34} />
+                <h3>{draft.name || t("apiProvider")}</h3>
+              </div>
             </div>
             <button className="back-button" onClick={closeForm} type="button">
               <BackIcon />
@@ -261,8 +265,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
               <div className={`provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
-                    <strong>{provider.name}</strong>
-                    <small>{provider.providerType}</small>
+                    <ProviderAvatar provider={provider} />
+                    <div className="provider-title-text">
+                      <strong>{provider.name}</strong>
+                      <small>{provider.providerType}</small>
+                    </div>
                   </div>
                   <p>{provider.baseUrl || t("openaiDefault")}</p>
                   {provider.websiteUrl.trim() ? (
