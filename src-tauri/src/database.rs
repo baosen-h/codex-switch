@@ -2,7 +2,9 @@ use crate::agent_writer::{
     default_claude_config_dir, default_codex_config_dir, default_gemini_config_dir,
 };
 use crate::error::AppError;
-use crate::models::{ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord};
+use crate::models::{
+    ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord,
+};
 use crate::session_manager;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;

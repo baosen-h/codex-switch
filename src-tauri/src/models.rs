@@ -84,6 +84,12 @@ pub struct ImageGenerationRequest {
     pub prompt: String,
     pub size: String,
     pub count: i64,
+    #[serde(default)]
+    pub quality: String,
+    #[serde(default)]
+    pub background: String,
+    #[serde(default)]
+    pub input_images: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

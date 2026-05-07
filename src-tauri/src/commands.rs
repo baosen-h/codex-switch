@@ -11,6 +11,8 @@ use crate::models::{
     RemoteModel, SessionMessage,
 };
 use crate::session_manager;
+use base64::Engine;
+use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde_json::Value;
@@ -162,10 +164,7 @@ pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel
 
     let mut headers = HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_static("application/json"));
-    headers.insert(
-        "User-Agent",
-        HeaderValue::from_static("codex-switch/0.1.3"),
-    );
+    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
 
     if !api_key.is_empty() {
         let x_api_key = HeaderValue::from_str(api_key)
@@ -200,9 +199,8 @@ pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel
         .map_err(|error| format!("Failed to parse model list response: {error}"))?;
 
     if !status.is_success() {
-        return Err(extract_api_error(&body).unwrap_or_else(|| {
-            format!("Model list request failed with HTTP status {status}")
-        }));
+        return Err(extract_api_error(&body)
+            .unwrap_or_else(|| format!("Model list request failed with HTTP status {status}")));
     }
 
     Ok(extract_models(&body))
@@ -281,9 +279,7 @@ pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
 }
 
 #[tauri::command]
-pub fn generate_image(
-    request: ImageGenerationRequest,
-) -> Result<ImageGenerationResponse, String> {
+pub fn generate_image(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
     if provider_type == "anthropic" {
         return Err("This provider does not expose an image generation endpoint here.".to_string());
@@ -292,8 +288,16 @@ pub fn generate_image(
         return Err("Gemini image generation is not wired in this page yet.".to_string());
     }
 
-    let url = images_generations_url(&request.provider.base_url)?;
-    let mut headers = json_headers();
+    let url = if request.input_images.is_empty() {
+        images_generations_url(&request.provider.base_url)?
+    } else {
+        images_edits_url(&request.provider.base_url)?
+    };
+    let mut headers = if request.input_images.is_empty() {
+        json_headers()
+    } else {
+        api_headers()
+    };
     add_openai_auth_headers(&mut headers, request.provider.api_key.trim())?;
     let count = request.count.clamp(1, 4);
 
@@ -301,17 +305,37 @@ pub fn generate_image(
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
-        .post(url)
-        .headers(headers)
-        .json(&serde_json::json!({
+    let response = if request.input_images.is_empty() {
+        let mut payload = serde_json::json!({
             "model": request.model.trim(),
             "prompt": request.prompt.trim(),
-            "size": request.size.trim(),
             "n": count,
-        }))
-        .send()
-        .map_err(|error| format!("Failed to send image request: {error}"))?;
+        });
+        add_optional_json_string(&mut payload, "size", &request.size);
+        add_optional_json_string(&mut payload, "quality", &request.quality);
+        add_optional_json_string(&mut payload, "background", &request.background);
+        client.post(url).headers(headers).json(&payload).send()
+    } else {
+        let mut form = Form::new()
+            .text("model", request.model.trim().to_string())
+            .text("prompt", request.prompt.trim().to_string())
+            .text("n", count.to_string());
+        if !request.size.trim().is_empty() && request.size.trim() != "auto" {
+            form = form.text("size", request.size.trim().to_string());
+        }
+        if !request.quality.trim().is_empty() && request.quality.trim() != "auto" {
+            form = form.text("quality", request.quality.trim().to_string());
+        }
+        if !request.background.trim().is_empty() && request.background.trim() != "auto" {
+            form = form.text("background", request.background.trim().to_string());
+        }
+        for (index, image) in request.input_images.iter().enumerate() {
+            let part = image_data_url_part(image, index)?;
+            form = form.part("image", part);
+        }
+        client.post(url).headers(headers).multipart(form).send()
+    }
+    .map_err(|error| format!("Failed to send image request: {error}"))?;
 
     let status = response.status();
     let body: Value = response
@@ -507,10 +531,14 @@ fn json_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_static("application/json"));
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-    headers.insert(
-        "User-Agent",
-        HeaderValue::from_static("codex-switch/0.1.3"),
-    );
+    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
+    headers
+}
+
+fn api_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert("Accept", HeaderValue::from_static("application/json"));
+    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
     headers
 }
 
@@ -520,8 +548,8 @@ fn add_openai_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(),
     }
     let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
         .map_err(|error| format!("Invalid API key header: {error}"))?;
-    let x_api_key =
-        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    let x_api_key = HeaderValue::from_str(api_key)
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
     headers.insert(AUTHORIZATION, bearer);
     headers.insert("X-Api-Key", x_api_key);
     Ok(())
@@ -531,8 +559,8 @@ fn add_anthropic_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<
     if api_key.is_empty() {
         return Ok(());
     }
-    let x_api_key =
-        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    let x_api_key = HeaderValue::from_str(api_key)
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
     headers.insert("x-api-key", x_api_key);
     headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
     Ok(())
@@ -542,8 +570,8 @@ fn add_gemini_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(),
     if api_key.is_empty() {
         return Ok(());
     }
-    let x_api_key =
-        HeaderValue::from_str(api_key).map_err(|error| format!("Invalid API key header: {error}"))?;
+    let x_api_key = HeaderValue::from_str(api_key)
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
     headers.insert("x-goog-api-key", x_api_key);
     Ok(())
 }
@@ -596,7 +624,9 @@ fn gemini_generate_url(base_url: &str, model: &str) -> Result<String, String> {
     if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
         Ok(format!("{base}/models/{escaped_model}:generateContent"))
     } else {
-        Ok(format!("{base}/v1beta/models/{escaped_model}:generateContent"))
+        Ok(format!(
+            "{base}/v1beta/models/{escaped_model}:generateContent"
+        ))
     }
 }
 
@@ -608,6 +638,55 @@ fn images_generations_url(base_url: &str) -> Result<String, String> {
     } else {
         Ok(format!("{base}/v1/images/generations"))
     }
+}
+
+fn images_edits_url(base_url: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
+        Ok(format!("{base}/images/edits"))
+    } else {
+        Ok(format!("{base}/v1/images/edits"))
+    }
+}
+
+fn add_optional_json_string(value: &mut Value, key: &str, raw: &str) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "auto" {
+        return;
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_string(), Value::String(trimmed.to_string()));
+    }
+}
+
+fn image_data_url_part(data_url: &str, index: usize) -> Result<Part, String> {
+    let trimmed = data_url.trim();
+    let (mime, data) = if let Some(rest) = trimmed.strip_prefix("data:") {
+        let Some((meta, body)) = rest.split_once(',') else {
+            return Err("Invalid uploaded image data URL".to_string());
+        };
+        let mime = meta
+            .split(';')
+            .next()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("image/png");
+        (mime, body)
+    } else {
+        ("image/png", trimmed)
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|error| format!("Failed to decode uploaded image: {error}"))?;
+    let extension = match mime {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        _ => "png",
+    };
+    Part::bytes(bytes)
+        .file_name(format!("input-{index}.{extension}"))
+        .mime_str(mime)
+        .map_err(|error| format!("Invalid uploaded image MIME type: {error}"))
 }
 
 fn model_list_url(provider_type: &str, base_url: &str) -> Result<String, String> {
@@ -759,8 +838,8 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
     }
 
     let id = normalize_model_id(first_string(value, &["id", "model", "name", "model_id"])?);
-    let name =
-        first_string(value, &["display_name", "displayName", "model_name"]).filter(|name| name != &id);
+    let name = first_string(value, &["display_name", "displayName", "model_name"])
+        .filter(|name| name != &id);
     let owned_by = first_string(value, &["owned_by", "ownedBy", "organization", "publisher"]);
     let description = first_string(value, &["description", "summary", "desc"]);
 
@@ -773,9 +852,7 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
 }
 
 fn normalize_model_id(id: String) -> String {
-    id.strip_prefix("models/")
-        .map(str::to_string)
-        .unwrap_or(id)
+    id.strip_prefix("models/").map(str::to_string).unwrap_or(id)
 }
 
 fn first_string(value: &Value, keys: &[&str]) -> Option<String> {

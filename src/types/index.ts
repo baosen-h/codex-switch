@@ -74,6 +74,9 @@ export interface ImageGenerationRequest {
   prompt: string;
   size: string;
   count: number;
+  quality?: string;
+  background?: string;
+  inputImages?: string[];
 }
 
 export interface ImageGenerationResponse {

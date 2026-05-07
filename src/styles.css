@@ -1860,6 +1860,246 @@ input:focus, textarea:focus, select:focus {
   display: block;
 }
 
+.drawing-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 315px minmax(0, 1fr) 130px;
+  background:
+    linear-gradient(135deg, rgb(var(--accent-rgb) / 0.03), transparent 42%),
+    var(--content-surface);
+  border-top: 1px solid var(--b0);
+}
+
+.drawing-workspace .drawing-control-panel {
+  border-right: 1px solid var(--b0);
+}
+
+.drawing-upload-box {
+  min-height: 92px;
+  display: grid;
+  place-items: center;
+  gap: 0.35rem;
+  border: 1px dashed var(--b1);
+  border-radius: var(--radius-md);
+  color: var(--t2);
+  background: color-mix(in srgb, var(--p2) 38%, transparent);
+  cursor: pointer;
+}
+.drawing-upload-box:hover {
+  color: var(--a);
+  border-color: var(--a);
+  background: var(--row);
+}
+.drawing-upload-box input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drawing-input-strip,
+.drawing-output-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(54px, 1fr));
+  gap: 0.45rem;
+}
+
+.drawing-reference-thumb,
+.drawing-output-strip button {
+  aspect-ratio: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--p2) 62%, transparent);
+}
+.drawing-reference-thumb:hover,
+.drawing-output-strip button:hover,
+.drawing-output-strip button.active {
+  border-color: var(--a);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.24);
+}
+.drawing-reference-thumb img,
+.drawing-output-strip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.drawing-main-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.drawing-mode-switch {
+  justify-self: center;
+  display: flex;
+  gap: 0.25rem;
+  margin: 1rem 0;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--p2) 74%, transparent);
+  border: 1px solid var(--b0);
+}
+.drawing-mode-switch button {
+  min-width: 74px;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  color: var(--t2);
+  background: transparent;
+  font-weight: 700;
+}
+.drawing-mode-switch button.active {
+  color: var(--t1);
+  background: color-mix(in srgb, var(--p1) 92%, transparent);
+  border: 1px solid var(--b1);
+}
+
+.drawing-canvas-area {
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 1rem 1.8rem;
+}
+
+.drawing-image-preview {
+  position: relative;
+  max-width: min(78%, 720px);
+  max-height: 100%;
+  display: grid;
+  place-items: center;
+}
+.drawing-image-preview img {
+  max-width: 100%;
+  max-height: calc(100vh - 300px);
+  object-fit: contain;
+  display: block;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.drawing-image-preview span {
+  position: absolute;
+  left: 50%;
+  bottom: 0.8rem;
+  transform: translateX(-50%);
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  color: var(--t1);
+  background: rgba(0,0,0,0.52);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.drawing-prompt-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 0 1.8rem 1.2rem;
+  padding: 0.8rem;
+  border: 1px solid var(--b0);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--p2) 54%, transparent);
+}
+.drawing-prompt-bar textarea {
+  min-height: 86px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  resize: vertical;
+}
+.drawing-prompt-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 330px;
+}
+
+.drawing-record-rail {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0.75rem;
+  padding: 0.9rem 0.75rem;
+  border-left: 1px solid var(--b0);
+  background: color-mix(in srgb, var(--content-row-surface) 74%, transparent);
+}
+.drawing-add-record {
+  aspect-ratio: 1;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--b1);
+  border-radius: var(--radius-md);
+  color: var(--t2);
+  background: color-mix(in srgb, var(--p2) 52%, transparent);
+}
+.drawing-add-record:hover {
+  color: var(--a);
+  border-color: var(--a);
+}
+.drawing-record-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+  overflow-y: auto;
+}
+.drawing-record-thumb {
+  min-height: 106px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--p2) 54%, transparent);
+  color: var(--t2);
+  overflow: hidden;
+}
+.drawing-record-thumb.active {
+  border-color: var(--a);
+  box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.2);
+}
+.drawing-record-thumb img {
+  width: 100%;
+  height: 74px;
+  object-fit: cover;
+  border-radius: calc(var(--radius-sm) - 3px);
+  display: block;
+}
+.drawing-record-thumb > span {
+  display: grid;
+  place-items: center;
+  height: 74px;
+  border: 1px dashed var(--b0);
+  border-radius: calc(var(--radius-sm) - 3px);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+.drawing-record-thumb small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t2);
+}
+.drawing-delete-record {
+  width: 100%;
+  padding-inline: 0.4rem;
+}
+
 .preview-header {
   display: flex;
   align-items: center;
