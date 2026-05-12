@@ -28,7 +28,9 @@ const keywordLogos: Array<[RegExp, string]> = [
   [/openai|gpt/i, openAiLogo],
 ];
 
-function providerLogo(provider: Pick<ApiProvider, "name" | "providerType" | "baseUrl">): string {
+type ProviderAvatarSource = Pick<ApiProvider, "name" | "providerType" | "baseUrl">;
+
+function providerLogo(provider: ProviderAvatarSource): string {
   const haystack = `${provider.name} ${provider.providerType} ${provider.baseUrl}`;
   return keywordLogos.find(([pattern]) => pattern.test(haystack))?.[1] ?? providerTypeLogos[provider.providerType];
 }
@@ -37,7 +39,7 @@ function fallbackLetter(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "P";
 }
 
-export function ProviderAvatar({ provider, size = 34 }: { provider: ApiProvider; size?: number }) {
+export function ProviderAvatar({ provider, size = 34 }: { provider: ProviderAvatarSource; size?: number }) {
   const logo = providerLogo(provider);
 
   return (

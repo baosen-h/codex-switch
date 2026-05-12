@@ -265,7 +265,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
               <div className={`provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
-                    <ProviderAvatar provider={provider} />
+                    <ProviderAvatar provider={provider} size={56} />
                     <div className="provider-title-text">
                       <strong>{provider.name}</strong>
                       <small>{provider.providerType}</small>

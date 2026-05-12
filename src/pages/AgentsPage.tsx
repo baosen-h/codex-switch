@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
+import { ProviderAvatar } from "../components/ProviderAvatar";
 import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
@@ -244,6 +245,15 @@ export function AgentsPage({
     return t("agentCodex");
   };
 
+  const avatarSourceForProvider = (provider: Provider): Pick<ApiProvider, "name" | "providerType" | "baseUrl"> => {
+    const linked = apiProviders.find((item) => item.id === provider.apiProviderId);
+    return linked ?? {
+      name: provider.name,
+      providerType: "openai-compatible",
+      baseUrl: `${provider.name} ${provider.baseUrl}`,
+    };
+  };
+
   if (view === "form") {
     const isEditing = Boolean(draft.id);
     return (
@@ -453,8 +463,11 @@ export function AgentsPage({
               <div className={`provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
-                    {iconForAgent(provider.agent)}
-                    <strong>{provider.name}</strong>
+                    <ProviderAvatar provider={avatarSourceForProvider(provider)} size={56} />
+                    <div className="provider-title-text">
+                      <strong>{provider.name}</strong>
+                      <small>{agentLabel(provider.agent)}</small>
+                    </div>
                   </div>
                   <p>{provider.model || "—"}</p>
                   {provider.websiteUrl.trim() ? (
