@@ -1,8 +1,18 @@
-# Codex Switch
+<p align="center">
+  <img src="src-tauri/icons/128x128.png" alt="Codex Switch Icon" width="140" />
+</p>
 
-[![GitHub release](https://img.shields.io/github/v/release/baosen-h/codex-switch?style=flat)](https://github.com/baosen-h/codex-switch/releases)
-[![GitHub downloads](https://img.shields.io/github/downloads/baosen-h/codex-switch/total?style=flat&color=blue)](https://github.com/baosen-h/codex-switch/releases)
-[![License](https://img.shields.io/github/license/baosen-h/codex-switch?style=flat)](LICENSE)
+<h1 align="center">Codex Switch</h1>
+
+<p align="center">
+  English · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/baosen-h/codex-switch/releases"><img src="https://img.shields.io/github/v/release/baosen-h/codex-switch?style=flat" alt="GitHub release" /></a>
+  <a href="https://github.com/baosen-h/codex-switch/releases"><img src="https://img.shields.io/github/downloads/baosen-h/codex-switch/total?style=flat&color=blue" alt="GitHub downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/baosen-h/codex-switch?style=flat" alt="License" /></a>
+</p>
 
 Codex Switch is a Windows desktop tool for connecting API providers with three local workflows: coding agents, direct chat, and image generation.
 
