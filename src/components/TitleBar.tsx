@@ -1,34 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { CloseIcon, MaximizeIcon, MinimizeIcon } from "./UiIcons";
 
 const appWindow = getCurrentWindow();
-
-const MinIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-    <rect x="1" y="4" width="8" height="2"/>
-  </svg>
-);
-
-const MaxIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-    <rect x="1" y="1" width="8" height="2"/>
-    <rect x="1" y="1" width="2" height="8"/>
-    <rect x="7" y="1" width="2" height="8"/>
-    <rect x="1" y="7" width="8" height="2"/>
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-    <rect x="1" y="1" width="2" height="2"/>
-    <rect x="7" y="1" width="2" height="2"/>
-    <rect x="3" y="3" width="2" height="2"/>
-    <rect x="5" y="3" width="2" height="2"/>
-    <rect x="3" y="5" width="2" height="2"/>
-    <rect x="5" y="5" width="2" height="2"/>
-    <rect x="1" y="7" width="2" height="2"/>
-    <rect x="7" y="7" width="2" height="2"/>
-  </svg>
-);
 
 export function TitleBar() {
   return (
@@ -47,7 +20,7 @@ export function TitleBar() {
           type="button"
           title="Minimize"
         >
-          <MinIcon />
+          <MinimizeIcon />
         </button>
         <button
           className="titlebar-btn"
@@ -55,7 +28,7 @@ export function TitleBar() {
           type="button"
           title="Maximize"
         >
-          <MaxIcon />
+          <MaximizeIcon />
         </button>
         <button
           className="titlebar-btn titlebar-btn-close"

@@ -213,6 +213,10 @@ impl Database {
         self.connection
             .execute("DELETE FROM api_providers WHERE id = ?1", params![id])?;
         self.connection.execute(
+            "INSERT OR IGNORE INTO deleted_api_provider_seeds (id, deleted_at) VALUES (?1, ?2)",
+            params![id, current_time_string()],
+        )?;
+        self.connection.execute(
             "UPDATE providers SET api_provider_id = '' WHERE api_provider_id = ?1",
             params![id],
         )?;
@@ -367,6 +371,11 @@ impl Database {
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS deleted_api_provider_seeds (
+              id TEXT PRIMARY KEY,
+              deleted_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -457,12 +466,20 @@ impl Database {
               created_at,
               updated_at
             FROM providers
-            WHERE trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '';
+            WHERE (trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '')
+              AND NOT EXISTS (
+                SELECT 1 FROM deleted_api_provider_seeds deleted
+                WHERE deleted.id = 'api-from-' || providers.id
+              );
 
             UPDATE providers
             SET api_provider_id = 'api-from-' || id
             WHERE trim(api_provider_id) = ''
-              AND (trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '');
+              AND (trim(base_url) <> '' OR trim(api_key) <> '' OR trim(website_url) <> '')
+              AND NOT EXISTS (
+                SELECT 1 FROM deleted_api_provider_seeds deleted
+                WHERE deleted.id = 'api-from-' || providers.id
+              );
             "#,
         )?;
         Ok(())

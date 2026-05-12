@@ -14,7 +14,13 @@ use commands::{
     send_chat_message, AppState,
 };
 use models::Provider;
-use std::{sync::Mutex, thread, time::Duration};
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -23,20 +29,26 @@ use tauri::{AppHandle, Listener, Manager, State, WindowEvent};
 const TRAY_SHOW_ID: &str = "show";
 const TRAY_QUIT_ID: &str = "quit";
 const TRAY_PROVIDER_PREFIX: &str = "provider:";
+const SINGLE_INSTANCE_ADDR: &str = "127.0.0.1:47631";
+const SINGLE_INSTANCE_SHOW_REQUEST: &[u8] = b"show\n";
 
 struct TrayHolder(Mutex<Option<TrayIcon>>);
 
 pub fn run() {
+    let Some(single_instance_listener) = acquire_single_instance() else {
+        return;
+    };
     let state = AppState::new().expect("failed to initialize application state");
 
     tauri::Builder::default()
         .manage(state)
         .manage(TrayHolder(Mutex::new(None)))
-        .setup(|app| {
+        .setup(move |app| {
             let icon = load_app_icon()?;
             let menu = build_menu(app.handle())?;
 
             apply_main_window_icon(app.handle());
+            start_single_instance_listener(single_instance_listener, app.handle().clone());
 
             let tray = TrayIconBuilder::new()
                 .icon(icon)
@@ -94,6 +106,41 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch");
+}
+
+fn acquire_single_instance() -> Option<TcpListener> {
+    match TcpListener::bind(SINGLE_INSTANCE_ADDR) {
+        Ok(listener) => Some(listener),
+        Err(_) => {
+            notify_existing_instance();
+            None
+        }
+    }
+}
+
+fn notify_existing_instance() {
+    if let Ok(mut stream) = TcpStream::connect(SINGLE_INSTANCE_ADDR) {
+        let _ = stream.write_all(SINGLE_INSTANCE_SHOW_REQUEST);
+    }
+}
+
+fn start_single_instance_listener(listener: TcpListener, app: AppHandle) {
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            if let Ok(mut stream) = stream {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                let mut message = Vec::new();
+                if stream.read_to_end(&mut message).is_ok()
+                    && message.starts_with(SINGLE_INSTANCE_SHOW_REQUEST)
+                {
+                    let app_for_window = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        show_main_window(&app_for_window);
+                    });
+                }
+            }
+        }
+    });
 }
 
 fn load_app_icon() -> tauri::Result<Image<'static>> {
@@ -253,6 +300,7 @@ fn show_main_window(app: &AppHandle) {
             let _ = window.set_icon(icon);
         }
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }

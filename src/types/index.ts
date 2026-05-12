@@ -56,6 +56,17 @@ export interface RemoteModel {
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  attachments?: ChatAttachment[];
+}
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  kind: "image" | "file";
+  dataUrl?: string;
+  text?: string;
 }
 
 export interface ChatRequest {

@@ -6,9 +6,9 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    ApiProvider, AppSettings, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
-    ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, ModelListRequest, Provider,
-    RemoteModel, SessionMessage,
+    ApiProvider, AppSettings, ChatAttachment, ChatMessage, ChatRequest, ChatResponse,
+    DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse, LaunchRequest,
+    ModelListRequest, Provider, RemoteModel, SessionMessage,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -157,7 +157,13 @@ pub fn activate_provider(
 }
 
 #[tauri::command]
-pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
+pub async fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_provider_models_blocking(request))
+        .await
+        .map_err(|error| format!("Model list task failed: {error}"))?
+}
+
+fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
     let provider_type = normalized_provider_type(&request.provider_type);
     let url = model_list_url(&provider_type, &request.base_url)?;
     let api_key = request.api_key.trim();
@@ -207,7 +213,13 @@ pub fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel
 }
 
 #[tauri::command]
-pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
+pub async fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || send_chat_message_blocking(request))
+        .await
+        .map_err(|error| format!("Chat task failed: {error}"))?
+}
+
+fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
     let api_key = request.provider.api_key.trim();
     let client = Client::builder()
@@ -225,12 +237,7 @@ pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
             .json(&serde_json::json!({
                 "model": request.model.trim(),
                 "max_tokens": 4096,
-                "messages": request.messages.iter().filter(|message| message.role != "system").map(|message| {
-                    serde_json::json!({
-                        "role": if message.role == "assistant" { "assistant" } else { "user" },
-                        "content": message.content
-                    })
-                }).collect::<Vec<Value>>(),
+                "messages": anthropic_chat_messages(&request.messages)?,
             }))
             .send()
     } else if provider_type == "gemini" {
@@ -241,12 +248,7 @@ pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
             .post(url)
             .headers(headers)
             .json(&serde_json::json!({
-                "contents": request.messages.iter().filter(|message| message.role != "system").map(|message| {
-                    serde_json::json!({
-                        "role": if message.role == "assistant" { "model" } else { "user" },
-                        "parts": [{ "text": message.content }]
-                    })
-                }).collect::<Vec<Value>>(),
+                "contents": gemini_chat_messages(&request.messages)?,
             }))
             .send()
     } else {
@@ -258,7 +260,7 @@ pub fn send_chat_message(request: ChatRequest) -> Result<ChatResponse, String> {
             .headers(headers)
             .json(&serde_json::json!({
                 "model": request.model.trim(),
-                "messages": request.messages,
+                "messages": openai_chat_messages(&request.messages),
             }))
             .send()
     }
@@ -660,18 +662,170 @@ fn add_optional_json_string(value: &mut Value, key: &str, raw: &str) {
     }
 }
 
+fn openai_chat_messages(messages: &[ChatMessage]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let role = chat_role(message, "assistant");
+            let text = message_text_with_files(message);
+            let image_attachments = message
+                .attachments
+                .iter()
+                .filter(|attachment| is_image_attachment(attachment))
+                .collect::<Vec<&ChatAttachment>>();
+
+            if image_attachments.is_empty() {
+                serde_json::json!({
+                    "role": role,
+                    "content": text,
+                })
+            } else {
+                let mut content = vec![serde_json::json!({
+                    "type": "text",
+                    "text": text,
+                })];
+                for attachment in image_attachments {
+                    if let Some(data_url) = attachment.data_url.as_deref() {
+                        content.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": data_url },
+                        }));
+                    }
+                }
+                serde_json::json!({
+                    "role": role,
+                    "content": content,
+                })
+            }
+        })
+        .collect()
+}
+
+fn anthropic_chat_messages(messages: &[ChatMessage]) -> Result<Vec<Value>, String> {
+    messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .map(|message| {
+            let mut content = vec![serde_json::json!({
+                "type": "text",
+                "text": message_text_with_files(message),
+            })];
+            for attachment in message
+                .attachments
+                .iter()
+                .filter(|attachment| is_image_attachment(attachment))
+            {
+                let Some(data_url) = attachment.data_url.as_deref() else {
+                    continue;
+                };
+                let (media_type, data) = image_data_url(data_url)?;
+                content.push(serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": data,
+                    },
+                }));
+            }
+            Ok(serde_json::json!({
+                "role": if message.role == "assistant" { "assistant" } else { "user" },
+                "content": content,
+            }))
+        })
+        .collect()
+}
+
+fn gemini_chat_messages(messages: &[ChatMessage]) -> Result<Vec<Value>, String> {
+    messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .map(|message| {
+            let mut parts = vec![serde_json::json!({ "text": message_text_with_files(message) })];
+            for attachment in message
+                .attachments
+                .iter()
+                .filter(|attachment| is_image_attachment(attachment))
+            {
+                let Some(data_url) = attachment.data_url.as_deref() else {
+                    continue;
+                };
+                let (mime_type, data) = image_data_url(data_url)?;
+                parts.push(serde_json::json!({
+                    "inlineData": {
+                        "mimeType": mime_type,
+                        "data": data,
+                    },
+                }));
+            }
+            Ok(serde_json::json!({
+                "role": if message.role == "assistant" { "model" } else { "user" },
+                "parts": parts,
+            }))
+        })
+        .collect()
+}
+
+fn chat_role<'a>(message: &'a ChatMessage, assistant_role: &'a str) -> &'a str {
+    if message.role == "assistant" {
+        assistant_role
+    } else if message.role == "system" {
+        "system"
+    } else {
+        "user"
+    }
+}
+
+fn message_text_with_files(message: &ChatMessage) -> String {
+    let mut text = message.content.trim().to_string();
+    let file_blocks = message
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.kind != "image")
+        .filter_map(|attachment| {
+            attachment.text.as_ref().map(|content| {
+                format!(
+                    "Attached file: {}\nMIME: {}\n\n{}",
+                    attachment.name, attachment.mime_type, content
+                )
+            })
+        })
+        .collect::<Vec<String>>();
+
+    if !file_blocks.is_empty() {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        text.push_str(&file_blocks.join("\n\n---\n\n"));
+    }
+
+    text
+}
+
+fn is_image_attachment(attachment: &ChatAttachment) -> bool {
+    attachment.kind == "image" && attachment.data_url.is_some()
+}
+
+fn image_data_url(data_url: &str) -> Result<(&str, &str), String> {
+    let trimmed = data_url.trim();
+    let Some(rest) = trimmed.strip_prefix("data:") else {
+        return Err("Invalid uploaded image data URL".to_string());
+    };
+    let Some((meta, body)) = rest.split_once(',') else {
+        return Err("Invalid uploaded image data URL".to_string());
+    };
+    let mime = meta
+        .split(';')
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("image/png");
+    Ok((mime, body))
+}
+
 fn image_data_url_part(data_url: &str, index: usize) -> Result<Part, String> {
     let trimmed = data_url.trim();
-    let (mime, data) = if let Some(rest) = trimmed.strip_prefix("data:") {
-        let Some((meta, body)) = rest.split_once(',') else {
-            return Err("Invalid uploaded image data URL".to_string());
-        };
-        let mime = meta
-            .split(';')
-            .next()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or("image/png");
-        (mime, body)
+    let (mime, data) = if trimmed.starts_with("data:") {
+        image_data_url(trimmed)?
     } else {
         ("image/png", trimmed)
     };

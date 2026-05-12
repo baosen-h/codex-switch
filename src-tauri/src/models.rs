@@ -60,6 +60,22 @@ pub struct RemoteModel {
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub attachments: Vec<ChatAttachment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatAttachment {
+    pub id: String,
+    pub name: String,
+    pub mime_type: String,
+    pub size: i64,
+    pub kind: String,
+    #[serde(default)]
+    pub data_url: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

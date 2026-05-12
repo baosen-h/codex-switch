@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "codex-switch"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "base64 0.22.1",
  "dirs 5.0.1",

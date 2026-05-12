@@ -62,6 +62,7 @@ function App() {
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -251,8 +252,13 @@ function App() {
     <I18nProvider lang={lang}>
       <div className="app-root">
         <TitleBar />
-        <div className="app-shell">
-          <Sidebar activePage={activePage} onSelect={setActivePage} />
+        <div className={`app-shell ${sidebarCollapsed ? "app-shell-sidebar-collapsed" : ""}`}>
+          <Sidebar
+            activePage={activePage}
+            collapsed={sidebarCollapsed}
+            onSelect={setActivePage}
+            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          />
           <main className="main-content">
             {content}
           </main>
