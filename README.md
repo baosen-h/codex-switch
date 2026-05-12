@@ -96,6 +96,16 @@ Release assets usually include:
 - Drawing focuses on OpenAI-compatible image endpoints.
 - Talking image input depends on provider and model support.
 
+## Author Statement
+
+This is not a mature software project. It is a tool I built while using Codex, Claude Code, and Gemini, because I wanted provider configuration, chatting, drawing, and session management to be easier in my own workflow.
+
+The code was generated and modified entirely with help from Codex, based on my ideas, requirements, screenshots, feedback, and testing. My role was mainly to describe what I wanted, judge the result, test the features, and decide what needed to be changed next.
+
+Because the project has not been developed for a long time, and because it was built through this kind of step-by-step iteration, there are probably bugs, unclear logic, poorly organized files, or implementations that are not very elegant yet.
+
+I will keep improving it through my own use. If you also use this project and find problems or have better suggestions, issues are welcome. Real feedback would be very helpful.
+
 ## Development
 
 Requirements:
