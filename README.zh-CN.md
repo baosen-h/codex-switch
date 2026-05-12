@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128.png" alt="Codex Switch 图标" width="140" />
+  <img src="src-tauri/icons/icon.png" alt="Codex Switch 图标" width="140" />
 </p>
 
 <h1 align="center">Codex Switch</h1>
