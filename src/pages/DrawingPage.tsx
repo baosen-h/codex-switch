@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent, WheelEvent } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
@@ -25,14 +26,6 @@ interface DrawingRecord {
   inputImages: string[];
   images: string[];
   createdAt: number;
-}
-
-interface ZoomLens {
-  visible: boolean;
-  x: number;
-  y: number;
-  backgroundSize: string;
-  backgroundPosition: string;
 }
 
 const STORAGE_KEY = "codex-switch-drawing-records-v1";
@@ -63,6 +56,26 @@ const PlusIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
     <rect x="6" y="2" width="2" height="10"/>
     <rect x="2" y="6" width="10" height="2"/>
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M3 4.5h10M6.2 4.5V3h3.6v1.5M5 6.3l.5 6.2h5l.5-6.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const UploadImageIcon = () => (
+  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3.5" y="4" width="14" height="12" rx="1.8" stroke="currentColor" strokeWidth="1.7"/>
+    <path d="M6 13.5 9 10.5l2.2 2.2 1.6-1.6 3.2 3.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M17 16.5h3.5M18.75 14.75v3.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"/>
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
   </svg>
 );
 
@@ -133,10 +146,6 @@ function loadRecords(provider?: ApiProvider): DrawingRecord[] {
   return [createRecord(provider)];
 }
 
-function recordTitle(record: DrawingRecord): string {
-  return record.prompt.trim().slice(0, 28) || (record.mode === "edit" ? "Image edit" : "New image");
-}
-
 async function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -150,7 +159,7 @@ async function copyImage(image: string) {
   const ClipboardItemCtor = window.ClipboardItem;
   if (navigator.clipboard && ClipboardItemCtor) {
     try {
-      const blob = await fetch(image).then((response) => response.blob());
+      const blob = await fetch(imageSrc(image)).then((response) => response.blob());
       await navigator.clipboard.write([new ClipboardItemCtor({ [blob.type || "image/png"]: blob })]);
       return;
     } catch {
@@ -167,7 +176,7 @@ async function copyImage(image: string) {
 async function downloadImage(image: string, index: number) {
   const link = document.createElement("a");
   try {
-    const blob = await fetch(image).then((response) => response.blob());
+    const blob = await fetch(imageSrc(image)).then((response) => response.blob());
     link.href = URL.createObjectURL(blob);
     setTimeout(() => URL.revokeObjectURL(link.href), 8000);
   } catch {
@@ -177,6 +186,12 @@ async function downloadImage(image: string, index: number) {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+function imageSrc(image: string): string {
+  const trimmed = image.trim();
+  if (!trimmed || /^(data:|https?:|asset:|blob:)/i.test(trimmed)) return trimmed;
+  return convertFileSrc(trimmed);
 }
 
 function nextFrame(): Promise<void> {
@@ -192,13 +207,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [zoomImage, setZoomImage] = useState<string | null>(null);
   const [zoomScale, setZoomScale] = useState(1);
-  const [zoomLens, setZoomLens] = useState<ZoomLens>({
-    visible: false,
-    x: 0,
-    y: 0,
-    backgroundSize: "100% 100%",
-    backgroundPosition: "50% 50%",
-  });
   const [isGenerating, setIsGenerating] = useState(false);
   const zoomStageRef = useRef<HTMLDivElement | null>(null);
   const zoomDrag = useRef({ active: false, x: 0, y: 0, left: 0, top: 0 });
@@ -289,7 +297,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
   const closeZoomImage = () => {
     setZoomImage(null);
     setZoomScale(1);
-    setZoomLens((lens) => ({ ...lens, visible: false }));
   };
 
   const zoomBy = (delta: number) => {
@@ -329,7 +336,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
       left: stage.scrollLeft,
       top: stage.scrollTop,
     };
-    setZoomLens((lens) => (lens.visible ? { ...lens, visible: false } : lens));
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -338,7 +344,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
     if (!stage || !zoomDrag.current.active) return;
     stage.scrollLeft = zoomDrag.current.left - (event.clientX - zoomDrag.current.x);
     stage.scrollTop = zoomDrag.current.top - (event.clientY - zoomDrag.current.y);
-    setZoomLens((lens) => (lens.visible ? { ...lens, visible: false } : lens));
   };
 
   const stopZoomDrag = (event: PointerEvent<HTMLDivElement>) => {
@@ -346,41 +351,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  };
-
-  const updateZoomLens = (event: PointerEvent<HTMLDivElement>) => {
-    if (!zoomImage || zoomDrag.current.active) return;
-    const stage = zoomStageRef.current;
-    const image = stage?.querySelector("img");
-    if (!stage || !image) return;
-
-    const imageRect = image.getBoundingClientRect();
-    const isInsideImage =
-      event.clientX >= imageRect.left &&
-      event.clientX <= imageRect.right &&
-      event.clientY >= imageRect.top &&
-      event.clientY <= imageRect.bottom;
-
-    if (!isInsideImage) {
-      setZoomLens((lens) => (lens.visible ? { ...lens, visible: false } : lens));
-      return;
-    }
-
-    const lensSize = 176;
-    const lensZoom = 2.35;
-    const imageX = event.clientX - imageRect.left;
-    const imageY = event.clientY - imageRect.top;
-    setZoomLens({
-      visible: true,
-      x: event.clientX,
-      y: event.clientY,
-      backgroundSize: `${imageRect.width * lensZoom}px ${imageRect.height * lensZoom}px`,
-      backgroundPosition: `${-(imageX * lensZoom - lensSize / 2)}px ${-(imageY * lensZoom - lensSize / 2)}px`,
-    });
-  };
-
-  const hideZoomLens = () => {
-    setZoomLens((lens) => (lens.visible ? { ...lens, visible: false } : lens));
   };
 
   const generate = async () => {
@@ -446,8 +416,7 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
                 <span>{t("inputImage")}</span>
                 <label className="drawing-upload-box">
                   <input accept="image/*" multiple onChange={handleUploadChange} type="file" />
-                  <SparkIcon />
-                  <span>{t("uploadImage")}</span>
+                  <UploadImageIcon />
                 </label>
               </label>
 
@@ -553,7 +522,7 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
             ) : currentImage ? (
               <div className="drawing-image-preview">
                 <button className="drawing-image-open" onClick={() => openZoomImage(currentImage)} type="button" title="Open">
-                  <img src={currentImage} alt="" />
+                  <img src={imageSrc(currentImage)} alt="" />
                 </button>
                 <span>{currentImageIndex + 1} / {activeRecord.images.length}</span>
               </div>
@@ -598,23 +567,32 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
           </button>
           <div className="drawing-record-list">
             {records.map((record) => (
-              <button
-                className={`drawing-record-thumb ${record.id === activeRecord.id ? "active" : ""}`}
+              <div
+                className={`drawing-record-item ${record.id === activeRecord.id ? "active" : ""}`}
                 key={record.id}
-                onClick={() => {
-                  setActiveId(record.id);
-                  setCurrentImageIndex(0);
-                }}
-                type="button"
               >
-                {record.images[0] ? <img src={record.images[0]} alt="" /> : <span>{record.mode === "edit" ? t("editMode") : t("drawMode")}</span>}
-                <small>{recordTitle(record)}</small>
-              </button>
+                <button
+                  className="drawing-record-thumb"
+                  onClick={() => {
+                    setActiveId(record.id);
+                    setCurrentImageIndex(0);
+                  }}
+                  type="button"
+                  title={record.prompt.trim() || (record.mode === "edit" ? t("editMode") : t("drawMode"))}
+                >
+                      {record.images[0] ? <img src={imageSrc(record.images[0])} alt="" /> : <span>{record.mode === "edit" ? t("editMode") : t("drawMode")}</span>}
+                </button>
+                <button
+                  className="drawing-record-delete"
+                  onClick={() => deleteRecord(record.id)}
+                  type="button"
+                  title={t("delete")}
+                >
+                  <TrashIcon />
+                </button>
+              </div>
             ))}
           </div>
-          <button className="danger-button drawing-delete-record" onClick={() => deleteRecord(activeRecord.id)} type="button">
-            {t("delete")}
-          </button>
           {activeRecord.images.length > 1 ? (
             <div className="drawing-output-strip">
               {activeRecord.images.map((image, index) => (
@@ -624,7 +602,7 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
                   onClick={() => setCurrentImageIndex(index)}
                   type="button"
                 >
-                  <img src={image} alt="" />
+                  <img src={imageSrc(image)} alt="" />
                 </button>
               ))}
             </div>
@@ -639,35 +617,20 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
             ref={zoomStageRef}
             onClick={(event) => event.stopPropagation()}
             onPointerDown={startZoomDrag}
-            onPointerMove={(event) => {
-              moveZoomDrag(event);
-              updateZoomLens(event);
-            }}
+            onPointerMove={moveZoomDrag}
             onPointerUp={stopZoomDrag}
             onPointerCancel={stopZoomDrag}
-            onPointerLeave={hideZoomLens}
             onWheel={zoomWithWheel}
           >
-            <img draggable={false} src={zoomImage} alt="" style={{ width: `${zoomScale * 100}%` }} />
+            <img draggable={false} src={imageSrc(zoomImage)} alt="" style={{ width: `${zoomScale * 100}%` }} />
           </div>
-          {zoomLens.visible ? (
-            <div
-              className="image-zoom-lens"
-              style={{
-                left: zoomLens.x,
-                top: zoomLens.y,
-                backgroundImage: `url("${zoomImage}")`,
-                backgroundSize: zoomLens.backgroundSize,
-                backgroundPosition: zoomLens.backgroundPosition,
-              }}
-            />
-          ) : null}
           <div className="image-zoom-toolbar" onClick={(event) => event.stopPropagation()}>
             <button onClick={() => zoomBy(-0.25)} type="button" title="Zoom out"><ZoomOutIcon /></button>
             <button onClick={() => setZoomScale(1)} type="button" title="Reset zoom"><ResetZoomIcon /></button>
             <button onClick={() => zoomBy(0.25)} type="button" title="Zoom in"><ZoomIcon /></button>
             <button onClick={() => void handleCopyImage()} type="button" title={t("copyImage")}><CopyIcon /></button>
             <button onClick={handleDownloadImage} type="button" title={t("downloadImage")}><DownloadIcon /></button>
+            <button onClick={closeZoomImage} type="button" title="Close"><CloseIcon /></button>
           </div>
         </div>
       ) : null}

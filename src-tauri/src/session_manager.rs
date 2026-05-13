@@ -76,7 +76,11 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
             _ => continue,
         };
 
-        if content.trim().is_empty() {
+        if content.trim().is_empty()
+            || role == "developer"
+            || role == "system"
+            || is_codex_structural_prompt(&content)
+        {
             continue;
         }
 
@@ -202,7 +206,11 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
                 if payload.get("type").and_then(Value::as_str) == Some("message") {
                     let role = payload.get("role").and_then(Value::as_str).unwrap_or("");
                     let text = payload.get("content").map(extract_text).unwrap_or_default();
-                    if !text.trim().is_empty() {
+                    if !text.trim().is_empty()
+                        && role != "developer"
+                        && role != "system"
+                        && !is_codex_structural_prompt(&text)
+                    {
                         if summary.is_none() {
                             summary = Some(truncate_summary(&text, 180));
                         }
@@ -397,7 +405,15 @@ fn title_from_text(text: &str, max_chars: usize) -> String {
 
 fn is_codex_structural_prompt(text: &str) -> bool {
     let trimmed = text.trim();
-    trimmed.starts_with("<environment_context>") || trimmed.starts_with("<image")
+    trimmed.starts_with("<environment_context>")
+        || trimmed.starts_with("<current_date>")
+        || trimmed.starts_with("<timezone>")
+        || trimmed.starts_with("<permissions instructions>")
+        || trimmed.starts_with("<collaboration_mode>")
+        || trimmed.starts_with("<skills_instructions>")
+        || trimmed.starts_with("<turn_aborted>")
+        || trimmed.starts_with("# Instructions")
+        || trimmed.starts_with("<image")
 }
 
 fn truncate_summary(text: &str, max_chars: usize) -> String {

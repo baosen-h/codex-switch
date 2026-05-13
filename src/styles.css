@@ -1607,6 +1607,7 @@ input:focus, textarea:focus, select:focus {
 .session-form { margin-top: 0.85rem; }
 
 .session-chat-layout {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -1687,12 +1688,37 @@ input:focus, textarea:focus, select:focus {
   backdrop-filter: blur(12px) saturate(var(--panel-saturate));
 }
 .message-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
   margin-bottom: 0.35rem;
   color: var(--a);
   font-family: var(--mono);
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
+}
+.message-copy-button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--b0);
+  border-radius: var(--radius-sm);
+  color: var(--t2);
+  background: color-mix(in srgb, var(--p2) 56%, transparent);
+  opacity: 0;
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.message-card:hover .message-copy-button,
+.message-copy-button:focus-visible {
+  opacity: 1;
+}
+.message-copy-button:hover {
+  color: var(--a);
+  border-color: var(--a);
 }
 .message-card { min-width: 0; }
 .message-card p {
@@ -1702,6 +1728,19 @@ input:focus, textarea:focus, select:focus {
   word-break: break-word;
   line-height: 1.6;
   font-size: 0.88rem;
+}
+.message-unfold-button {
+  margin-top: 0.65rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--a) 42%, var(--b1));
+  border-radius: var(--radius-sm);
+  color: var(--a);
+  background: color-mix(in srgb, var(--p2) 56%, transparent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.message-unfold-button:hover {
+  background: rgb(var(--accent-rgb) / 0.12);
 }
 .message-card-user {
   background: rgb(var(--accent-rgb) / 0.16);
@@ -1730,6 +1769,113 @@ input:focus, textarea:focus, select:focus {
 }
 .message-card-system .message-card-header {
   color: var(--t2);
+}
+
+.session-directory-trigger {
+  position: fixed;
+  right: 2rem;
+  bottom: 2rem;
+  z-index: 84;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgb(var(--accent-rgb) / 0.62);
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(var(--accent-rgb) / 0.92);
+  box-shadow: 0 16px 34px rgb(var(--accent-rgb) / 0.26);
+}
+.session-directory-trigger:hover {
+  background: var(--a);
+}
+
+.session-directory-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 86;
+  width: min(640px, calc(100vw - 3rem));
+  max-height: min(620px, calc(100vh - 5rem));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #1d1d22;
+  box-shadow: 0 30px 90px rgba(0,0,0,0.54);
+  transform: translate(-50%, -50%);
+  isolation: isolate;
+}
+.session-directory-panel::before {
+  content: "";
+  position: fixed;
+  inset: -100vmax;
+  z-index: -1;
+  background: rgba(0,0,0,0.58);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.session-directory-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--b0);
+}
+.session-directory-header button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--t2);
+  background: color-mix(in srgb, var(--p2) 64%, transparent);
+}
+.session-directory-list {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+.session-directory-list button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.62rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--t1);
+  background: transparent;
+  text-align: left;
+}
+.session-directory-list button:hover {
+  border-color: rgb(var(--accent-rgb) / 0.34);
+  background: rgb(var(--accent-rgb) / 0.12);
+}
+.session-directory-list span {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(var(--accent-rgb) / 0.9);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.session-directory-list strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Misc ───────────────────────────────────────────────────────── */
@@ -2254,15 +2400,18 @@ input:focus, textarea:focus, select:focus {
 }
 
 .drawing-upload-box {
-  min-height: 70px;
+  min-height: 92px;
   display: grid;
   place-items: center;
-  gap: 0.35rem;
   border: 1px dashed var(--b1);
   border-radius: var(--radius-md);
   color: var(--t2);
   background: color-mix(in srgb, var(--p2) 38%, transparent);
   cursor: pointer;
+}
+.drawing-upload-box svg {
+  width: 30px;
+  height: 30px;
 }
 .drawing-upload-box:hover {
   color: var(--a);
@@ -2520,8 +2669,9 @@ input:focus, textarea:focus, select:focus {
 .image-zoom-stage {
   width: min(86vw, 1180px);
   height: min(78vh, 820px);
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
   overflow: auto;
   overscroll-behavior: contain;
   cursor: grab;
@@ -2586,24 +2736,10 @@ input:focus, textarea:focus, select:focus {
   background: rgb(255 255 255 / 0.12);
 }
 
-.image-zoom-lens {
-  position: fixed;
-  z-index: 82;
-  width: 176px;
-  height: 176px;
-  border: 2px solid rgb(255 255 255 / 0.88);
-  border-radius: 999px;
-  background-color: #fff;
-  background-repeat: no-repeat;
-  box-shadow: 0 20px 56px rgb(0 0 0 / 0.48), inset 0 0 0 1px rgb(0 0 0 / 0.2);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
 .drawing-record-rail {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 0.75rem;
   padding: 0.9rem 0.75rem;
   border-left: 1px solid var(--b0);
@@ -2631,11 +2767,13 @@ input:focus, textarea:focus, select:focus {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.drawing-record-item {
+  position: relative;
+}
 .drawing-record-thumb {
-  min-height: 106px;
+  width: 100%;
+  min-height: 96px;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 0.35rem;
   padding: 0.35rem;
   border: 1px solid var(--b1);
   border-radius: var(--radius-sm);
@@ -2643,13 +2781,13 @@ input:focus, textarea:focus, select:focus {
   color: var(--t2);
   overflow: hidden;
 }
-.drawing-record-thumb.active {
+.drawing-record-item.active .drawing-record-thumb {
   border-color: var(--a);
   box-shadow: inset 0 0 0 1px rgb(var(--accent-rgb) / 0.2);
 }
 .drawing-record-thumb img {
   width: 100%;
-  height: 74px;
+  height: 86px;
   object-fit: cover;
   border-radius: calc(var(--radius-sm) - 3px);
   display: block;
@@ -2657,22 +2795,35 @@ input:focus, textarea:focus, select:focus {
 .drawing-record-thumb > span {
   display: grid;
   place-items: center;
-  height: 74px;
+  height: 86px;
   border: 1px dashed var(--b0);
   border-radius: calc(var(--radius-sm) - 3px);
   font-family: var(--mono);
   font-size: 0.72rem;
 }
-.drawing-record-thumb small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--t2);
+.drawing-record-delete {
+  position: absolute;
+  right: 0.42rem;
+  top: 0.42rem;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255,91,91,0.54);
+  border-radius: var(--radius-sm);
+  color: var(--err);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease, border-color 140ms ease;
 }
-.drawing-delete-record {
-  width: 100%;
-  padding-inline: 0.4rem;
+.drawing-record-item:hover .drawing-record-delete,
+.drawing-record-delete:focus-visible {
+  opacity: 1;
+}
+.drawing-record-delete:hover {
+  border-color: var(--err);
+  background: rgba(217,64,64,0.16);
 }
 
 .preview-header {

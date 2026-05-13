@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ClipboardEvent, DragEvent } from "react";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
@@ -248,7 +248,7 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
     });
   };
 
-  const addDraftAttachments = async (files: FileList | null, imageOnly = false) => {
+  const addDraftAttachments = async (files: FileList | File[] | null, imageOnly = false) => {
     if (!files?.length) return;
     try {
       const attachments = await Promise.all(Array.from(files).map((file) => fileToChatAttachment(file, imageOnly)));
@@ -264,6 +264,28 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
     void addDraftAttachments(files, imageOnly).finally(() => {
       event.currentTarget.value = "";
     });
+  };
+
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (!files.length) return;
+    event.preventDefault();
+    void addDraftAttachments(files, true);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.files.length) return;
+    event.preventDefault();
+    void addDraftAttachments(event.dataTransfer.files);
   };
 
   const removeDraftAttachment = (id: string) => {
@@ -352,7 +374,7 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
           </div>
         </aside>
 
-        <div className="chat-main-panel">
+        <div className="chat-main-panel" onDragOver={handleDragOver} onDrop={handleDrop}>
           <header className="chat-topbar">
             <label className="chat-select">
               <span>{t("apiProvider")}</span>
@@ -403,6 +425,7 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
             <textarea
               value={activeTopic.draft}
               onChange={(event) => patchActiveTopic({ draft: event.target.value })}
+              onPaste={handlePaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();

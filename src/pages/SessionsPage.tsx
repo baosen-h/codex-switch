@@ -30,6 +30,13 @@ const TerminalIcon = () => (
   </svg>
 );
 
+const ListIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 4h7M6 8h7M6 12h7" />
+    <path d="M3 4h.01M3 8h.01M3 12h.01" />
+  </svg>
+);
+
 interface SessionsPageProps {
   sessions: SessionRecord[];
   onBuildHandoff: (sourcePath: string, mode: HandoffMode) => Promise<HandoffPreview>;
@@ -41,6 +48,7 @@ interface SessionsPageProps {
 type AgentFilter = AgentKind | "all";
 const INITIAL_SESSION_BATCH = 80;
 const SESSION_BATCH_SIZE = 80;
+const COLLAPSED_MESSAGE_CHARS = 1200;
 
 async function copyText(value: string) {
   if (!value) return;
@@ -61,6 +69,29 @@ async function copyText(value: string) {
   }
 }
 
+function isDeveloperLikeMessage(message: SessionMessage): boolean {
+  const role = message.role.toLowerCase();
+  const text = message.content.trim();
+  return (
+    role === "developer" ||
+    role === "system" ||
+    text.startsWith("<environment_context>") ||
+    text.startsWith("<current_date>") ||
+    text.startsWith("<timezone>") ||
+    text.startsWith("<permissions instructions>") ||
+    text.startsWith("<collaboration_mode>") ||
+    text.startsWith("<skills_instructions>") ||
+    text.startsWith("<image") ||
+    text.startsWith("<turn_aborted>") ||
+    text.startsWith("# Instructions")
+  );
+}
+
+function messagePreview(text: string): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > 54 ? `${compact.slice(0, 54)}...` : compact || "Untitled message";
+}
+
 export function SessionsPage({
   sessions,
   onBuildHandoff,
@@ -78,9 +109,12 @@ export function SessionsPage({
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_BATCH);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set());
+  const [isDirectoryOpen, setIsDirectoryOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const messageCache = useRef<Map<string, SessionMessage[]>>(new Map());
   const handoffCache = useRef<Map<string, HandoffPreview>>(new Map());
+  const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const roleLabels: Record<string, string> = {
     user: t("roleUser"),
     assistant: t("roleAI"),
@@ -150,6 +184,19 @@ export function SessionsPage({
     [filteredSessions, visibleCount],
   );
 
+  const visibleMessages = useMemo(
+    () => selectedMessages.filter((message) => !isDeveloperLikeMessage(message)),
+    [selectedMessages],
+  );
+
+  const directoryMessages = useMemo(
+    () =>
+      visibleMessages
+        .map((message, index) => ({ message, index, key: `${selectedSession?.id ?? "session"}-${index}` }))
+        .filter((item) => item.message.role === "user"),
+    [selectedSession?.id, visibleMessages],
+  );
+
   useEffect(() => {
     setVisibleCount(INITIAL_SESSION_BATCH);
   }, [deferredQuery, agentFilter, sessions.length]);
@@ -158,6 +205,7 @@ export function SessionsPage({
     if (!selectedSession) {
       setSelectedMessages([]);
       setIsLoadingMessages(false);
+      setIsDirectoryOpen(false);
     }
   }, [selectedSession, selectedSessionId]);
 
@@ -195,6 +243,12 @@ export function SessionsPage({
       active = false;
     };
   }, [onLoadMessages, selectedSourcePath]);
+
+  useEffect(() => {
+    setExpandedMessages(new Set());
+    setIsDirectoryOpen(false);
+    messageRefs.current.clear();
+  }, [selectedSourcePath]);
 
   const handleDelete = async (session: SessionRecord) => {
     setPendingDeleteId(null);
@@ -234,6 +288,23 @@ export function SessionsPage({
     } finally {
       setCopyingHandoffKey((current) => (current === progressKey ? null : current));
     }
+  };
+
+  const toggleMessageExpanded = (key: string) => {
+    setExpandedMessages((current) => {
+      const next = new Set(current);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const jumpToMessage = (key: string) => {
+    messageRefs.current.get(key)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setIsDirectoryOpen(false);
   };
 
   return (
@@ -428,11 +499,29 @@ export function SessionsPage({
                   <div className="session-message-pane">
                     {isLoadingMessages ? (
                       <p className="empty-state">{t("loadingTranscript")}</p>
-                    ) : selectedMessages.length ? (
+                    ) : visibleMessages.length ? (
                       <div className="message-list">
-                        {selectedMessages.map((message, index) => (
-                          <div key={`${selectedSession.id}-${message.role}-${index}`}>
-                            {shouldShowMessageTime(message, selectedMessages[index - 1]) ? (
+                        {visibleMessages.map((message, index) => {
+                          const messageKey = `${selectedSession.id}-${index}`;
+                          const isLong = message.content.length > COLLAPSED_MESSAGE_CHARS;
+                          const isExpanded = expandedMessages.has(messageKey);
+                          const displayContent =
+                            isLong && !isExpanded
+                              ? `${message.content.slice(0, COLLAPSED_MESSAGE_CHARS).trimEnd()}...`
+                              : message.content;
+
+                          return (
+                          <div
+                            key={messageKey}
+                            ref={(node) => {
+                              if (node) {
+                                messageRefs.current.set(messageKey, node);
+                              } else {
+                                messageRefs.current.delete(messageKey);
+                              }
+                            }}
+                          >
+                            {shouldShowMessageTime(message, visibleMessages[index - 1]) ? (
                               <div className="message-time">
                                 {formatConversationTime(message.timestamp ?? "", lang)}
                               </div>
@@ -443,17 +532,67 @@ export function SessionsPage({
                               <div className={`message-card message-card-${message.role}`}>
                                 <div className="message-card-header">
                                   <strong>{roleLabels[message.role] ?? message.role}</strong>
+                                  <button
+                                    className="message-copy-button"
+                                    onClick={() => void copyText(message.content)}
+                                    type="button"
+                                    title="Copy"
+                                  >
+                                    <CopyIcon />
+                                  </button>
                                 </div>
-                                <p>{message.content}</p>
+                                <p>{displayContent}</p>
+                                {isLong ? (
+                                  <button
+                                    className="message-unfold-button"
+                                    onClick={() => toggleMessageExpanded(messageKey)}
+                                    type="button"
+                                  >
+                                    {isExpanded ? "Collapse" : `Unfold full content (${Math.ceil(message.content.length / 1000)}k)`}
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="empty-state">{t("noMessages")}</p>
                     )}
                   </div>
+                  {directoryMessages.length ? (
+                    <>
+                      <button
+                        className="session-directory-trigger"
+                        onClick={() => setIsDirectoryOpen((current) => !current)}
+                        type="button"
+                        title="Conversation directory"
+                      >
+                        <ListIcon />
+                      </button>
+                      {isDirectoryOpen ? (
+                        <div className="session-directory-panel">
+                          <div className="session-directory-header">
+                            <strong>{t("messages")}</strong>
+                            <button onClick={() => setIsDirectoryOpen(false)} type="button" title="Close">X</button>
+                          </div>
+                          <div className="session-directory-list">
+                            {directoryMessages.map((item, order) => (
+                              <button
+                                key={item.key}
+                                onClick={() => jumpToMessage(item.key)}
+                                type="button"
+                              >
+                                <span>{order + 1}</span>
+                                <strong>{messagePreview(item.message.content)}</strong>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
                 </div>
               ) : (
                 <p className="empty-state">{t("selectSession")}</p>

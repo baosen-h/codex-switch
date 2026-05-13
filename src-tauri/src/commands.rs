@@ -17,6 +17,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde_json::Value;
 use std::collections::HashSet;
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
@@ -348,7 +349,7 @@ pub fn generate_image(request: ImageGenerationRequest) -> Result<ImageGeneration
             .unwrap_or_else(|| format!("Image request failed with HTTP status {status}")));
     }
 
-    let images = extract_images(&body);
+    let images = persist_generated_images(extract_images(&body));
     if images.is_empty() {
         return Err("Image response did not contain image URLs or base64 data.".to_string());
     }
@@ -946,6 +947,91 @@ fn extract_images(value: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn persist_generated_images(images: Vec<String>) -> Vec<String> {
+    images
+        .into_iter()
+        .enumerate()
+        .map(|(index, image)| persist_generated_image(&image, index).unwrap_or(image))
+        .collect()
+}
+
+fn persist_generated_image(image: &str, index: usize) -> Result<String, String> {
+    let trimmed = image.trim();
+    let (mime, bytes) = if trimmed.starts_with("data:") {
+        let (mime, data) = image_data_url(trimmed)?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|error| format!("Failed to decode generated image: {error}"))?;
+        (mime.to_string(), bytes)
+    } else if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        let response = Client::builder()
+            .timeout(Duration::from_secs(45))
+            .build()
+            .map_err(|error| error.to_string())?
+            .get(trimmed)
+            .send()
+            .map_err(|error| format!("Failed to download generated image: {error}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "Generated image download failed with HTTP status {}",
+                response.status()
+            ));
+        }
+        let mime = response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .filter(|value| value.starts_with("image/"))
+            .unwrap_or("image/png")
+            .to_string();
+        let bytes = response
+            .bytes()
+            .map_err(|error| format!("Failed to read generated image: {error}"))?
+            .to_vec();
+        (mime, bytes)
+    } else {
+        return Err("Unsupported generated image format".to_string());
+    };
+
+    if let Some(dir) = drawing_image_dir() {
+        fs::create_dir_all(&dir).map_err(|error| format!("Failed to create image folder: {error}"))?;
+        let extension = image_extension(&mime);
+        let filename = format!(
+            "drawing-{}-{}.{extension}",
+            chrono_like_timestamp(),
+            index + 1
+        );
+        let path = dir.join(filename);
+        fs::write(&path, &bytes).map_err(|error| format!("Failed to save generated image: {error}"))?;
+        return Ok(path.to_string_lossy().to_string());
+    }
+
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{mime};base64,{encoded}"))
+}
+
+fn drawing_image_dir() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|dir| dir.join("codex-switch").join("drawing-images"))
+}
+
+fn image_extension(mime: &str) -> &'static str {
+    match mime {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        _ => "png",
+    }
+}
+
+fn chrono_like_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn extract_models(value: &Value) -> Vec<RemoteModel> {
