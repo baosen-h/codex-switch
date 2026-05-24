@@ -1,6 +1,6 @@
 [package]
 name = "codex-switch"
-version = "0.1.6"
+version = "0.1.7"
 description = "Desktop manager for switching Codex, Claude Code, and Gemini provider configs"
 authors = ["baosen-h"]
 edition = "2021"
@@ -17,13 +17,18 @@ tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 dirs = "5"
+rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 tauri = { version = "2.0.0", features = ["image-ico", "tray-icon"] }
 thiserror = "1"
+url = "2"
+urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
 
 [profile.release]

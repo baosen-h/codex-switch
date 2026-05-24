@@ -650,6 +650,27 @@ input:focus, textarea:focus, select:focus {
   white-space: nowrap;
 }
 
+.oauth-panel {
+  gap: 0.55rem;
+}
+
+.oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.oauth-url-preview {
+  min-height: 4.6rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.oauth-manual-callback {
+  display: grid;
+  gap: 0.55rem;
+}
+
 .model-picker {
   position: relative;
   display: grid;

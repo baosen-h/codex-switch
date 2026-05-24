@@ -155,3 +155,14 @@ export type PageKey = "providers" | "agents" | "talking" | "drawing" | "sessions
 export interface LaunchRequest {
   workspacePath: string;
 }
+
+export interface StartOpenAiOauthResult {
+  authUrl: string;
+  manualCallbackRequired: boolean;
+  message?: string;
+}
+
+export interface CompleteOpenAiOauthResult {
+  email: string;
+  configText: string;
+}

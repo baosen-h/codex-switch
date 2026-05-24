@@ -4,6 +4,7 @@ import type {
   AppSettings,
   ChatRequest,
   ChatResponse,
+  CompleteOpenAiOauthResult,
   DashboardState,
   HandoffMode,
   HandoffPreview,
@@ -14,6 +15,7 @@ import type {
   Provider,
   RemoteModel,
   SessionMessage,
+  StartOpenAiOauthResult,
 } from "../types";
 
 export const appApi = {
@@ -58,6 +60,15 @@ export const appApi = {
   },
   openExternalUrl(url: string): Promise<boolean> {
     return invoke("open_external_url", { url });
+  },
+  startOpenAiOauth(openBrowser = true): Promise<StartOpenAiOauthResult> {
+    return invoke("start_openai_oauth", { openBrowser });
+  },
+  submitOpenAiOauthCallback(input: string): Promise<void> {
+    return invoke("submit_openai_oauth_callback", { input });
+  },
+  completeOpenAiOauth(code: string, model?: string): Promise<CompleteOpenAiOauthResult> {
+    return invoke("complete_openai_oauth", { code, model });
   },
   pickDirectory(initialPath?: string): Promise<string | null> {
     return invoke("pick_directory", { initialPath });
