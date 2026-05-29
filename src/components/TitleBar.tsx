@@ -11,7 +11,7 @@ export function TitleBar() {
         data-tauri-drag-region
         onMouseDown={(e) => { if (e.button === 0) void appWindow.startDragging(); }}
       >
-        <span className="titlebar-title">CODEX-SWITCH</span>
+        <span className="titlebar-title">Codex Switch</span>
       </div>
       <div className="titlebar-controls">
         <button
