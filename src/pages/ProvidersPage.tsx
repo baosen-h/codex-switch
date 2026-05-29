@@ -262,11 +262,12 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     <section className="page providers-page">
       <article className="card provider-connected-card">
         <div className="provider-toolbar">
-          <div className="provider-tabs provider-tabs-connected">
-            <button className="provider-tab active" type="button">
-              <span>{t("apiProviders")}</span>
-              <small>{providers.length}</small>
-            </button>
+          <div className="toolbar-title-block">
+            <div>
+              <span className="eyebrow">{t("providers")}</span>
+              <h2>{t("apiProviders")}</h2>
+            </div>
+            <span className="toolbar-count">{providers.length}</span>
           </div>
           <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title={t("addProvider")}>
             <AddIcon />

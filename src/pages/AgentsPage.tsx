@@ -611,7 +611,7 @@ export function AgentsPage({
               </button>
             ))}
           </div>
-          <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title="Add provider">
+          <button className="add-button add-button-compact" onClick={() => openForm()} type="button" title={t("addProvider")}>
             <AddIcon />
           </button>
         </div>

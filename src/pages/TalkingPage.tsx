@@ -345,7 +345,10 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
       <article className="chat-shell">
         <aside className="conversation-rail">
           <div className="rail-header">
-            <span className="eyebrow">{t("talking")}</span>
+            <div>
+              <span className="eyebrow">{t("talking")}</span>
+              <h2>{topicTitle(activeTopic, t("defaultTopic"))}</h2>
+            </div>
             <button className="add-button add-button-compact" onClick={startNewTopic} type="button" title={t("newTopic")}>
               <PlusIcon />
             </button>
