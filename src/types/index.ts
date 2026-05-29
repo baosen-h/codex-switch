@@ -97,6 +97,15 @@ export interface ImageGenerationResponse {
   images: string[];
 }
 
+export interface ProviderBalance {
+  strategy: string;
+  remaining?: number;
+  unit: string;
+  isActive: boolean;
+  nextResetAt?: number;
+  label: string;
+}
+
 export interface SessionRecord {
   id: string;
   providerId: string;

@@ -177,6 +177,10 @@ async function installTauriMock(page: Page) {
         }
         if (cmd === "send_chat_message") return Promise.resolve({ content: "Mock response for visual testing." });
         if (cmd === "generate_image") return Promise.resolve({ images: [] });
+        if (cmd === "get_provider_balance") {
+          return Promise.resolve({ strategy: "openai_compat", remaining: 98, unit: "%", isActive: true, label: "Token quota" });
+        }
+        if (cmd === "launch_session") return Promise.resolve(true);
         if (cmd === "get_session_messages") {
           return Promise.resolve([
             { role: "user", content: "Review the UI layout." },
@@ -255,4 +259,27 @@ test("main pages render usable layouts", async ({ page }) => {
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
   await capture(page, "15-settings");
+});
+
+test("expanded sidebar pages do not clip primary panels", async ({ page }) => {
+  await waitForApp(page);
+  await page.locator(".brand-action-collapsed").click();
+  await expect(page.locator(".app-shell")).not.toHaveClass(/app-shell-sidebar-collapsed/);
+  await capture(page, "20-expanded-providers");
+
+  await page.getByRole("button", { name: "Agents" }).click();
+  await expect(page.locator(".provider-toolbar")).toBeVisible();
+  await capture(page, "21-expanded-agents");
+
+  await page.getByRole("button", { name: "Talking" }).click();
+  await expect(page.locator(".chat-shell")).toBeVisible();
+  await capture(page, "22-expanded-talking");
+
+  await page.getByRole("button", { name: "Drawing" }).click();
+  await expect(page.locator(".drawing-workspace")).toBeVisible();
+  await capture(page, "23-expanded-drawing");
+
+  await page.getByRole("button", { name: "Sessions" }).click();
+  await expect(page.locator(".sessions-layout")).toBeVisible();
+  await capture(page, "24-expanded-sessions");
 });

@@ -3,6 +3,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
 import type { ApiProvider, ApiProviderType, RemoteModel, WireApi } from "../types";
 import { useI18n } from "../i18n/context";
+import { DeleteIcon, EditIcon } from "../components/UiIcons";
 
 interface ProvidersPageProps {
   providers: ApiProvider[];
@@ -296,8 +297,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                 </div>
                 <div className="provider-actions">
                   <span className="provider-model-count">{provider.models.length} {t("models")}</span>
-                  <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>
-                  <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">{t("del")}</button>
+                  <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>
+                  <button className="danger-button icon-action-button" onClick={() => void onDelete(provider.id)} type="button" title={t("del")}><DeleteIcon /></button>
                 </div>
               </div>
             ))

@@ -5,6 +5,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider } from "../types";
+import { EditIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon, SyncIcon, UploadIcon } from "../components/UiIcons";
 
 interface DrawingPageProps {
   providers: ApiProvider[];
@@ -34,29 +35,15 @@ const qualityOptions = ["auto", "low", "medium", "high"];
 const backgroundOptions = ["auto", "transparent", "opaque"];
 
 const SparkIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-    <rect x="7" y="1" width="2" height="4"/>
-    <rect x="7" y="11" width="2" height="4"/>
-    <rect x="1" y="7" width="4" height="2"/>
-    <rect x="11" y="7" width="4" height="2"/>
-    <rect x="5" y="5" width="2" height="2"/>
-    <rect x="9" y="5" width="2" height="2"/>
-    <rect x="5" y="9" width="2" height="2"/>
-    <rect x="9" y="9" width="2" height="2"/>
-  </svg>
+  <SyncIcon size={18} />
 );
 
 const SendIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M8 13V3M8 3 4 7M8 3l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
+  <SemiSendIcon size={17} />
 );
 
 const PlusIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
-    <rect x="6" y="2" width="2" height="10"/>
-    <rect x="2" y="6" width="10" height="2"/>
-  </svg>
+  <SemiPlusIcon size={16} />
 );
 
 const TrashIcon = () => (
@@ -66,11 +53,7 @@ const TrashIcon = () => (
 );
 
 const UploadImageIcon = () => (
-  <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect x="3.5" y="4" width="14" height="12" rx="1.8" stroke="currentColor" strokeWidth="1.7"/>
-    <path d="M6 13.5 9 10.5l2.2 2.2 1.6-1.6 3.2 3.2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M17 16.5h3.5M18.75 14.75v3.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round"/>
-  </svg>
+  <UploadIcon size={30} />
 );
 
 const CloseIcon = () => (
@@ -492,15 +475,17 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
               className={activeRecord.mode === "draw" ? "active" : ""}
               onClick={() => patchActiveRecord({ mode: "draw" })}
               type="button"
+              title={t("drawMode")}
             >
-              {t("drawMode")}
+              <SemiImageIcon />
             </button>
             <button
               className={activeRecord.mode === "edit" ? "active" : ""}
               onClick={() => patchActiveRecord({ mode: "edit" })}
               type="button"
+              title={t("editMode")}
             >
-              {t("editMode")}
+              <EditIcon />
             </button>
           </div>
 

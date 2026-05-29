@@ -486,6 +486,8 @@ select:focus {
 }
 
 .main-content {
+  min-width: 0;
+  overflow: hidden;
   padding: 0;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
@@ -498,6 +500,7 @@ select:focus {
 }
 
 .page {
+  min-width: 0;
   gap: 1rem;
   animation: page-enter 180ms ease-out;
 }
@@ -783,6 +786,7 @@ select:focus {
 
 .provider-row,
 .session-editor {
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 86px;
   border: 1px solid var(--b0);
   border-radius: var(--radius-md);
@@ -834,6 +838,59 @@ select:focus {
 .session-row p,
 .empty-state {
   color: var(--t2);
+}
+
+.provider-actions {
+  min-width: max-content;
+}
+
+.icon-action-button,
+.icon-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.agent-balance-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: 28rem;
+  margin-top: 0.2rem;
+}
+
+.agent-balance-card {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--b0);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p1) 78%, transparent);
+}
+
+.agent-balance-card span {
+  color: var(--t2);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.agent-balance-card strong {
+  color: var(--a);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.balance-refresh-button {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
 }
 
 .provider-info strong,
@@ -943,6 +1000,39 @@ select:focus {
   background: rgb(var(--accent-rgb) / 0.1);
 }
 
+.session-action-btn,
+.session-handoff-trigger {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.session-refresh-button {
+  align-self: end;
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--b0);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--p1) 78%, transparent);
+  color: var(--t1);
+}
+
+.session-refresh-button:hover {
+  border-color: rgb(var(--accent-rgb) / 0.34);
+  color: var(--a);
+}
+
+.session-filter-row {
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px) 52px;
+}
+
 .delete-confirm {
   background: color-mix(in srgb, var(--err) 9%, transparent);
   border-left: 3px solid var(--err);
@@ -961,7 +1051,9 @@ select:focus {
 }
 
 .chat-shell {
-  grid-template-columns: 360px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: clamp(280px, 31%, 360px) minmax(0, 1fr);
 }
 
 .conversation-rail,
@@ -1039,7 +1131,14 @@ select:focus {
 .chat-topbar {
   min-height: 92px;
   padding: 1.1rem 1.5rem;
-  grid-template-columns: minmax(220px, 320px) minmax(260px, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px;
+}
+
+.chat-select,
+.chat-select select,
+.chat-topbar select {
+  min-width: 0;
+  width: 100%;
 }
 
 .chat-messages {
@@ -1067,6 +1166,12 @@ select:focus {
 .drawing-output-strip button.active {
   border-color: rgb(var(--accent-rgb) / 0.38);
   background: rgb(var(--accent-rgb) / 0.12);
+}
+
+.drawing-mode-switch button {
+  min-width: 56px;
+  display: inline-grid;
+  place-items: center;
 }
 
 .chat-message-user .chat-message-body {

@@ -8,7 +8,7 @@ use crate::handoff;
 use crate::models::{
     ApiProvider, AppSettings, ChatAttachment, ChatMessage, ChatRequest, ChatResponse,
     DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse, LaunchRequest,
-    ModelListRequest, Provider, RemoteModel, SessionMessage,
+    ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage, SessionRecord,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -387,6 +387,24 @@ pub fn launch_codex(state: State<'_, AppState>, request: LaunchRequest) -> Resul
 }
 
 #[tauri::command]
+pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Result<bool, String> {
+    let settings = state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .settings()
+        .map_err(|error| error.to_string())?;
+
+    launch_terminal_command(
+        &settings.terminal_program,
+        &session.workspace_path,
+        &session.resume_command,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
 pub fn save_settings(
     state: State<'_, AppState>,
     settings: AppSettings,
@@ -435,6 +453,11 @@ pub fn build_session_handoff(
 pub fn delete_session(source_path: String) -> Result<bool, String> {
     std::fs::remove_file(&source_path).map_err(|error| error.to_string())?;
     Ok(true)
+}
+
+#[tauri::command]
+pub fn get_provider_balance(provider: ApiProvider) -> Result<ProviderBalance, String> {
+    fetch_provider_balance(&provider).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1109,9 +1132,17 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {
+    launch_terminal_command(terminal_program, workspace_path, "codex")
+}
+
+fn launch_terminal_command(
+    terminal_program: &str,
+    workspace_path: &str,
+    command_text: &str,
+) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
-        let command = format!("cd /d \"{}\" && codex", workspace_path);
+        let command = format!("cd /d \"{}\" && {}", workspace_path, command_text);
         Command::new("cmd")
             .args([
                 "/C",
@@ -1129,8 +1160,125 @@ fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), A
     #[cfg(not(target_os = "windows"))]
     {
         Command::new(terminal_program)
-            .args(["-lc", &format!("cd {:?} && codex", workspace_path)])
+            .args(["-lc", &format!("cd {:?} && {}", workspace_path, command_text)])
             .spawn()?;
         Ok(())
     }
+}
+
+fn fetch_provider_balance(provider: &ApiProvider) -> Result<ProviderBalance, AppError> {
+    let base = provider.base_url.trim().trim_end_matches('/');
+    if base.is_empty() || provider.api_key.trim().is_empty() {
+        return Err(AppError::Message("Base URL and API key are required.".to_string()));
+    }
+
+    if provider.provider_type == "openai-compatible" || provider.provider_type == "new-api" {
+        if let Ok(balance) = fetch_new_api_dashboard_balance(base, &provider.api_key) {
+            return Ok(balance);
+        }
+    }
+
+    fetch_openai_compatible_balance(base, &provider.api_key)
+}
+
+fn fetch_new_api_dashboard_balance(base: &str, api_key: &str) -> Result<ProviderBalance, AppError> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let subscription = client
+        .get(format!("{base}/v1/dashboard/billing/subscription"))
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    if !subscription.status().is_success() {
+        return Err(AppError::Message(format!(
+            "Dashboard billing returned HTTP {}",
+            subscription.status()
+        )));
+    }
+    let body: Value = subscription
+        .json()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let limit = body
+        .get("hard_limit_usd")
+        .or_else(|| body.get("soft_limit_usd"))
+        .and_then(Value::as_f64);
+
+    let usage = client
+        .get(format!("{base}/v1/dashboard/billing/usage"))
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let used = if usage.status().is_success() {
+        usage
+            .json::<Value>()
+            .map_err(|error| AppError::message(error.to_string()))?
+            .get("total_usage")
+            .and_then(Value::as_f64)
+            .map(|value| value / 100.0)
+            .unwrap_or(0.0)
+    } else {
+        0.0
+    };
+
+    let remaining = limit.map(|value| (value - used).max(0.0));
+    Ok(ProviderBalance {
+        strategy: "new_api_dashboard".to_string(),
+        remaining,
+        unit: "USD".to_string(),
+        is_active: remaining.map(|value| value > 0.0).unwrap_or(true),
+        next_reset_at: None,
+        label: "Balance".to_string(),
+    })
+}
+
+fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<ProviderBalance, AppError> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let response = client
+        .get(format!("{base}/v1/usage"))
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    if !status.is_success() {
+        return Err(AppError::Message(
+            extract_api_error(&body)
+                .unwrap_or_else(|| format!("Usage request failed with HTTP status {status}")),
+        ));
+    }
+
+    let remaining = body
+        .get("remaining")
+        .and_then(Value::as_f64)
+        .or_else(|| body.get("balance").and_then(Value::as_f64))
+        .or_else(|| body.pointer("/quota/remaining").and_then(Value::as_f64));
+    let unit = body
+        .get("unit")
+        .and_then(Value::as_str)
+        .or_else(|| body.pointer("/quota/unit").and_then(Value::as_str))
+        .unwrap_or("USD")
+        .to_string();
+    let is_active = body
+        .get("is_active")
+        .and_then(Value::as_bool)
+        .or_else(|| body.get("isValid").and_then(Value::as_bool))
+        .unwrap_or_else(|| remaining.map(|value| value > 0.0).unwrap_or(true));
+    Ok(ProviderBalance {
+        strategy: "openai_compat".to_string(),
+        remaining,
+        unit: unit.clone(),
+        is_active,
+        next_reset_at: None,
+        label: if unit.contains('%') { "Token quota" } else { "Balance" }.to_string(),
+    })
 }

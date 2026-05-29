@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
-import type { AgentKind, ApiProvider, Provider, RemoteModel, WireApi } from "../types";
+import type { AgentKind, ApiProvider, Provider, ProviderBalance, RemoteModel, WireApi } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
 import {
@@ -15,6 +15,7 @@ import {
   renderInstructionTemplate,
   renderProviderPreview,
 } from "../utils/providerConfig";
+import { DeleteIcon, EditIcon, PlayIcon, RefreshIcon as SemiRefreshIcon } from "../components/UiIcons";
 
 interface AgentsPageProps {
   apiProviders: ApiProvider[];
@@ -78,6 +79,8 @@ export function AgentsPage({
   const [oauthAuthUrl, setOauthAuthUrl] = useState("");
   const [oauthManualMode, setOauthManualMode] = useState(false);
   const [isOauthBusy, setIsOauthBusy] = useState(false);
+  const [balanceMap, setBalanceMap] = useState<Record<string, ProviderBalance | { error: string }>>({});
+  const [loadingBalanceId, setLoadingBalanceId] = useState<string | null>(null);
 
   const sortedProviders = useMemo(
     () =>
@@ -349,6 +352,24 @@ export function AgentsPage({
     };
   };
 
+  const linkedApiProviderForAgent = (provider: Provider): ApiProvider | undefined =>
+    apiProviders.find((item) => item.id === provider.apiProviderId);
+
+  const refreshBalance = async (apiProvider: ApiProvider) => {
+    setLoadingBalanceId(apiProvider.id);
+    try {
+      const balance = await appApi.getProviderBalance(apiProvider);
+      setBalanceMap((current) => ({ ...current, [apiProvider.id]: balance }));
+    } catch (error) {
+      setBalanceMap((current) => ({
+        ...current,
+        [apiProvider.id]: { error: error instanceof Error ? error.message : String(error) },
+      }));
+    } finally {
+      setLoadingBalanceId((current) => (current === apiProvider.id ? null : current));
+    }
+  };
+
   if (view === "form") {
     const isEditing = Boolean(draft.id);
     return (
@@ -618,7 +639,10 @@ export function AgentsPage({
 
         <div className="provider-list">
           {visibleProviders.length ? (
-            visibleProviders.map((provider) => (
+            visibleProviders.map((provider) => {
+              const linkedApiProvider = linkedApiProviderForAgent(provider);
+              const balance = linkedApiProvider ? balanceMap[linkedApiProvider.id] : undefined;
+              return (
               <div className={`provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
@@ -638,16 +662,42 @@ export function AgentsPage({
                       {providerEndpointLabel(provider)}
                     </button>
                   ) : null}
+                  {linkedApiProvider ? (
+                    <div className="agent-balance-row">
+                      <div className="agent-balance-card">
+                        <span>{balance && !("error" in balance) ? balance.label : "Balance"}</span>
+                        <strong>
+                          {balance
+                            ? "error" in balance
+                              ? "—"
+                              : balance.remaining !== undefined
+                                ? `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`
+                                : balance.strategy
+                            : "Not checked"}
+                        </strong>
+                      </div>
+                      <button
+                        className="icon-button balance-refresh-button"
+                        disabled={loadingBalanceId === linkedApiProvider.id}
+                        onClick={() => void refreshBalance(linkedApiProvider)}
+                        type="button"
+                        title={balance && "error" in balance ? balance.error : "Refresh balance"}
+                      >
+                        <SemiRefreshIcon />
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="provider-actions">
-                  <button className="secondary-button" onClick={() => openForm(provider)} type="button">{t("edit")}</button>
+                  <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>
                   {!provider.isCurrent ? (
-                    <button className="secondary-button" onClick={() => void onActivate(provider.id)} type="button">{t("enable")}</button>
+                    <button className="secondary-button icon-action-button" onClick={() => void onActivate(provider.id)} type="button" title={t("enable")}><PlayIcon /></button>
                   ) : null}
-                  <button className="danger-button" onClick={() => void onDelete(provider.id)} type="button">{t("del")}</button>
+                  <button className="danger-button icon-action-button" onClick={() => void onDelete(provider.id)} type="button" title={t("del")}><DeleteIcon /></button>
                 </div>
               </div>
-            ))
+            );
+            })
           ) : (
             <p className="empty-state">{t("noProviders")}</p>
           )}

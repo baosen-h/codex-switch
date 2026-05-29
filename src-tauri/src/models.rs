@@ -118,6 +118,19 @@ pub struct ImageGenerationResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderBalance {
+    pub strategy: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<f64>,
+    pub unit: String,
+    pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_reset_at: Option<i64>,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionRecord {
     pub id: String,
     pub provider_id: String,

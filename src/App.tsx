@@ -209,6 +209,12 @@ function App() {
       },
     );
 
+  const handleLaunchSession = async (session: SessionRecord) =>
+    runAction(
+      () => appApi.launchSession(session),
+      "Session opened.",
+    );
+
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
   ) : activePage === "providers" ? (
@@ -234,6 +240,8 @@ function App() {
       onBuildHandoff={appApi.buildSessionHandoff}
       onLoadMessages={appApi.getSessionMessages}
       onDelete={handleDeleteSession}
+      onLaunchSession={handleLaunchSession}
+      onRefresh={() => refresh("Sessions refreshed.")}
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "settings" ? (

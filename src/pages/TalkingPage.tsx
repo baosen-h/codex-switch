@@ -4,6 +4,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider, ChatAttachment, ChatMessage } from "../types";
+import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
 
 interface TalkingPageProps {
   providers: ApiProvider[];
@@ -27,36 +28,23 @@ const MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
 const MAX_TEXT_ATTACHMENT_BYTES = 240 * 1024;
 
 const SendIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M8 13V3M8 3 4 7M8 3l4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
+  <SemiSendIcon size={17} />
 );
 
 const PlusIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-    <rect x="5" y="1" width="2" height="10"/>
-    <rect x="1" y="5" width="10" height="2"/>
-  </svg>
+  <SemiPlusIcon size={16} />
 );
 
 const TrashIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M3 4.5h10M6.2 4.5V3h3.6v1.5M5 6.3l.5 6.2h5l.5-6.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
+  <DeleteIcon size={14} />
 );
 
 const AttachIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M5 8.5 9.8 3.7a2.1 2.1 0 0 1 3 3L6.9 12.6a3 3 0 0 1-4.2-4.2l5.6-5.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-  </svg>
+  <SemiAttachIcon size={14} />
 );
 
 const ImageIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <rect x="2.5" y="3" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-    <path d="M4 11 7 8l2 2 1.5-1.5L13 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <circle cx="10.8" cy="5.8" r="1" fill="currentColor"/>
-  </svg>
+  <SemiImageIcon size={14} />
 );
 
 const BracesIcon = () => (

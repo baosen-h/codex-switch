@@ -12,9 +12,11 @@ import type {
   ImageGenerationResponse,
   LaunchRequest,
   ModelListRequest,
+  ProviderBalance,
   Provider,
   RemoteModel,
   SessionMessage,
+  SessionRecord,
   StartOpenAiOauthResult,
 } from "../types";
 
@@ -57,6 +59,12 @@ export const appApi = {
   },
   deleteSession(sourcePath: string): Promise<boolean> {
     return invoke("delete_session", { sourcePath });
+  },
+  launchSession(session: SessionRecord): Promise<boolean> {
+    return invoke("launch_session", { session });
+  },
+  getProviderBalance(provider: ApiProvider): Promise<ProviderBalance> {
+    return invoke("get_provider_balance", { provider });
   },
   openExternalUrl(url: string): Promise<boolean> {
     return invoke("open_external_url", { url });

@@ -5,13 +5,24 @@ import {
   IconChevronRight,
   IconClose,
   IconCommentStroked,
+  IconCopyStroked,
+  IconDeleteStroked,
+  IconEditStroked,
   IconHistory,
   IconImageStroked,
+  IconList,
   IconMaximize,
   IconMinus,
+  IconPaperclip,
+  IconPlay,
+  IconPlus,
+  IconRefresh,
+  IconSendStroked,
   IconServerStroked,
   IconSettingStroked,
+  IconSync,
   IconTerminal,
+  IconUpload,
 } from "@douyinfe/semi-icons";
 
 type IconProps = {
@@ -49,6 +60,10 @@ export function DrawingIcon({ size, style, ...props }: IconProps = {}) {
   return <IconImageStroked {...props} style={semiIconStyle(size, style)} />;
 }
 
+export function ImageIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconImageStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
 export function SessionsIcon({ size, style, ...props }: IconProps = {}) {
   return <IconHistory {...props} style={semiIconStyle(size, style)} />;
 }
@@ -81,4 +96,48 @@ export function MaximizeIcon({ size = 16, style, ...props }: IconProps = {}) {
 
 export function CloseIcon({ size = 16, style, ...props }: IconProps = {}) {
   return <IconClose {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function PlusIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconPlus {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function RefreshIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconRefresh {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function SyncIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconSync {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function SendIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconSendStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function DeleteIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconDeleteStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function EditIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconEditStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function CopyIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconCopyStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function PlayIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconPlay {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function UploadIcon({ size = 18, style, ...props }: IconProps = {}) {
+  return <IconUpload {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function AttachIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconPaperclip {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function ListIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconList {...props} style={semiIconStyle(size, style)} />;
 }

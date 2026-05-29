@@ -12,9 +12,9 @@ mod session_manager;
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, build_session_handoff, delete_api_provider, delete_provider, delete_session,
-    generate_image, get_dashboard, get_session_messages, launch_codex, list_provider_models,
-    open_external_url, pick_directory, save_api_provider, save_provider, save_settings,
-    send_chat_message, AppState,
+    generate_image, get_dashboard, get_provider_balance, get_session_messages, launch_codex,
+    launch_session, list_provider_models, open_external_url, pick_directory, save_api_provider,
+    save_provider, save_settings, send_chat_message, AppState,
 };
 use oauth::{complete_openai_oauth, start_openai_oauth, submit_openai_oauth_callback};
 use models::Provider;
@@ -100,9 +100,11 @@ pub fn run() {
             send_chat_message,
             generate_image,
             launch_codex,
+            launch_session,
             get_session_messages,
             build_session_handoff,
             delete_session,
+            get_provider_balance,
             list_provider_models,
             open_external_url,
             start_openai_oauth,

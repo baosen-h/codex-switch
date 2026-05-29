@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentKind, HandoffMode, HandoffPreview, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatConversationTime, timeAgo } from "../utils/time";
+import { CopyIcon, DeleteIcon, ListIcon, PlayIcon, RefreshIcon } from "../components/UiIcons";
 
 const PixelX = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
@@ -16,32 +17,13 @@ const PixelX = () => (
   </svg>
 );
 
-const CopyIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-  </svg>
-);
-
-const TerminalIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="4 17 10 11 4 5" />
-    <line x1="12" y1="19" x2="20" y2="19" />
-  </svg>
-);
-
-const ListIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
-    <path d="M6 4h7M6 8h7M6 12h7" />
-    <path d="M3 4h.01M3 8h.01M3 12h.01" />
-  </svg>
-);
-
 interface SessionsPageProps {
   sessions: SessionRecord[];
   onBuildHandoff: (sourcePath: string, mode: HandoffMode) => Promise<HandoffPreview>;
   onLoadMessages: (sourcePath: string) => Promise<SessionMessage[]>;
   onDelete: (session: SessionRecord) => Promise<void>;
+  onLaunchSession: (session: SessionRecord) => Promise<void>;
+  onRefresh: () => void | Promise<void>;
   onNotify: (message: string, type: "ok" | "err") => void;
 }
 
@@ -97,6 +79,8 @@ export function SessionsPage({
   onBuildHandoff,
   onLoadMessages,
   onDelete,
+  onLaunchSession,
+  onRefresh,
   onNotify,
 }: SessionsPageProps) {
   const { t, lang } = useI18n();
@@ -332,6 +316,9 @@ export function SessionsPage({
                 <option value="gemini">{t("agentGemini")}</option>
               </select>
             </label>
+            <button className="session-refresh-button" onClick={() => void onRefresh()} type="button" title={t("refreshSessions")}>
+              <RefreshIcon />
+            </button>
           </div>
         </div>
 
@@ -399,13 +386,22 @@ export function SessionsPage({
                                 className="session-action-btn session-action-btn--resume"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  void onLaunchSession(session);
+                                }}
+                                type="button"
+                                title={`${t("openResume")}: ${session.resumeCommand}`}
+                              >
+                                <PlayIcon />
+                              </button>
+                              <button
+                                className="session-action-btn session-action-btn--copy"
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   void copyText(session.resumeCommand);
                                 }}
                                 type="button"
-                                title={session.resumeCommand}
+                                title={`${t("copyResume")}: ${session.resumeCommand}`}
                               >
-                                <TerminalIcon />
-                                <span>{session.resumeCommand}</span>
                                 <CopyIcon />
                               </button>
                               <div className="session-handoff-row" onClick={(e) => e.stopPropagation()}>
@@ -448,8 +444,9 @@ export function SessionsPage({
                                       )
                                     }
                                     type="button"
+                                    title={t("copyHandoff")}
                                   >
-                                    {t("copyHandoff")}
+                                    <CopyIcon />
                                   </button>
                                 )}
                               </div>
@@ -465,7 +462,7 @@ export function SessionsPage({
                               type="button"
                               title="Delete session"
                             >
-                              <PixelX />
+                              <DeleteIcon size={13} />
                             </button>
                           </div>
                         </div>
