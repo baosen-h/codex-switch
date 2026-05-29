@@ -132,7 +132,7 @@ export interface HandoffPreview {
 }
 
 export type BackgroundColorMode = "system" | "dark" | "light";
-export type AppTheme = "anime";
+export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "anime";
 
 export interface AppSettings {
   codexConfigDir: string;

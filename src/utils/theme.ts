@@ -1,5 +1,18 @@
 import type { AppTheme, BackgroundColorMode } from "../types";
 
+export function normalizeAppTheme(theme: AppTheme | string | undefined): Exclude<AppTheme, "anime"> {
+  switch (theme) {
+    case "graphite":
+    case "indigo":
+    case "teal":
+    case "amber":
+    case "professional":
+      return theme;
+    default:
+      return "professional";
+  }
+}
+
 export function applyBackgroundColor(mode: BackgroundColorMode): void {
   const root = document.documentElement;
   const resolved =
@@ -12,7 +25,7 @@ export function applyBackgroundColor(mode: BackgroundColorMode): void {
 }
 
 export function applyTheme(theme: AppTheme): void {
-  document.documentElement.dataset.theme = theme;
+  document.documentElement.dataset.theme = normalizeAppTheme(theme);
 }
 
 type StartViewTransition = (callback: () => void) => { finished: Promise<void> };

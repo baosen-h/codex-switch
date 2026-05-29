@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { appApi } from "../api/tauri";
 import type { AppSettings, AppTheme, BackgroundColorMode } from "../types";
+import type { TranslationKey } from "../i18n/translations";
 import { useI18n } from "../i18n/context";
-import { applyTheme, switchBackgroundColorWithReveal } from "../utils/theme";
+import { applyTheme, normalizeAppTheme, switchBackgroundColorWithReveal } from "../utils/theme";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -21,6 +22,14 @@ const shellOptions = [
   { label: "CMD", value: "cmd" },
   { label: "Fish", value: "fish" },
   { label: "Nushell", value: "nu" },
+];
+
+const themeOptions: Array<{ value: Exclude<AppTheme, "anime">; labelKey: TranslationKey }> = [
+  { value: "professional", labelKey: "themeProfessional" },
+  { value: "graphite", labelKey: "themeGraphite" },
+  { value: "indigo", labelKey: "themeIndigo" },
+  { value: "teal", labelKey: "themeTeal" },
+  { value: "amber", labelKey: "themeAmber" },
 ];
 
 export function SettingsPage({ settings, onSave }: SettingsPageProps) {
@@ -49,7 +58,7 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
   };
 
   const handleThemeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const mode = event.target.value as AppTheme;
+    const mode = normalizeAppTheme(event.target.value);
     applyTheme(mode);
     updateAndSave("theme", mode);
   };
@@ -143,8 +152,10 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
           </label>
           <label className="field">
             <span>{t("theme")}</span>
-            <select value={draft.theme} onChange={handleThemeChange}>
-              <option value="anime">{t("themeAnime")}</option>
+            <select value={normalizeAppTheme(draft.theme)} onChange={handleThemeChange}>
+              {themeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+              ))}
             </select>
           </label>
           <label className="checkbox-field">

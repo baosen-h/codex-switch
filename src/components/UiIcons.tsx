@@ -9,7 +9,7 @@ const strokeProps = {
   stroke: "currentColor",
   strokeLinecap: "round",
   strokeLinejoin: "round",
-  strokeWidth: 2,
+  strokeWidth: 1.8,
 } as const;
 
 function Icon({ size = 18, children, ...props }: IconProps) {
@@ -31,9 +31,8 @@ function Icon({ size = 18, children, ...props }: IconProps) {
 export function ProvidersIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <rect x="4" y="4" width="16" height="6" rx="2" />
-      <rect x="4" y="14" width="16" height="6" rx="2" />
-      <path d="M8 7h.01M8 17h.01M12 7h4M12 17h4" />
+      <path d="M6.5 5.5h11A2.5 2.5 0 0 1 20 8v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16V8a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M8 9h8M8 12h5M8 15h8" />
     </Icon>
   );
 }
@@ -41,9 +40,9 @@ export function ProvidersIcon(props: IconProps = {}) {
 export function AgentsIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <path d="M12 3v3" />
-      <rect x="5" y="6" width="14" height="12" rx="3" />
-      <path d="M8.5 11h.01M15.5 11h.01M9 15h6" />
+      <path d="M12 3.5v3" />
+      <path d="M7.5 6.5h9A2.5 2.5 0 0 1 19 9v7.5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V9a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M9 11.25h.01M15 11.25h.01M9.5 15.25h5" />
     </Icon>
   );
 }
@@ -51,8 +50,8 @@ export function AgentsIcon(props: IconProps = {}) {
 export function TalkingIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <path d="M21 12a7 7 0 0 1-7 7H8l-5 3 1.6-5A7 7 0 1 1 21 12Z" />
-      <path d="M8 11h8M8 15h5" />
+      <path d="M5.5 18.5 3.75 21l.4-3.3A8 8 0 1 1 12 20a8.7 8.7 0 0 1-6.5-1.5Z" />
+      <path d="M8 10.5h8M8 14h5.5" />
     </Icon>
   );
 }
@@ -60,9 +59,9 @@ export function TalkingIcon(props: IconProps = {}) {
 export function DrawingIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="m7 15 3-3 3 3 2-2 3 3" />
-      <path d="M8 9h.01" />
+      <path d="M5 19h14" />
+      <path d="m14.5 5.5 4 4L9 19H5v-4L14.5 5.5Z" />
+      <path d="m13 7 4 4" />
     </Icon>
   );
 }
@@ -70,9 +69,11 @@ export function DrawingIcon(props: IconProps = {}) {
 export function SessionsIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <path d="M3 12a9 9 0 1 0 3-6.7" />
-      <path d="M3 4v5h5" />
-      <path d="M12 7v5l3 2" />
+      <path d="M4.5 6.5h15" />
+      <path d="M7.5 3.5v6" />
+      <path d="M16.5 3.5v6" />
+      <path d="M6.5 6.5h11A2.5 2.5 0 0 1 20 9v8.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5V9a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M8 13h4.5M8 16h8" />
     </Icon>
   );
 }
@@ -80,8 +81,22 @@ export function SessionsIcon(props: IconProps = {}) {
 export function SettingsIcon(props: IconProps = {}) {
   return (
     <Icon {...props}>
-      <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
-      <path d="M19.4 15a1.8 1.8 0 0 0 .36 2l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.8 1.8 0 0 0-2-.36 1.8 1.8 0 0 0-1.08 1.65V21a2 2 0 0 1-4 0v-.08a1.8 1.8 0 0 0-1.08-1.65 1.8 1.8 0 0 0-2 .36l-.05.05a2 2 0 1 1-2.83-2.83l.05-.05a1.8 1.8 0 0 0 .36-2 1.8 1.8 0 0 0-1.65-1.08H3a2 2 0 0 1 0-4h.08a1.8 1.8 0 0 0 1.65-1.08 1.8 1.8 0 0 0-.36-2l-.05-.05A2 2 0 1 1 7.15 3.8l.05.05a1.8 1.8 0 0 0 2 .36A1.8 1.8 0 0 0 10.28 2.6V2a2 2 0 0 1 4 0v.08a1.8 1.8 0 0 0 1.08 1.65 1.8 1.8 0 0 0 2-.36l.05-.05a2 2 0 1 1 2.83 2.83l-.05.05a1.8 1.8 0 0 0-.36 2 1.8 1.8 0 0 0 1.65 1.08H21a2 2 0 0 1 0 4h-.08A1.8 1.8 0 0 0 19.4 15Z" />
+      <path d="M6 8.25h12" />
+      <path d="M9 12h9" />
+      <path d="M6 15.75h12" />
+      <path d="M8.5 6.5v3.5" />
+      <path d="M15.5 10.25v3.5" />
+      <path d="M11.5 14v3.5" />
+    </Icon>
+  );
+}
+
+export function SwitchLogoIcon(props: IconProps = {}) {
+  return (
+    <Icon size={22} {...props}>
+      <path d="M7 7.5h7.5a3 3 0 0 1 0 6H9.5a3 3 0 0 0 0 6H17" />
+      <path d="M7 7.5 4.5 10 7 12.5" />
+      <path d="M17 19.5 19.5 17 17 14.5" />
     </Icon>
   );
 }
@@ -97,7 +112,7 @@ export function SidebarToggleIcon({ collapsed, ...props }: IconProps & { collaps
 export function MinimizeIcon(props: IconProps = {}) {
   return (
     <Icon size={16} {...props}>
-      <path d="M6 18h12" />
+      <path d="M7 12h10" />
     </Icon>
   );
 }
@@ -105,7 +120,7 @@ export function MinimizeIcon(props: IconProps = {}) {
 export function MaximizeIcon(props: IconProps = {}) {
   return (
     <Icon size={16} {...props}>
-      <rect x="6" y="6" width="12" height="12" rx="1.5" />
+      <rect x="6.5" y="6.5" width="11" height="11" rx="2" />
     </Icon>
   );
 }

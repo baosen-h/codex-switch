@@ -12,7 +12,7 @@ import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TalkingPage } from "./pages/TalkingPage";
 import type { ApiProvider, AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
-import { applyBackgroundColor, applyTheme } from "./utils/theme";
+import { applyBackgroundColor, applyTheme, normalizeAppTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
   apiProviders: [],
@@ -27,7 +27,7 @@ const emptyState: DashboardState = {
     autoRecordSessions: true,
     language: "en",
     backgroundColor: "system",
-    theme: "anime",
+    theme: "professional",
   },
 };
 
@@ -71,7 +71,7 @@ function App() {
 
   const lang: Lang = (data.settings.language as Lang) || "en";
   const backgroundColorMode = data.settings.backgroundColor || "system";
-  const theme = data.settings.theme || "anime";
+  const theme = normalizeAppTheme(data.settings.theme);
 
   const refresh = useCallback(async (nextMessage?: string) => {
     try {
