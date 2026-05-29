@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
-import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../types";
+import type { AgentKind, ApiProvider, Provider, RemoteModel, WireApi } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
 import {
@@ -219,6 +219,7 @@ export function AgentsPage({
         baseUrl: apiProvider?.baseUrl ?? "",
         apiKey: apiProvider?.apiKey ?? "",
         websiteUrl: apiProvider?.websiteUrl ?? "",
+        wireApi: apiProvider?.wireApi ?? cur.wireApi,
       };
       const providerModels = apiProvider?.models ?? [];
       const modelStillAvailable = providerModels.some((model) => model.id === next.model);
@@ -465,8 +466,19 @@ export function AgentsPage({
                 {selectedApiProvider ? (
                   <div className="field provider-source-field">
                     <span>{t("providerSource")}</span>
-                    <p>{selectedApiProvider.providerType} · {selectedApiProvider.models.length} {t("models")}</p>
+                    <p>
+                      {selectedApiProvider.providerType} · {selectedApiProvider.wireApi === "chat" ? "chat_completions" : "responses"} · {selectedApiProvider.models.length} {t("models")}
+                    </p>
                   </div>
+                ) : null}
+                {draft.agent === "codex" ? (
+                  <label className="field">
+                    <span>Upstream protocol</span>
+                    <select value={draft.wireApi} onChange={(e) => updateDraft("wireApi", e.target.value as WireApi)}>
+                      <option value="responses">responses · /v1/responses</option>
+                      <option value="chat">chat_completions · /chat/completions</option>
+                    </select>
+                  </label>
                 ) : null}
                 <label className="field">
                   <span>{t("baseUrl")}</span>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
-import type { ApiProvider, ApiProviderType, RemoteModel } from "../types";
+import type { ApiProvider, ApiProviderType, RemoteModel, WireApi } from "../types";
 import { useI18n } from "../i18n/context";
 
 interface ProvidersPageProps {
@@ -12,20 +12,26 @@ interface ProvidersPageProps {
 }
 
 const providerTypes: Array<{ value: ApiProviderType; label: string; baseUrl: string; websiteUrl: string }> = [
-  { value: "openai-compatible", label: "OpenAI Compatible", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
+  { value: "openai-compatible", label: "OpenAI Compatible / New API", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
   { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", websiteUrl: "https://platform.openai.com" },
   { value: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", websiteUrl: "https://console.anthropic.com" },
   { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", websiteUrl: "https://aistudio.google.com" },
   { value: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", websiteUrl: "https://openrouter.ai" },
-  { value: "new-api", label: "New API", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
   { value: "ollama", label: "Ollama", baseUrl: "http://localhost:11434/v1", websiteUrl: "https://ollama.com" },
   { value: "huggingface", label: "Hugging Face", baseUrl: "https://router.huggingface.co/v1", websiteUrl: "https://huggingface.co" },
 ];
+
+const normalizeProviderType = (providerType: ApiProviderType): ApiProviderType =>
+  providerType === "new-api" ? "openai-compatible" : providerType;
+
+const providerTypeLabel = (providerType: ApiProviderType): string =>
+  providerTypes.find((item) => item.value === normalizeProviderType(providerType))?.label ?? providerType;
 
 const emptyApiProvider: ApiProvider = {
   id: "",
   name: "",
   providerType: "openai-compatible",
+  wireApi: "responses",
   baseUrl: "",
   apiKey: "",
   websiteUrl: "",
@@ -79,7 +85,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   );
 
   const openForm = (provider?: ApiProvider) => {
-    setDraft(provider ?? emptyApiProvider);
+    setDraft(provider ? { ...provider, providerType: normalizeProviderType(provider.providerType) } : emptyApiProvider);
     setModelListError(null);
     setView("form");
   };
@@ -98,11 +104,12 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const applyProviderType = (providerType: ApiProviderType) => {
-    const preset = providerTypes.find((item) => item.value === providerType);
-    const previousPreset = providerTypes.find((item) => item.value === draft.providerType);
+    const normalizedType = normalizeProviderType(providerType);
+    const preset = providerTypes.find((item) => item.value === normalizedType);
+    const previousPreset = providerTypes.find((item) => item.value === normalizeProviderType(draft.providerType));
     setDraft((current) => ({
       ...current,
-      providerType,
+      providerType: normalizedType,
       baseUrl:
         !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
           ? preset?.baseUrl || ""
@@ -139,7 +146,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const handleSubmit = async () => {
-    await onSave(draft);
+    await onSave({ ...draft, providerType: normalizeProviderType(draft.providerType) });
     closeForm();
   };
 
@@ -179,10 +186,17 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                 </label>
                 <label className="field">
                   <span>{t("providerType")}</span>
-                  <select value={draft.providerType} onChange={(event) => applyProviderType(event.target.value as ApiProviderType)}>
+                  <select value={normalizeProviderType(draft.providerType)} onChange={(event) => applyProviderType(event.target.value as ApiProviderType)}>
                     {providerTypes.map((item) => (
                       <option key={item.value} value={item.value}>{item.label}</option>
                     ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Upstream protocol</span>
+                  <select value={draft.wireApi} onChange={(event) => updateDraft("wireApi", event.target.value as WireApi)}>
+                    <option value="responses">responses · /v1/responses</option>
+                    <option value="chat">chat_completions · /chat/completions</option>
                   </select>
                 </label>
                 <label className="field">
@@ -268,7 +282,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     <ProviderAvatar provider={provider} size={56} />
                     <div className="provider-title-text">
                       <strong>{provider.name}</strong>
-                      <small>{provider.providerType}</small>
+                      <small>{providerTypeLabel(provider.providerType)}</small>
+                      <small>{provider.wireApi === "chat" ? "chat_completions" : "responses"}</small>
                     </div>
                   </div>
                   <p>{provider.baseUrl || t("openaiDefault")}</p>

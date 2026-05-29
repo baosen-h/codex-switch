@@ -20,19 +20,19 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 pub struct AppState {
-    pub db: Mutex<Database>,
+    pub db: Arc<Mutex<Database>>,
 }
 
 impl AppState {
     pub fn new() -> Result<Self, AppError> {
-        Ok(Self {
-            db: Mutex::new(Database::new()?),
-        })
+        let db = Arc::new(Mutex::new(Database::new()?));
+        crate::compatibility_proxy::start(Arc::clone(&db));
+        Ok(Self { db })
     }
 }
 
@@ -524,6 +524,8 @@ pub fn pick_directory(_initial_path: Option<String>) -> Result<Option<String>, S
 fn normalized_provider_type(provider_type: &str) -> String {
     let trimmed = provider_type.trim();
     if trimmed.is_empty() {
+        "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("new-api") {
         "openai-compatible".to_string()
     } else {
         trimmed.to_ascii_lowercase()

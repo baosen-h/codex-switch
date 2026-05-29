@@ -1,10 +1,12 @@
 mod agent_writer;
 mod commands;
+mod compatibility_proxy;
 mod database;
 mod error;
 mod handoff;
 mod models;
 mod oauth;
+mod relay_translate;
 mod session_manager;
 
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};

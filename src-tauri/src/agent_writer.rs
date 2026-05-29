@@ -1,3 +1,4 @@
+use crate::compatibility_proxy::proxy_base_url;
 use crate::error::AppError;
 use crate::models::Provider;
 use std::fs;
@@ -72,8 +73,13 @@ pub fn render_gemini(provider: &Provider) -> String {
 }
 
 fn build_codex_toml(provider: &Provider) -> String {
-    let base_url = provider.base_url.trim();
-    let has_custom = !base_url.is_empty();
+    let upstream_base_url = provider.base_url.trim();
+    let base_url = if uses_codex_proxy(provider) {
+        proxy_base_url()
+    } else {
+        upstream_base_url.to_string()
+    };
+    let has_custom = !upstream_base_url.is_empty();
     let mut lines: Vec<String> = Vec::new();
 
     if has_custom {
@@ -187,7 +193,11 @@ pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppErro
     let auth_path = config_dir.join("auth.json");
     let config_path = config_dir.join("config.toml");
 
-    let text = effective_text(provider, || render_codex(provider));
+    let text = if uses_codex_proxy(provider) {
+        render_codex(provider)
+    } else {
+        effective_text(provider, || render_codex(provider))
+    };
     let sections = split_sections(&text);
 
     let mut auth: Option<String> = None;
@@ -209,6 +219,10 @@ pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppErro
     fs::write(auth_path, auth_body)?;
     fs::write(config_path, toml_body)?;
     Ok(())
+}
+
+fn uses_codex_proxy(provider: &Provider) -> bool {
+    provider.wire_api.trim() == "chat"
 }
 
 pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {

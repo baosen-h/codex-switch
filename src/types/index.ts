@@ -1,4 +1,5 @@
 export type AgentKind = "codex" | "claude" | "gemini";
+export type WireApi = "responses" | "chat";
 
 export interface Provider {
   id: string;
@@ -9,6 +10,7 @@ export interface Provider {
   apiKey: string;
   websiteUrl: string;
   model: string;
+  wireApi: WireApi;
   reasoningEffort: string;
   extraToml: string;
   configText: string;
@@ -31,6 +33,7 @@ export interface ApiProvider {
   id: string;
   name: string;
   providerType: ApiProviderType;
+  wireApi: WireApi;
   baseUrl: string;
   apiKey: string;
   websiteUrl: string;

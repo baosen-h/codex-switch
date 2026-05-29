@@ -44,7 +44,7 @@ impl Database {
     pub fn providers(&self) -> Result<Vec<Provider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, wire_api, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
             FROM providers
             ORDER BY is_current DESC, updated_at DESC
             "#,
@@ -58,7 +58,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+                SELECT id, name, agent, api_provider_id, base_url, api_key, website_url, model, wire_api, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
                 FROM providers
                 WHERE id = ?1
                 "#,
@@ -95,8 +95,8 @@ impl Database {
         self.connection.execute(
             r#"
             INSERT INTO providers (
-              id, name, agent, api_provider_id, base_url, api_key, website_url, model, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?12, ?13)
+              id, name, agent, api_provider_id, base_url, api_key, website_url, model, wire_api, reasoning_effort, extra_toml, config_text, is_current, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, COALESCE((SELECT is_current FROM providers WHERE id = ?1), 0), ?13, ?14)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               agent = excluded.agent,
@@ -105,6 +105,7 @@ impl Database {
               api_key = excluded.api_key,
               website_url = excluded.website_url,
               model = excluded.model,
+              wire_api = excluded.wire_api,
               reasoning_effort = excluded.reasoning_effort,
               extra_toml = excluded.extra_toml,
               config_text = excluded.config_text,
@@ -119,6 +120,7 @@ impl Database {
                 provider.api_key.trim(),
                 provider.website_url.trim(),
                 provider.model.trim(),
+                normalized_wire_api(&provider.wire_api),
                 provider.reasoning_effort.trim(),
                 provider.extra_toml.trim(),
                 provider.config_text,
@@ -133,7 +135,7 @@ impl Database {
     pub fn api_providers(&self) -> Result<Vec<ApiProvider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
             FROM api_providers
             ORDER BY enabled DESC, updated_at DESC, name ASC
             "#,
@@ -147,7 +149,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+                SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
                 FROM api_providers
                 WHERE id = ?1
                 "#,
@@ -180,11 +182,12 @@ impl Database {
         self.connection.execute(
             r#"
             INSERT INTO api_providers (
-              id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+              id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               provider_type = excluded.provider_type,
+              wire_api = excluded.wire_api,
               base_url = excluded.base_url,
               api_key = excluded.api_key,
               website_url = excluded.website_url,
@@ -196,6 +199,7 @@ impl Database {
                 provider_id,
                 provider.name.trim(),
                 normalized_api_provider_type(&provider.provider_type),
+                normalized_wire_api(&provider.wire_api),
                 provider.base_url.trim(),
                 provider.api_key.trim(),
                 provider.website_url.trim(),
@@ -346,6 +350,7 @@ impl Database {
               api_key TEXT NOT NULL DEFAULT '',
               website_url TEXT NOT NULL DEFAULT '',
               model TEXT NOT NULL,
+              wire_api TEXT NOT NULL DEFAULT 'responses',
               reasoning_effort TEXT NOT NULL DEFAULT 'high',
               extra_toml TEXT NOT NULL DEFAULT '',
               config_text TEXT NOT NULL DEFAULT '',
@@ -363,6 +368,7 @@ impl Database {
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               provider_type TEXT NOT NULL DEFAULT 'openai-compatible',
+              wire_api TEXT NOT NULL DEFAULT 'responses',
               base_url TEXT NOT NULL DEFAULT '',
               api_key TEXT NOT NULL DEFAULT '',
               website_url TEXT NOT NULL DEFAULT '',
@@ -397,6 +403,18 @@ impl Database {
             "providers",
             "config_text",
             "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "providers",
+            "wire_api",
+            "TEXT NOT NULL DEFAULT 'responses'",
+        )?;
+        ensure_column(
+            &self.connection,
+            "api_providers",
+            "wire_api",
+            "TEXT NOT NULL DEFAULT 'responses'",
         )?;
         ensure_column(
             &self.connection,
@@ -452,12 +470,13 @@ impl Database {
         self.connection.execute_batch(
             r#"
             INSERT OR IGNORE INTO api_providers (
-              id, name, provider_type, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+              id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
             )
             SELECT
               'api-from-' || id,
               name,
               'openai-compatible',
+              wire_api,
               base_url,
               api_key,
               website_url,
@@ -555,30 +574,32 @@ fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {
         api_key: row.get(5)?,
         website_url: row.get(6)?,
         model: row.get(7)?,
-        reasoning_effort: row.get(8)?,
-        extra_toml: row.get(9)?,
-        config_text: row.get(10)?,
-        is_current: row.get::<_, i64>(11)? == 1,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        wire_api: row.get(8)?,
+        reasoning_effort: row.get(9)?,
+        extra_toml: row.get(10)?,
+        config_text: row.get(11)?,
+        is_current: row.get::<_, i64>(12)? == 1,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
 fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Error> {
-    let models_json: String = row.get(6)?;
+    let models_json: String = row.get(7)?;
     let models: Vec<RemoteModel> = serde_json::from_str(&models_json).unwrap_or_default();
 
     Ok(ApiProvider {
         id: row.get(0)?,
         name: row.get(1)?,
         provider_type: row.get(2)?,
-        base_url: row.get(3)?,
-        api_key: row.get(4)?,
-        website_url: row.get(5)?,
+        wire_api: row.get(3)?,
+        base_url: row.get(4)?,
+        api_key: row.get(5)?,
+        website_url: row.get(6)?,
         models,
-        enabled: row.get::<_, i64>(7)? == 1,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        enabled: row.get::<_, i64>(8)? == 1,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -586,7 +607,16 @@ fn normalized_api_provider_type(provider_type: &str) -> String {
     let trimmed = provider_type.trim();
     if trimmed.is_empty() {
         "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("new-api") {
+        "openai-compatible".to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn normalized_wire_api(wire_api: &str) -> String {
+    match wire_api.trim() {
+        "chat" => "chat".to_string(),
+        _ => "responses".to_string(),
     }
 }

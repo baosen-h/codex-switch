@@ -9,6 +9,7 @@ export const emptyProvider: Provider = {
   apiKey: "",
   websiteUrl: "",
   model: "",
+  wireApi: "responses",
   reasoningEffort: "high",
   extraToml: "",
   configText: "",
@@ -18,6 +19,7 @@ export const emptyProvider: Provider = {
 };
 
 export const agentTabs: AgentKind[] = ["codex", "claude", "gemini"];
+export const CODEX_COMPAT_PROXY_BASE_URL = "http://127.0.0.1:47632/v1";
 
 export function defaultModelForAgent(agent: AgentKind): string {
   if (agent === "claude") return "claude-opus-4-5";
@@ -31,8 +33,12 @@ export function providerEndpointLabel(provider: Pick<Provider, "websiteUrl" | "b
 
 function renderCodexPreview(provider: Provider): string {
   const model = provider.model.trim() || "gpt-5.4";
-  const baseUrl = provider.baseUrl.trim();
-  const hasCustom = Boolean(baseUrl);
+  const upstreamBaseUrl = provider.baseUrl.trim();
+  const baseUrl =
+    normalizedWireApi(provider.wireApi) === "chat"
+      ? CODEX_COMPAT_PROXY_BASE_URL
+      : upstreamBaseUrl;
+  const hasCustom = Boolean(upstreamBaseUrl);
   const lines: string[] = ["# ── ~/.codex/config.toml ──"];
   if (hasCustom) lines.push('model_provider = "custom"');
   lines.push(`model = "${model}"`);
@@ -85,7 +91,7 @@ export function renderProviderPreview(provider: Provider): string {
   return renderCodexPreview(provider);
 }
 
-type PreviewField = "name" | "model" | "baseUrl" | "apiKey" | "extraToml";
+type PreviewField = "name" | "model" | "wireApi" | "baseUrl" | "apiKey" | "extraToml";
 
 export function patchProviderPreviewField(
   provider: Provider,
@@ -99,25 +105,34 @@ export function patchProviderPreviewField(
   const base = provider.configText || renderProviderPreview(provider);
   if (provider.agent === "claude") return patchClaudePreview(base, field, value);
   if (provider.agent === "gemini") return patchGeminiPreview(base, field, value);
-  return patchCodexPreview(base, field, value);
+  if (field === "wireApi" || field === "baseUrl") {
+    return renderCodexPreview({ ...provider, [field]: value });
+  }
+  return patchCodexPreview(base, field, value, provider.wireApi);
 }
 
 export function patchProviderPreviewFromFields(provider: Provider): string {
   let next = provider.configText || renderProviderPreview(provider);
-  for (const field of ["name", "model", "baseUrl", "apiKey", "extraToml"] as const) {
+  for (const field of ["name", "model", "wireApi", "baseUrl", "apiKey", "extraToml"] as const) {
     next = patchProviderPreviewField({ ...provider, configText: next }, field, provider[field]);
   }
   return next;
 }
 
 function isPreviewField(field: keyof Provider): field is PreviewField {
-  return ["name", "model", "baseUrl", "apiKey", "extraToml"].includes(field);
+  return ["name", "model", "wireApi", "baseUrl", "apiKey", "extraToml"].includes(field);
 }
 
-function patchCodexPreview(preview: string, field: PreviewField, value: string): string {
+function patchCodexPreview(
+  preview: string,
+  field: PreviewField,
+  value: string,
+  currentWireApi: string,
+): string {
   if (field === "name") return replaceCodexProviderName(preview, value);
   if (field === "model") return replaceTomlString(preview, "model", value || "gpt-5.4", true);
-  if (field === "baseUrl") return replaceCodexBaseUrl(preview, value);
+  if (field === "wireApi") return replaceCodexWireApi(preview, value);
+  if (field === "baseUrl") return replaceCodexBaseUrl(preview, value, currentWireApi);
   if (field === "apiKey") return replaceCodexAuth(preview, value);
   if (field === "extraToml") return replaceExperimentalBlock(preview, value);
   return preview;
@@ -179,15 +194,35 @@ function replaceCodexProviderName(preview: string, name: string): string {
   return insertIntoCodexCustomProvider(preview, `name = ${JSON.stringify(name || "custom")}`);
 }
 
-function replaceCodexBaseUrl(preview: string, baseUrl: string): string {
-  const value = baseUrl.trim();
+function normalizedWireApi(value: string | undefined): "responses" | "chat" {
+  return value === "chat" ? "chat" : "responses";
+}
+
+function replaceCodexWireApi(preview: string, wireApi: string): string {
+  normalizedWireApi(wireApi);
+  const value = "responses";
+  const sectionPatch = replaceTomlStringInSection(
+    preview,
+    "model_providers.custom",
+    "wire_api",
+    value,
+  );
+  if (sectionPatch) return sectionPatch;
+  if (!hasTomlSection(preview, "model_providers.custom")) return preview;
+  return insertIntoCodexCustomProvider(preview, `wire_api = ${JSON.stringify(value)}`);
+}
+
+function replaceCodexBaseUrl(preview: string, baseUrl: string, wireApi: string): string {
+  const value =
+    normalizedWireApi(wireApi) === "chat" ? CODEX_COMPAT_PROXY_BASE_URL : baseUrl.trim();
+  const selectedWireApi = normalizedWireApi(wireApi);
   const sectionPatch = replaceTomlStringInSection(
     preview,
     "model_providers.custom",
     "base_url",
     value,
   );
-  if (sectionPatch) return sectionPatch;
+  if (sectionPatch) return replaceCodexWireApi(sectionPatch, selectedWireApi);
   if (!value) return preview;
 
   let next = preview;
@@ -207,7 +242,10 @@ function replaceCodexBaseUrl(preview: string, baseUrl: string): string {
       ].filter(Boolean).join("\n"),
     );
   }
-  return insertIntoCodexCustomProvider(next, `base_url = ${JSON.stringify(value)}`);
+  return replaceCodexWireApi(
+    insertIntoCodexCustomProvider(next, `base_url = ${JSON.stringify(value)}`),
+    selectedWireApi,
+  );
 }
 
 function replaceTomlStringInSection(
@@ -363,7 +401,14 @@ function parseCodexPreview(preview: string, current: Provider): Partial<Provider
 
   return {
     model: matchQuotedValue(preview, "model"),
-    baseUrl: matchQuotedValue(preview, "base_url"),
+    wireApi:
+      matchQuotedValue(preview, "base_url") === CODEX_COMPAT_PROXY_BASE_URL
+        ? "chat"
+        : normalizedWireApi(matchQuotedValue(preview, "wire_api")),
+    baseUrl:
+      matchQuotedValue(preview, "base_url") === CODEX_COMPAT_PROXY_BASE_URL
+        ? current.baseUrl
+        : matchQuotedValue(preview, "base_url"),
     apiKey: typeof apiKeyValue === "string" ? apiKeyValue : "",
     extraToml,
   };
