@@ -643,7 +643,7 @@ export function AgentsPage({
               const linkedApiProvider = linkedApiProviderForAgent(provider);
               const balance = linkedApiProvider ? balanceMap[linkedApiProvider.id] : undefined;
               return (
-              <div className={`provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
+              <div className={`provider-row agent-provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
                     <ProviderAvatar provider={avatarSourceForProvider(provider)} size={56} />
@@ -662,32 +662,32 @@ export function AgentsPage({
                       {providerEndpointLabel(provider)}
                     </button>
                   ) : null}
-                  {linkedApiProvider ? (
-                    <div className="agent-balance-row">
-                      <div className="agent-balance-card">
-                        <span>{balance && !("error" in balance) ? balance.label : "Balance"}</span>
-                        <strong>
-                          {balance
-                            ? "error" in balance
-                              ? "—"
-                              : balance.remaining !== undefined
-                                ? `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`
-                                : balance.strategy
-                            : "Not checked"}
-                        </strong>
-                      </div>
-                      <button
-                        className="icon-button balance-refresh-button"
-                        disabled={loadingBalanceId === linkedApiProvider.id}
-                        onClick={() => void refreshBalance(linkedApiProvider)}
-                        type="button"
-                        title={balance && "error" in balance ? balance.error : "Refresh balance"}
-                      >
-                        <SemiRefreshIcon />
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
+                {linkedApiProvider ? (
+                  <div className="agent-balance-row">
+                    <div className="agent-balance-card">
+                      <span>{balance && !("error" in balance) ? balance.label : "Balance"}</span>
+                      <strong>
+                        {balance
+                          ? "error" in balance
+                            ? "—"
+                            : balance.remaining !== undefined
+                              ? `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`
+                              : balance.strategy
+                          : "Not checked"}
+                      </strong>
+                    </div>
+                    <button
+                      className="icon-button balance-refresh-button"
+                      disabled={loadingBalanceId === linkedApiProvider.id}
+                      onClick={() => void refreshBalance(linkedApiProvider)}
+                      type="button"
+                      title={balance && "error" in balance ? balance.error : "Refresh balance"}
+                    >
+                      <SemiRefreshIcon />
+                    </button>
+                  </div>
+                ) : <div className="agent-balance-row agent-balance-row-empty" aria-hidden="true" />}
                 <div className="provider-actions">
                   <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>
                   {!provider.isCurrent ? (

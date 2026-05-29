@@ -124,6 +124,33 @@
   --sidebar-surface: rgba(24, 21, 18, 0.9);
 }
 
+:root[data-theme="anime"] {
+  --bg: #050912;
+  --p1: rgba(11, 18, 31, 0.78);
+  --p2: rgba(17, 27, 45, 0.72);
+  --row: rgba(0, 115, 230, 0.12);
+  --b0: rgba(157, 190, 255, 0.2);
+  --b1: rgba(159, 198, 255, 0.32);
+  --a: #0073e6;
+  --a-dk: #0759aa;
+  --a-d: rgba(0, 115, 230, 0.18);
+  --accent-rgb: 0 115 230;
+  --titlebar-bg: rgba(5, 9, 18, 0.78);
+  --sidebar-surface: rgba(5, 9, 18, 0.42);
+  --content-surface: rgba(8, 13, 24, 0.46);
+  --content-row-surface: rgba(12, 18, 32, 0.74);
+  --wallpaper: url("https://w.wallhaven.cc/full/pk/wallhaven-pk6ekj.jpg");
+  --wallpaper-fallback:
+    radial-gradient(circle at 78% 16%, rgba(0, 115, 230, 0.34) 0 12%, transparent 28%),
+    radial-gradient(circle at 24% 78%, rgba(121, 104, 196, 0.28) 0 14%, transparent 32%),
+    linear-gradient(135deg, #050912 0%, #0a1830 42%, #181329 72%, #050912 100%);
+  --wallpaper-veil:
+    linear-gradient(90deg, rgba(3, 7, 14, 0.64) 0%, rgba(5, 9, 18, 0.42) 38%, rgba(5, 9, 18, 0.26) 100%),
+    linear-gradient(180deg, rgba(3, 7, 14, 0.26) 0%, rgba(3, 7, 14, 0.46) 100%);
+  --grain:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px);
+}
+
 :root[data-background-color="light"][data-theme="graphite"] {
   --bg: #f8fafc;
   --p1: #ffffff;
@@ -196,6 +223,33 @@ body {
 body::before,
 body::after {
   display: none;
+}
+
+:root[data-theme="anime"] body {
+  background: var(--bg);
+}
+
+:root[data-theme="anime"] body::before,
+:root[data-theme="anime"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+:root[data-theme="anime"] body::before {
+  z-index: 0;
+  background:
+    var(--wallpaper-veil),
+    var(--wallpaper) center / cover no-repeat,
+    var(--wallpaper-fallback),
+    var(--bg);
+}
+
+:root[data-theme="anime"] body::after {
+  z-index: 0;
+  background: var(--grain);
 }
 
 button,
@@ -353,6 +407,17 @@ select:focus {
   flex-shrink: 0;
 }
 
+.brand-mark img {
+  border-radius: 9px;
+}
+
+.brand-mark-logo {
+  overflow: hidden;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+
 .brand-mark svg path {
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -487,7 +552,8 @@ select:focus {
 
 .main-content {
   min-width: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 0;
   background: color-mix(in srgb, var(--bg) 82%, transparent);
 }
@@ -844,6 +910,11 @@ select:focus {
   min-width: max-content;
 }
 
+.agent-provider-row {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
+  align-items: center;
+}
+
 .icon-action-button,
 .icon-button {
   width: 44px;
@@ -858,15 +929,23 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  max-width: 28rem;
-  margin-top: 0.2rem;
+  width: min(100%, 320px);
+  max-width: 20rem;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+.agent-balance-row-empty {
+  visibility: hidden;
 }
 
 .agent-balance-card {
   min-width: 0;
+  flex: 1;
   height: 30px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.65rem;
   padding: 0 0.75rem;
   border: 1px solid var(--b0);

@@ -1142,18 +1142,44 @@ fn launch_terminal_command(
 ) -> Result<(), AppError> {
     #[cfg(target_os = "windows")]
     {
-        let command = format!("cd /d \"{}\" && {}", workspace_path, command_text);
-        Command::new("cmd")
-            .args([
-                "/C",
-                "start",
-                "",
-                terminal_program,
-                "-NoExit",
-                "-Command",
-                &command,
-            ])
-            .spawn()?;
+        let terminal = terminal_program.trim();
+        let terminal = if terminal.is_empty() {
+            "pwsh"
+        } else {
+            terminal
+        };
+        let terminal_lower = terminal.to_ascii_lowercase();
+
+        if terminal_lower == "cmd" || terminal_lower.ends_with("\\cmd.exe") {
+            let command = format!(
+                "cd /d \"{}\" && {}",
+                workspace_path.replace('"', ""),
+                command_text
+            );
+            Command::new("cmd")
+                .args(["/C", "start", "", "cmd", "/K", &command])
+                .spawn()?;
+        } else if terminal_lower == "wt" || terminal_lower.ends_with("\\wt.exe") {
+            let command = format!(
+                "Set-Location -LiteralPath '{}'; {}",
+                workspace_path.replace('\'', "''"),
+                command_text
+            );
+            Command::new("cmd")
+                .args([
+                    "/C", "start", "", "wt", "pwsh", "-NoExit", "-Command", &command,
+                ])
+                .spawn()?;
+        } else {
+            let command = format!(
+                "Set-Location -LiteralPath '{}'; {}",
+                workspace_path.replace('\'', "''"),
+                command_text
+            );
+            Command::new("cmd")
+                .args(["/C", "start", "", terminal, "-NoExit", "-Command", &command])
+                .spawn()?;
+        }
         return Ok(());
     }
 

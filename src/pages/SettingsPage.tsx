@@ -24,7 +24,8 @@ const shellOptions = [
   { label: "Nushell", value: "nu" },
 ];
 
-const themeOptions: Array<{ value: Exclude<AppTheme, "anime">; labelKey: TranslationKey }> = [
+const themeOptions: Array<{ value: AppTheme; labelKey: TranslationKey }> = [
+  { value: "anime", labelKey: "themeAnime" },
   { value: "professional", labelKey: "themeProfessional" },
   { value: "graphite", labelKey: "themeGraphite" },
   { value: "indigo", labelKey: "themeIndigo" },

@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
+import appLogo from "../../src-tauri/icons/icon.png";
 import {
-  IconBranch,
   IconChevronLeft,
   IconChevronRight,
   IconClose,
@@ -73,7 +73,22 @@ export function SettingsIcon({ size, style, ...props }: IconProps = {}) {
 }
 
 export function SwitchLogoIcon({ size = 22, style, ...props }: IconProps = {}) {
-  return <IconBranch {...props} style={semiIconStyle(size, style)} />;
+  return (
+    <img
+      {...props}
+      alt=""
+      aria-hidden="true"
+      src={appLogo}
+      style={{
+        width: size,
+        height: size,
+        display: "block",
+        objectFit: "contain",
+        flexShrink: 0,
+        ...style,
+      }}
+    />
+  );
 }
 
 export function SidebarToggleIcon({

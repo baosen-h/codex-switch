@@ -1,7 +1,8 @@
 import type { AppTheme, BackgroundColorMode } from "../types";
 
-export function normalizeAppTheme(theme: AppTheme | string | undefined): Exclude<AppTheme, "anime"> {
+export function normalizeAppTheme(theme: AppTheme | string | undefined): AppTheme {
   switch (theme) {
+    case "anime":
     case "graphite":
     case "indigo":
     case "teal":
