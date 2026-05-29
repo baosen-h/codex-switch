@@ -377,6 +377,18 @@ select:focus {
   transform: none;
 }
 
+.nav-item .semi-icon,
+.titlebar-btn .semi-icon,
+.brand-mark .semi-icon,
+.sidebar-fold-button .semi-icon {
+  color: currentColor;
+  line-height: 1;
+}
+
+.nav-item .semi-icon {
+  flex: 0 0 18px;
+}
+
 .nav-item.active {
   background: rgb(var(--accent-rgb) / 0.13);
   border-color: rgb(var(--accent-rgb) / 0.28);
