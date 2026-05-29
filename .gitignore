@@ -5,9 +5,11 @@ target/
 # Build output
 dist/
 build/
+test-results/
 src-tauri/target/
 
 # Local runtime data
+.codex/
 *.db
 *.db-shm
 *.db-wal

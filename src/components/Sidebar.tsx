@@ -15,10 +15,10 @@ interface SidebarProps {
   activePage: PageKey;
   collapsed: boolean;
   onSelect: (page: PageKey) => void;
-  onToggleCollapsed: () => void;
+  onCollapsedChange: (collapsed: boolean) => void;
 }
 
-export function Sidebar({ activePage, collapsed, onSelect, onToggleCollapsed }: SidebarProps) {
+export function Sidebar({ activePage, collapsed, onSelect, onCollapsedChange }: SidebarProps) {
   const { t } = useI18n();
 
   const items: Array<{ key: PageKey; label: string; Icon: () => JSX.Element }> = [
@@ -32,21 +32,38 @@ export function Sidebar({ activePage, collapsed, onSelect, onToggleCollapsed }: 
 
   return (
     <aside className={`sidebar ${collapsed ? "sidebar-collapsed" : ""}`}>
-      <div className="brand">
-        <div className="brand-mark">
-          <SwitchLogoIcon />
+      {collapsed ? (
+        <button
+          className="brand brand-action brand-action-collapsed"
+          onClick={() => onCollapsedChange(false)}
+          type="button"
+          title="Open sidebar"
+        >
+          <span className="brand-mark brand-mark-logo">
+            <SwitchLogoIcon />
+          </span>
+          <span className="brand-mark brand-mark-open">
+            <SidebarToggleIcon collapsed />
+          </span>
+        </button>
+      ) : (
+        <div className="brand brand-expanded">
+          <div className="brand-title">
+            <span className="brand-mark">
+              <SwitchLogoIcon />
+            </span>
+            <h1>Codex Switch</h1>
+          </div>
+          <button
+            className="sidebar-inline-toggle"
+            onClick={() => onCollapsedChange(true)}
+            type="button"
+            title="Close sidebar"
+          >
+            <SidebarToggleIcon collapsed={false} />
+          </button>
         </div>
-        <h1>Codex Switch</h1>
-      </div>
-
-      <button
-        className="sidebar-fold-button"
-        onClick={onToggleCollapsed}
-        type="button"
-        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        <SidebarToggleIcon collapsed={collapsed} />
-      </button>
+      )}
 
       <nav className="nav-list">
         {items.map(({ key, label, Icon }) => (

@@ -62,7 +62,7 @@ function App() {
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -257,7 +257,7 @@ function App() {
             activePage={activePage}
             collapsed={sidebarCollapsed}
             onSelect={setActivePage}
-            onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+            onCollapsedChange={setSidebarCollapsed}
           />
           <main className="main-content">
             {content}
