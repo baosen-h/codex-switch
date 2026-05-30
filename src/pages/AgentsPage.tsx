@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
-import type { AgentKind, ApiProvider, Provider, RemoteModel, WireApi } from "../types";
+import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
 import {
@@ -326,14 +326,6 @@ export function AgentsPage({
     }
   };
 
-  const openWebsite = async (url: string) => {
-    try {
-      await appApi.openExternalUrl(url);
-    } catch (error) {
-      console.error("Failed to open website", error);
-    }
-  };
-
   const agentLabel = (agent: AgentKind): string => {
     if (agent === "claude") return t("agentClaude");
     if (agent === "gemini") return t("agentGemini");
@@ -348,6 +340,21 @@ export function AgentsPage({
       baseUrl: `${provider.name} ${provider.baseUrl}`,
     };
   };
+
+  const showOfficialOpenAiOauth = Boolean(
+    draft.agent === "codex" &&
+    selectedApiProvider &&
+    (selectedApiProvider.providerType === "openai" ||
+      /codex official|openai official|api\.openai\.com|chatgpt\.com/.test(
+        [
+          selectedApiProvider.name,
+          selectedApiProvider.baseUrl,
+          selectedApiProvider.websiteUrl,
+        ]
+          .join(" ")
+          .toLowerCase(),
+      )),
+  );
 
   if (view === "form") {
     const isEditing = Boolean(draft.id);
@@ -463,36 +470,15 @@ export function AgentsPage({
                     ) : null}
                   </div>
                 </label>
-                {selectedApiProvider ? (
-                  <div className="field provider-source-field">
-                    <span>{t("providerSource")}</span>
-                    <p>
-                      {selectedApiProvider.providerType} · {selectedApiProvider.wireApi === "chat" ? "chat_completions" : "responses"} · {selectedApiProvider.models.length} {t("models")}
-                    </p>
-                  </div>
-                ) : null}
-                {draft.agent === "codex" ? (
-                  <label className="field">
-                    <span>Upstream protocol</span>
-                    <select value={draft.wireApi} onChange={(e) => updateDraft("wireApi", e.target.value as WireApi)}>
-                      <option value="responses">responses · /v1/responses</option>
-                      <option value="chat">chat_completions · /chat/completions</option>
-                    </select>
-                  </label>
-                ) : null}
                 <label className="field">
                   <span>{t("baseUrl")}</span>
                   <input value={draft.baseUrl} onChange={(e) => updateDraft("baseUrl", e.target.value)} placeholder="https://api.example.com/v1" />
-                </label>
-                <label className="field">
-                  <span>{t("officialWebsite")}</span>
-                  <input value={draft.websiteUrl} onChange={(e) => updateDraft("websiteUrl", e.target.value)} placeholder="https://example.com" />
                 </label>
                 <label className="field field-full">
                   <span>{t("apiKey")}</span>
                   <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
                 </label>
-                {draft.agent === "codex" ? (
+                {showOfficialOpenAiOauth ? (
                   <div className="field field-full oauth-panel">
                     <span>Official OpenAI OAuth</span>
                     <div className="oauth-actions">
@@ -628,15 +614,6 @@ export function AgentsPage({
                     </div>
                   </div>
                   <p>{provider.model || "—"}</p>
-                  {provider.websiteUrl.trim() ? (
-                    <button
-                      className="provider-link"
-                      onClick={() => void openWebsite(provider.websiteUrl)}
-                      type="button"
-                    >
-                      {provider.websiteUrl}
-                    </button>
-                  ) : null}
                 </div>
                 <div className="provider-actions">
                   <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>

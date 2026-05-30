@@ -7,6 +7,7 @@ import { applyTheme, normalizeAppTheme, switchBackgroundColorWithReveal } from "
 
 interface SettingsPageProps {
   settings: AppSettings;
+  onOpenGuide: () => void;
   onSave: (settings: AppSettings) => Promise<void>;
 }
 
@@ -33,7 +34,7 @@ const themeOptions: Array<{ value: AppTheme; labelKey: TranslationKey }> = [
   { value: "amber", labelKey: "themeAmber" },
 ];
 
-export function SettingsPage({ settings, onSave }: SettingsPageProps) {
+export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
 
@@ -167,6 +168,12 @@ export function SettingsPage({ settings, onSave }: SettingsPageProps) {
             />
             <span>{t("autoRecordSessions")}</span>
           </label>
+          <div className="field">
+            <span>{t("guideSettingsTitle")}</span>
+            <button className="secondary-button" onClick={onOpenGuide} type="button">
+              {t("guideSettingsButton")}
+            </button>
+          </div>
         </div>
 
         <div className="actions">

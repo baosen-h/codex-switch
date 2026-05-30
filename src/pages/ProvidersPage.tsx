@@ -177,12 +177,18 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const balanceText = (balance?: ProviderBalance | { error: string }) => {
-    if (!balance) return t("notChecked");
+    if (!balance) return "--";
     if ("error" in balance) return "—";
     if (balance.remaining !== undefined) {
       return `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`;
     }
     return balance.strategy;
+  };
+
+  const balanceTitle = (balance?: ProviderBalance | { error: string }) => {
+    if (!balance) return "Refresh balance";
+    if ("error" in balance) return balance.error;
+    return `${balance.label} · ${balance.strategy}`;
   };
 
   if (view === "form") {
@@ -321,17 +327,16 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     </button>
                   ) : null}
                 </div>
-                <div className="provider-balance-row">
-                  <div className="provider-balance-card">
-                    <span>{balance && !("error" in balance) ? balance.label : "Balance"}</span>
-                    <strong>{balanceText(balance)}</strong>
-                  </div>
+                <div className="provider-balance-row" title={balanceTitle(balance)}>
+                  <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
+                    {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
+                  </strong>
                   <button
                     className="icon-button balance-refresh-button"
                     disabled={loadingBalanceId === provider.id}
                     onClick={() => void refreshBalance(provider)}
                     type="button"
-                    title={balance && "error" in balance ? balance.error : "Refresh balance"}
+                    title={balanceTitle(balance)}
                   >
                     <SemiRefreshIcon />
                   </button>

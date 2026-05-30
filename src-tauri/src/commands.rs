@@ -282,13 +282,17 @@ fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, Stri
 }
 
 #[tauri::command]
-pub async fn generate_image(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
+pub async fn generate_image(
+    request: ImageGenerationRequest,
+) -> Result<ImageGenerationResponse, String> {
     tauri::async_runtime::spawn_blocking(move || generate_image_blocking(request))
         .await
         .map_err(|error| format!("Image generation task failed: {error}"))?
 }
 
-fn generate_image_blocking(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
+fn generate_image_blocking(
+    request: ImageGenerationRequest,
+) -> Result<ImageGenerationResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
     if provider_type == "anthropic" {
         return Err("This provider does not expose an image generation endpoint here.".to_string());
@@ -1028,7 +1032,8 @@ fn persist_generated_image(image: &str, index: usize) -> Result<String, String> 
     };
 
     if let Some(dir) = drawing_image_dir() {
-        fs::create_dir_all(&dir).map_err(|error| format!("Failed to create image folder: {error}"))?;
+        fs::create_dir_all(&dir)
+            .map_err(|error| format!("Failed to create image folder: {error}"))?;
         let extension = image_extension(&mime);
         let filename = format!(
             "drawing-{}-{}.{extension}",
@@ -1036,7 +1041,8 @@ fn persist_generated_image(image: &str, index: usize) -> Result<String, String> 
             index + 1
         );
         let path = dir.join(filename);
-        fs::write(&path, &bytes).map_err(|error| format!("Failed to save generated image: {error}"))?;
+        fs::write(&path, &bytes)
+            .map_err(|error| format!("Failed to save generated image: {error}"))?;
         return Ok(path.to_string_lossy().to_string());
     }
 
@@ -1192,25 +1198,107 @@ fn launch_terminal_command(
     #[cfg(not(target_os = "windows"))]
     {
         Command::new(terminal_program)
-            .args(["-lc", &format!("cd {:?} && {}", workspace_path, command_text)])
+            .args([
+                "-lc",
+                &format!("cd {:?} && {}", workspace_path, command_text),
+            ])
             .spawn()?;
         Ok(())
     }
 }
 
 fn fetch_provider_balance(provider: &ApiProvider) -> Result<ProviderBalance, AppError> {
-    let base = provider.base_url.trim().trim_end_matches('/');
+    let base = balance_root_url(&provider.base_url)?;
     if base.is_empty() || provider.api_key.trim().is_empty() {
-        return Err(AppError::Message("Base URL and API key are required.".to_string()));
+        return Err(AppError::Message(
+            "Base URL and API key are required.".to_string(),
+        ));
     }
 
+    let mut errors = Vec::new();
     if provider.provider_type == "openai-compatible" || provider.provider_type == "new-api" {
-        if let Ok(balance) = fetch_new_api_dashboard_balance(base, &provider.api_key) {
-            return Ok(balance);
+        match fetch_new_api_dashboard_balance(&base, &provider.api_key) {
+            Ok(balance) => return Ok(balance),
+            Err(error) => errors.push(error.to_string()),
         }
     }
 
-    fetch_openai_compatible_balance(base, &provider.api_key)
+    match fetch_openai_compatible_balance(&base, &provider.api_key) {
+        Ok(balance) => Ok(balance),
+        Err(error) => {
+            errors.push(error.to_string());
+            Err(AppError::Message(format!(
+                "No supported balance endpoint found. {}",
+                errors.join(" | ")
+            )))
+        }
+    }
+}
+
+fn balance_root_url(base_url: &str) -> Result<String, AppError> {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+
+    let mut root = trimmed.to_string();
+    loop {
+        let lower = root.to_ascii_lowercase();
+        let suffixes = [
+            "/dashboard/billing/subscription",
+            "/dashboard/billing/usage",
+            "/chat/completions",
+            "/images/generations",
+            "/images/edits",
+            "/responses",
+            "/messages",
+            "/models",
+            "/usage",
+            "/v1beta",
+            "/v1",
+        ];
+        if let Some(suffix) = suffixes.iter().find(|suffix| lower.ends_with(**suffix)) {
+            let next_len = root.len().saturating_sub(suffix.len());
+            root.truncate(next_len);
+            root = root.trim_end_matches('/').to_string();
+            continue;
+        }
+        break;
+    }
+
+    if root.is_empty() {
+        return Err(AppError::Message("Base URL is empty".to_string()));
+    }
+    Ok(root)
+}
+
+fn get_balance_json(client: &Client, url: String, api_key: &str) -> Result<Value, AppError> {
+    let response = client
+        .get(&url)
+        .bearer_auth(api_key)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let status = response.status();
+    let body_text = response
+        .text()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let parsed = serde_json::from_str::<Value>(&body_text).ok();
+
+    if !status.is_success() {
+        let message = parsed
+            .as_ref()
+            .and_then(extract_api_error)
+            .unwrap_or_else(|| body_text.chars().take(180).collect::<String>());
+        return Err(AppError::Message(format!(
+            "HTTP {} @ {} -> {}",
+            status.as_u16(),
+            url,
+            message
+        )));
+    }
+
+    parsed.ok_or_else(|| AppError::Message(format!("Invalid balance JSON @ {url}")))
 }
 
 fn fetch_new_api_dashboard_balance(base: &str, api_key: &str) -> Result<ProviderBalance, AppError> {
@@ -1218,50 +1306,38 @@ fn fetch_new_api_dashboard_balance(base: &str, api_key: &str) -> Result<Provider
         .timeout(Duration::from_secs(12))
         .build()
         .map_err(|error| AppError::message(error.to_string()))?;
-    let subscription = client
-        .get(format!("{base}/v1/dashboard/billing/subscription"))
-        .bearer_auth(api_key)
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|error| AppError::message(error.to_string()))?;
-    if !subscription.status().is_success() {
-        return Err(AppError::Message(format!(
-            "Dashboard billing returned HTTP {}",
-            subscription.status()
-        )));
-    }
-    let body: Value = subscription
-        .json()
-        .map_err(|error| AppError::message(error.to_string()))?;
+    let body = get_balance_json(
+        &client,
+        format!("{base}/v1/dashboard/billing/subscription"),
+        api_key,
+    )?;
     let limit = body
         .get("hard_limit_usd")
         .or_else(|| body.get("soft_limit_usd"))
-        .and_then(Value::as_f64);
+        .and_then(Value::as_f64)
+        .ok_or_else(|| {
+            AppError::Message("Dashboard billing response has no limit field.".to_string())
+        })?;
 
-    let usage = client
-        .get(format!("{base}/v1/dashboard/billing/usage"))
-        .bearer_auth(api_key)
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|error| AppError::message(error.to_string()))?;
-    let used = if usage.status().is_success() {
-        usage
-            .json::<Value>()
-            .map_err(|error| AppError::message(error.to_string()))?
+    let used = match get_balance_json(
+        &client,
+        format!("{base}/v1/dashboard/billing/usage"),
+        api_key,
+    ) {
+        Ok(value) => value
             .get("total_usage")
             .and_then(Value::as_f64)
             .map(|value| value / 100.0)
-            .unwrap_or(0.0)
-    } else {
-        0.0
+            .unwrap_or(0.0),
+        Err(_) => 0.0,
     };
 
-    let remaining = limit.map(|value| (value - used).max(0.0));
+    let remaining = (limit - used).max(0.0);
     Ok(ProviderBalance {
         strategy: "new_api_dashboard".to_string(),
-        remaining,
+        remaining: Some(remaining),
         unit: "USD".to_string(),
-        is_active: remaining.map(|value| value > 0.0).unwrap_or(true),
+        is_active: remaining > 0.0,
         next_reset_at: None,
         label: "Balance".to_string(),
     })
@@ -1272,28 +1348,16 @@ fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<Provider
         .timeout(Duration::from_secs(12))
         .build()
         .map_err(|error| AppError::message(error.to_string()))?;
-    let response = client
-        .get(format!("{base}/v1/usage"))
-        .bearer_auth(api_key)
-        .header("Accept", "application/json")
-        .send()
-        .map_err(|error| AppError::message(error.to_string()))?;
-    let status = response.status();
-    let body: Value = response
-        .json()
-        .map_err(|error| AppError::message(error.to_string()))?;
-    if !status.is_success() {
-        return Err(AppError::Message(
-            extract_api_error(&body)
-                .unwrap_or_else(|| format!("Usage request failed with HTTP status {status}")),
-        ));
-    }
+    let body = get_balance_json(&client, format!("{base}/v1/usage"), api_key)?;
 
     let remaining = body
         .get("remaining")
         .and_then(Value::as_f64)
         .or_else(|| body.get("balance").and_then(Value::as_f64))
-        .or_else(|| body.pointer("/quota/remaining").and_then(Value::as_f64));
+        .or_else(|| body.pointer("/quota/remaining").and_then(Value::as_f64))
+        .ok_or_else(|| {
+            AppError::Message("Usage response has no remaining or balance field.".to_string())
+        })?;
     let unit = body
         .get("unit")
         .and_then(Value::as_str)
@@ -1304,13 +1368,18 @@ fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<Provider
         .get("is_active")
         .and_then(Value::as_bool)
         .or_else(|| body.get("isValid").and_then(Value::as_bool))
-        .unwrap_or_else(|| remaining.map(|value| value > 0.0).unwrap_or(true));
+        .unwrap_or(remaining > 0.0);
     Ok(ProviderBalance {
         strategy: "openai_compat".to_string(),
-        remaining,
+        remaining: Some(remaining),
         unit: unit.clone(),
         is_active,
         next_reset_at: None,
-        label: if unit.contains('%') { "Token quota" } else { "Balance" }.to_string(),
+        label: if unit.contains('%') {
+            "Token quota"
+        } else {
+            "Balance"
+        }
+        .to_string(),
     })
 }

@@ -155,11 +155,29 @@
 }
 
 :root[data-theme="anime"][data-background-color="light"] {
-  --titlebar-bg: rgba(5, 9, 18, 0.78);
-  --sidebar-surface: rgba(5, 9, 18, 0.6);
-  --content-surface: rgba(7, 11, 20, 0.58);
-  --content-row-surface: rgba(10, 15, 26, 0.78);
-  color-scheme: dark;
+  --bg: #f5f7fb;
+  --p1: rgba(255, 255, 255, 0.88);
+  --p2: rgba(241, 245, 249, 0.8);
+  --row: rgba(37, 99, 235, 0.09);
+  --b0: rgba(15, 23, 42, 0.12);
+  --b1: rgba(15, 23, 42, 0.18);
+  --t1: #172033;
+  --t2: #55657d;
+  --brand-fg: #172033;
+  --a: #2563eb;
+  --a-dk: #1d4ed8;
+  --a-d: rgba(37, 99, 235, 0.12);
+  --accent-rgb: 37 99 235;
+  --titlebar-bg: rgba(255, 255, 255, 0.78);
+  --sidebar-surface: rgba(255, 255, 255, 0.68);
+  --content-surface: rgba(255, 255, 255, 0.56);
+  --content-row-surface: rgba(255, 255, 255, 0.76);
+  --wallpaper-veil:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.56) 44%, rgba(255, 255, 255, 0.24) 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.68) 100%);
+  --grain:
+    repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.018) 0 1px, transparent 1px 3px);
+  color-scheme: light;
 }
 
 :root[data-background-color="light"][data-theme="graphite"] {
@@ -595,6 +613,77 @@ select:focus {
   border-width: 0 0 0 0;
 }
 
+.guide-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgba(2, 6, 23, 0.56);
+  backdrop-filter: blur(10px);
+}
+
+.guide-card {
+  width: min(92vw, 520px);
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--p1) 94%, transparent);
+  box-shadow: var(--shadow-soft);
+  padding: 1.2rem;
+}
+
+.guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.guide-header h2 {
+  margin-top: 0.22rem;
+  font-size: 1.25rem;
+}
+
+.guide-close {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  font-size: 1.2rem;
+}
+
+.guide-card p {
+  color: var(--t2);
+  line-height: 1.62;
+}
+
+.guide-progress {
+  display: flex;
+  gap: 0.45rem;
+  margin: 1.15rem 0;
+}
+
+.guide-progress button {
+  width: 100%;
+  height: 4px;
+  min-height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--b1);
+  padding: 0;
+}
+
+.guide-progress button.active {
+  background: var(--a);
+}
+
+.guide-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
 .card-heading {
   padding-bottom: 0.95rem;
   border-bottom: 1px solid var(--b0);
@@ -865,7 +954,7 @@ select:focus {
 }
 
 .api-provider-row {
-  grid-template-columns: minmax(260px, 1fr) minmax(280px, 420px) auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(120px, 180px) auto;
   align-items: center;
 }
 
@@ -976,13 +1065,12 @@ select:focus {
 
 .agent-balance-row,
 .provider-balance-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  width: min(100%, 320px);
-  max-width: 24rem;
-  margin: 0 auto;
-  justify-content: center;
+  justify-content: flex-end;
+  gap: 0.42rem;
+  width: 100%;
+  justify-self: end;
 }
 
 .agent-balance-row-empty {
@@ -1023,6 +1111,27 @@ select:focus {
   width: 30px;
   height: 30px;
   min-width: 30px;
+}
+
+.provider-balance-value {
+  min-width: 5.8rem;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.62rem;
+  border: 1px solid var(--b0);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p1) 74%, transparent);
+  color: var(--a);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.provider-balance-error {
+  color: var(--t2);
 }
 
 .provider-info strong,
@@ -1423,9 +1532,9 @@ select:focus {
 }
 
 .balance-refresh-button {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
 }
 
 .chat-shell {

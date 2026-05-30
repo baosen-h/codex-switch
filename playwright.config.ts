@@ -7,13 +7,13 @@ export default defineConfig({
     timeout: 5_000,
   },
   use: {
-    baseURL: "http://127.0.0.1:1420",
+    baseURL: `http://127.0.0.1:${process.env.VITE_PORT ?? "4173"}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1",
-    url: "http://127.0.0.1:1420",
+    command: `npm run dev -- --host 127.0.0.1 --port ${process.env.VITE_PORT ?? "4173"}`,
+    url: `http://127.0.0.1:${process.env.VITE_PORT ?? "4173"}`,
     reuseExistingServer: true,
     timeout: 120_000,
   },

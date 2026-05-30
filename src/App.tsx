@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appApi } from "./api/tauri";
 import { FloatingToast, type ToastState } from "./components/FloatingToast";
+import { OnboardingGuide } from "./components/OnboardingGuide";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
 import { I18nProvider } from "./i18n/context";
@@ -63,6 +64,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [guideOpen, setGuideOpen] = useState(false);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -91,6 +93,18 @@ function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (loading) return;
+    try {
+      if (!window.localStorage.getItem("codex-switch-guide-seen")) {
+        window.localStorage.setItem("codex-switch-guide-seen", "true");
+        setGuideOpen(true);
+      }
+    } catch {
+      setGuideOpen(true);
+    }
+  }, [loading]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -245,7 +259,7 @@ function App() {
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "settings" ? (
-    <SettingsPage settings={data.settings} onSave={handleSaveSettings} />
+    <SettingsPage settings={data.settings} onOpenGuide={() => setGuideOpen(true)} onSave={handleSaveSettings} />
   ) : (
     <AgentsPage
       apiProviders={data.apiProviders}
@@ -271,6 +285,7 @@ function App() {
             {content}
           </main>
         </div>
+        <OnboardingGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
         <FloatingToast toast={toast} onDismiss={dismissToast} />
       </div>
     </I18nProvider>

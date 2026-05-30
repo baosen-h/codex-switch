@@ -144,6 +144,20 @@ const en = {
   handoffCopied: "Handoff copied.",
   handoffGenerateError: "Failed to generate handoff.",
   loading: "LOADING...",
+  guideEyebrow: "Quick start",
+  guideProvidersTitle: "Add an API provider",
+  guideProvidersBody: "Start on the API Providers page. Pick the provider type, enter the base URL and key, then fetch models. The balance refresh works only when the provider exposes a supported usage endpoint.",
+  guideAgentsTitle: "Bind providers to agents",
+  guideAgentsBody: "Open Agents, choose Codex, Claude Code, or Gemini, then select one of your API providers and a model. Codex chat-completions providers are routed through the built-in proxy automatically.",
+  guideUseTitle: "Use chat and drawing",
+  guideUseBody: "Talking is for quick model checks and normal chat. Drawing uses the image-capable provider you select, so long image tasks now run without blocking the rest of the interface.",
+  guideSessionsTitle: "Resume old work",
+  guideSessionsBody: "Sessions scans local Codex, Claude, and Gemini histories. Use refresh to load new records, inspect messages, or resume a session directly from the app.",
+  guideBack: "Back",
+  guideNext: "Next",
+  guideDone: "Done",
+  guideSettingsTitle: "New user guide",
+  guideSettingsButton: "Open guide",
 };
 
 const zh: typeof en = {
@@ -290,6 +304,20 @@ const zh: typeof en = {
   handoffCopied: "交接内容已复制。",
   handoffGenerateError: "生成交接内容失败。",
   loading: "加载中...",
+  guideEyebrow: "快速上手",
+  guideProvidersTitle: "添加 API 供应商",
+  guideProvidersBody: "先到 API 供应商页，选择供应商类型，填写接口地址和密钥，然后获取模型。余额刷新只会在供应商提供兼容的 usage 接口时工作。",
+  guideAgentsTitle: "绑定到代理",
+  guideAgentsBody: "在代理页选择 Codex、Claude Code 或 Gemini，再选择你的 API 供应商和模型。Codex 的 chat-completions 供应商会自动走内置代理转换。",
+  guideUseTitle: "使用对话和绘图",
+  guideUseBody: "对话页适合快速测试模型和普通聊天。绘图页会使用你选择的图像供应商，耗时生成任务不会再卡住整个界面。",
+  guideSessionsTitle: "恢复旧工作",
+  guideSessionsBody: "会话页会扫描本地 Codex、Claude 和 Gemini 历史。可以刷新加载新记录、查看消息，或直接从应用恢复会话。",
+  guideBack: "上一步",
+  guideNext: "下一步",
+  guideDone: "完成",
+  guideSettingsTitle: "新手引导",
+  guideSettingsButton: "打开引导",
 };
 
 export const translations = { en, zh };

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function installTauriMock(page: Page) {
   await page.addInitScript(() => {
+    window.localStorage.setItem("codex-switch-guide-seen", "true");
     const mockSettingsOverride = window.localStorage.getItem("codex-switch-ui-test-settings");
     const apiProviders = [
       {
@@ -207,7 +208,7 @@ async function installTauriMock(page: Page) {
 
 async function waitForApp(page: Page) {
   await installTauriMock(page);
-  await page.goto("/");
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await expect(page.locator(".app-shell")).toBeVisible();
   await expect(page.locator(".loading-screen")).toHaveCount(0);
 }
@@ -243,7 +244,7 @@ test("main pages render usable layouts", async ({ page }) => {
   await expect(page.getByText("chat_completions")).toHaveCount(0);
   await expect(page.getByText("responses")).toHaveCount(0);
   await page.locator(".provider-balance-row button").first().click();
-  await expect(page.locator(".provider-balance-card strong").first()).toHaveText("98 %");
+  await expect(page.locator(".provider-balance-value").first()).toHaveText("98 %");
   await capture(page, "10-providers");
 
   await page.getByTitle("Agents").click();
@@ -279,7 +280,7 @@ test("anime light mode keeps content readable", async ({ page }) => {
   await waitForApp(page);
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
-  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(248, 250, 252)");
+  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(23, 32, 51)");
   await capture(page, "16-anime-light-settings");
 });
 
