@@ -37,6 +37,7 @@ export interface ApiProvider {
   baseUrl: string;
   apiKey: string;
   websiteUrl: string;
+  openAiAuthJson?: string;
   models: RemoteModel[];
   enabled: boolean;
   createdAt: string;
@@ -54,6 +55,9 @@ export interface RemoteModel {
   name?: string;
   ownedBy?: string;
   description?: string;
+  capabilities?: string[];
+  inputModalities?: string[];
+  outputModalities?: string[];
 }
 
 export interface ChatMessage {
@@ -104,6 +108,17 @@ export interface ProviderBalance {
   isActive: boolean;
   nextResetAt?: number;
   label: string;
+  planType?: string;
+  fiveHourLeft?: number;
+  fiveHourReset?: string;
+  fiveHourResetAt?: number;
+  fiveHourLabel?: string;
+  weeklyLeft?: number;
+  weeklyReset?: string;
+  weeklyResetAt?: number;
+  weeklyLabel?: string;
+  creditsBalance?: number;
+  hasCredits?: boolean;
 }
 
 export interface SessionRecord {
@@ -177,4 +192,5 @@ export interface StartOpenAiOauthResult {
 export interface CompleteOpenAiOauthResult {
   email: string;
   configText: string;
+  authJson: string;
 }

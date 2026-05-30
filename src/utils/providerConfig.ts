@@ -31,6 +31,19 @@ export function providerEndpointLabel(provider: Pick<Provider, "websiteUrl" | "b
   return provider.websiteUrl.trim() || provider.baseUrl.trim() || "official/default endpoint";
 }
 
+export function renderCodexOAuthPreview(model: string, authJson: string): string {
+  const selectedModel = model.trim() || "gpt-5.4";
+  return [
+    "# ── ~/.codex/config.toml ──",
+    `model = ${JSON.stringify(selectedModel)}`,
+    "disable_response_storage = true",
+    "",
+    "# ── ~/.codex/auth.json ──",
+    authJson.trim() || "{}",
+    "",
+  ].join("\n");
+}
+
 function renderCodexPreview(provider: Provider): string {
   const model = provider.model.trim() || "gpt-5.4";
   const upstreamBaseUrl = provider.baseUrl.trim();

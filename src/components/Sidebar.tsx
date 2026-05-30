@@ -69,6 +69,7 @@ export function Sidebar({ activePage, collapsed, onSelect, onCollapsedChange }: 
         {items.map(({ key, label, Icon }) => (
           <button
             key={key}
+            data-page={key}
             className={`nav-item ${activePage === key ? "active" : ""}`}
             onClick={() => onSelect(key)}
             type="button"

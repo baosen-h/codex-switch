@@ -285,7 +285,12 @@ function App() {
             {content}
           </main>
         </div>
-        <OnboardingGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
+        <OnboardingGuide
+          open={guideOpen}
+          activePage={activePage}
+          onSelectPage={setActivePage}
+          onClose={() => setGuideOpen(false)}
+        />
         <FloatingToast toast={toast} onDismiss={dismissToast} />
       </div>
     </I18nProvider>

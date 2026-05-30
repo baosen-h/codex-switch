@@ -40,14 +40,15 @@ pub struct StartOauthResult {
 pub struct CompleteOauthResult {
     pub email: String,
     pub config_text: String,
+    pub auth_json: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
-    expires_in: Option<u64>,
+pub struct TokenResponse {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub id_token: Option<String>,
+    pub expires_in: Option<u64>,
 }
 
 #[tauri::command]
@@ -150,7 +151,11 @@ pub fn complete_openai_oauth(code: String, model: Option<String>) -> Result<Comp
         auth_body
     );
 
-    Ok(CompleteOauthResult { email, config_text })
+    Ok(CompleteOauthResult {
+        email,
+        config_text,
+        auth_json: auth_body,
+    })
 }
 
 fn listen_for_callback(listener: TcpListener, app: AppHandle, expected_state: String) {
@@ -292,6 +297,36 @@ fn exchange_code(code: &str, redirect_uri: &str, code_verifier: &str) -> Result<
 
     serde_json::from_str::<TokenResponse>(&text)
         .map_err(|error| format!("Failed to parse token response: {error}"))
+}
+
+pub fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, String> {
+    let body = format!(
+        "grant_type=refresh_token&refresh_token={}&client_id={}",
+        urlencoding::encode(refresh_token),
+        urlencoding::encode(CLIENT_ID),
+    );
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(25))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .post(TOKEN_URL)
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .map_err(|error| format!("Token refresh failed: {error}"))?;
+
+    let status = response.status();
+    let text = response
+        .text()
+        .map_err(|error| format!("Failed to read refresh response: {error}"))?;
+    if !status.is_success() {
+        return Err(format!("OpenAI token refresh failed ({status}): {text}"));
+    }
+
+    serde_json::from_str::<TokenResponse>(&text)
+        .map_err(|error| format!("Failed to parse refresh response: {error}"))
 }
 
 fn parse_email_from_id_token(id_token: &str) -> Option<String> {

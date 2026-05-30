@@ -30,6 +30,8 @@ pub struct ApiProvider {
     pub base_url: String,
     pub api_key: String,
     pub website_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_ai_auth_json: Option<String>,
     pub models: Vec<RemoteModel>,
     pub enabled: bool,
     pub created_at: String,
@@ -55,6 +57,12 @@ pub struct RemoteModel {
     pub owned_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_modalities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_modalities: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +135,28 @@ pub struct ProviderBalance {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_reset_at: Option<i64>,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub five_hour_left: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub five_hour_reset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub five_hour_reset_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub five_hour_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_left: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_reset: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_reset_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weekly_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credits_balance: Option<f64>,
+    #[serde(default)]
+    pub has_credits: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

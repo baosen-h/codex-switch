@@ -954,7 +954,7 @@ select:focus {
 }
 
 .api-provider-row {
-  grid-template-columns: minmax(260px, 1fr) minmax(120px, 180px) auto;
+  grid-template-columns: minmax(320px, 1.5fr) minmax(120px, 180px) auto;
   align-items: center;
 }
 
@@ -971,16 +971,22 @@ select:focus {
 
 .api-provider-row .provider-title-text {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
 }
 
 .api-provider-row .provider-title-text small {
-  display: none;
+  display: inline-flex;
 }
 
 .api-provider-row .provider-link,
 .api-provider-row .provider-info p {
   grid-column: 2;
   margin-top: 0.18rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .provider-row:hover,
@@ -1013,6 +1019,12 @@ select:focus {
   align-items: center;
   gap: 0.55rem;
   flex-wrap: wrap;
+}
+
+.provider-title-text strong,
+.provider-link {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .provider-info p {
@@ -1132,6 +1144,129 @@ select:focus {
 
 .provider-balance-error {
   color: var(--t2);
+}
+
+.provider-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 0.5rem;
+  align-items: stretch;
+  justify-self: end;
+  min-width: min(100%, 340px);
+}
+
+.provider-quota-grid .quota-mini-card {
+  min-height: 54px;
+  border-radius: 8px;
+}
+
+.quota-mini-card {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--b0);
+  background: color-mix(in srgb, var(--p1) 82%, transparent);
+}
+
+.quota-mini-bg {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 38%;
+  opacity: 0.22;
+  background: var(--a);
+}
+
+.quota-mini-bg.green { background: var(--g); }
+.quota-mini-bg.orange { background: var(--warn); }
+.quota-mini-bg.red { background: var(--err); }
+
+.quota-mini-content {
+  position: relative;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.55rem 0.65rem 0.5rem;
+}
+
+.quota-label {
+  font-size: 0.69rem;
+  font-weight: 700;
+  color: var(--t2);
+}
+
+.quota-time {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--t1);
+}
+
+.quota-percent {
+  justify-self: end;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: var(--a);
+}
+
+.quota-percent.green { color: var(--g); }
+.quota-percent.orange { color: var(--warn); }
+.quota-percent.red { color: var(--err); }
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(2, 6, 23, 0.72);
+}
+
+.tour-mask {
+  position: fixed;
+  background: rgba(2, 6, 23, 0.72);
+  pointer-events: auto;
+}
+
+.tour-highlight {
+  position: fixed;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 9999px rgba(2, 6, 23, 0.72),
+    0 0 0 2px rgb(var(--accent-rgb) / 0.9),
+    0 18px 44px rgba(0, 0, 0, 0.38);
+  pointer-events: none;
+}
+
+.tour-card {
+  position: fixed;
+  z-index: 121;
+  width: min(360px, calc(100vw - 2rem));
+  border: 1px solid var(--b1);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--p1) 96%, transparent);
+  box-shadow: var(--shadow-soft);
+  padding: 1rem;
+}
+
+.tour-card h3 {
+  margin: 0.15rem 0 0.45rem;
+  font-size: 1rem;
+}
+
+.tour-card p {
+  margin: 0;
+  color: var(--t2);
+  line-height: 1.55;
+}
+
+.tour-card-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.tour-card-actions .secondary-button,
+.tour-card-actions .primary-button {
+  min-width: 88px;
 }
 
 .provider-info strong,

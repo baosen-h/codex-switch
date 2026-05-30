@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
 import type { ApiProvider, ApiProviderType, ProviderBalance, RemoteModel, WireApi } from "../types";
@@ -36,6 +37,7 @@ const emptyApiProvider: ApiProvider = {
   baseUrl: "",
   apiKey: "",
   websiteUrl: "",
+  openAiAuthJson: undefined,
   models: [],
   enabled: true,
   createdAt: "",
@@ -76,6 +78,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const [modelListError, setModelListError] = useState<string | null>(null);
   const [balanceMap, setBalanceMap] = useState<Record<string, ProviderBalance | { error: string }>>({});
   const [loadingBalanceId, setLoadingBalanceId] = useState<string | null>(null);
+  const [oauthStatus, setOauthStatus] = useState("");
+  const [oauthCallbackInput, setOauthCallbackInput] = useState("");
+  const [oauthAuthUrl, setOauthAuthUrl] = useState("");
+  const [oauthManualMode, setOauthManualMode] = useState(false);
+  const [isOauthBusy, setIsOauthBusy] = useState(false);
 
   const sortedProviders = useMemo(
     () =>
@@ -90,14 +97,58 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const openForm = (provider?: ApiProvider) => {
     setDraft(provider ? { ...provider, providerType: normalizeProviderType(provider.providerType) } : emptyApiProvider);
     setModelListError(null);
+    setOauthStatus("");
+    setOauthCallbackInput("");
+    setOauthAuthUrl("");
+    setOauthManualMode(false);
+    setIsOauthBusy(false);
     setView("form");
   };
 
   const closeForm = () => {
     setDraft(emptyApiProvider);
     setModelListError(null);
+    setOauthStatus("");
+    setOauthCallbackInput("");
+    setOauthAuthUrl("");
+    setOauthManualMode(false);
+    setIsOauthBusy(false);
     setView("list");
   };
+
+  useEffect(() => {
+    if (view !== "form" || normalizeProviderType(draft.providerType) !== "openai") return;
+    let active = true;
+    const unlisten = listen<string>("openai-oauth-code", async (event) => {
+      if (!active) return;
+      setIsOauthBusy(true);
+      setOauthStatus("OAuth code received. Exchanging token...");
+      try {
+        const result = await appApi.completeOpenAiOauth(event.payload, draft.models[0]?.id);
+        setDraft((current) => ({
+          ...current,
+          name: current.name.trim() || result.email || "OpenAI OAuth",
+          providerType: "openai",
+          baseUrl: "",
+          apiKey: "",
+          websiteUrl: "https://chatgpt.com",
+          openAiAuthJson: result.authJson,
+          enabled: true,
+        }));
+        setOauthStatus("OAuth complete. Save this API provider, then select it on Agents.");
+        setOauthManualMode(false);
+        setOauthCallbackInput("");
+      } catch (error) {
+        setOauthStatus(error instanceof Error ? error.message : String(error));
+      } finally {
+        setIsOauthBusy(false);
+      }
+    });
+    return () => {
+      active = false;
+      unlisten.then((fn) => fn());
+    };
+  }, [view, draft.providerType, draft.models]);
 
   const updateDraft = <K extends keyof ApiProvider>(field: K, value: ApiProvider[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -153,6 +204,56 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     closeForm();
   };
 
+  const startOfficialOpenAiOauth = async () => {
+    setIsOauthBusy(true);
+    setOauthStatus("Generating OpenAI OAuth URL...");
+    setOauthManualMode(false);
+    setOauthCallbackInput("");
+    setOauthAuthUrl("");
+    try {
+      const result = await appApi.startOpenAiOauth(true);
+      setOauthAuthUrl(result.authUrl);
+      if (result.manualCallbackRequired) {
+        setOauthManualMode(true);
+        setOauthStatus(result.message || "Finish login in the browser, then paste the callback URL below.");
+      } else {
+        setOauthStatus("Browser opened. Finish OpenAI login there.");
+      }
+    } catch (error) {
+      setOauthStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsOauthBusy(false);
+    }
+  };
+
+  const copyOfficialOpenAiOauthUrl = async () => {
+    setIsOauthBusy(true);
+    setOauthStatus("Generating OpenAI OAuth URL...");
+    setOauthManualMode(true);
+    setOauthCallbackInput("");
+    try {
+      const result = await appApi.startOpenAiOauth(false);
+      setOauthAuthUrl(result.authUrl);
+      setOauthStatus("OAuth URL generated. Open it in your browser, finish login, then paste the callback URL below.");
+    } catch (error) {
+      setOauthStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsOauthBusy(false);
+    }
+  };
+
+  const submitOfficialOpenAiCallback = async () => {
+    if (!oauthCallbackInput.trim()) return;
+    setIsOauthBusy(true);
+    setOauthStatus("Reading callback URL...");
+    try {
+      await appApi.submitOpenAiOauthCallback(oauthCallbackInput);
+    } catch (error) {
+      setOauthStatus(error instanceof Error ? error.message : String(error));
+      setIsOauthBusy(false);
+    }
+  };
+
   const openWebsite = async (url: string) => {
     try {
       await appApi.openExternalUrl(url);
@@ -190,6 +291,16 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     if ("error" in balance) return balance.error;
     return `${balance.label} · ${balance.strategy}`;
   };
+
+  const quotaTone = (value?: number) => {
+    if (value === undefined) return "neutral";
+    if (value >= 50) return "green";
+    if (value >= 20) return "orange";
+    return "red";
+  };
+
+  const hasOpenAiQuota = (balance?: ProviderBalance | { error: string }): balance is ProviderBalance =>
+    Boolean(balance && !("error" in balance) && balance.fiveHourLeft !== undefined);
 
   if (view === "form") {
     const isEditing = Boolean(draft.id);
@@ -244,6 +355,59 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                   <span>{t("apiKey")}</span>
                   <input value={draft.apiKey} onChange={(event) => updateDraft("apiKey", event.target.value)} placeholder="sk-..." type="password" />
                 </label>
+                {normalizeProviderType(draft.providerType) === "openai" ? (
+                  <div className="field field-full oauth-panel">
+                    <span>Official OpenAI OAuth</span>
+                    <div className="oauth-actions">
+                      <button
+                        className="secondary-button"
+                        disabled={isOauthBusy}
+                        onClick={() => void startOfficialOpenAiOauth()}
+                        type="button"
+                      >
+                        Login with OpenAI
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={isOauthBusy}
+                        onClick={() => void copyOfficialOpenAiOauthUrl()}
+                        type="button"
+                      >
+                        Generate URL
+                      </button>
+                    </div>
+                    {oauthStatus ? <p className="model-picker-status">{oauthStatus}</p> : null}
+                    {oauthAuthUrl ? (
+                      <textarea
+                        className="config-preview oauth-url-preview"
+                        readOnly
+                        rows={3}
+                        value={oauthAuthUrl}
+                        spellCheck={false}
+                      />
+                    ) : null}
+                    {oauthManualMode ? (
+                      <div className="oauth-manual-callback">
+                        <textarea
+                          className="config-preview oauth-url-preview"
+                          rows={4}
+                          value={oauthCallbackInput}
+                          onChange={(event) => setOauthCallbackInput(event.target.value)}
+                          placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                          spellCheck={false}
+                        />
+                        <button
+                          className="secondary-button"
+                          disabled={isOauthBusy || !oauthCallbackInput.trim()}
+                          onClick={() => void submitOfficialOpenAiCallback()}
+                          type="button"
+                        >
+                          Finish OAuth
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <label className="checkbox-field">
                   <input checked={draft.enabled} onChange={(event) => updateDraft("enabled", event.target.checked)} type="checkbox" />
                   <span>{t("providerEnabled")}</span>
@@ -307,10 +471,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
           </button>
         </div>
 
-        <div className="provider-list">
+                <div className="provider-list">
           {sortedProviders.length ? (
             sortedProviders.map((provider) => {
               const balance = balanceMap[provider.id];
+              const officialQuota = hasOpenAiQuota(balance) ? balance : undefined;
               return (
               <div className={`provider-row api-provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
@@ -327,20 +492,45 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     </button>
                   ) : null}
                 </div>
-                <div className="provider-balance-row" title={balanceTitle(balance)}>
-                  <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
-                    {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
-                  </strong>
-                  <button
-                    className="icon-button balance-refresh-button"
-                    disabled={loadingBalanceId === provider.id}
-                    onClick={() => void refreshBalance(provider)}
-                    type="button"
-                    title={balanceTitle(balance)}
-                  >
-                    <SemiRefreshIcon />
-                  </button>
-                </div>
+                {officialQuota ? (
+                  <div className="provider-quota-grid" title={balanceTitle(balance)}>
+                    <div className={`quota-mini-card ${quotaTone(officialQuota.fiveHourLeft)}`}>
+                      <div className={`quota-mini-bg ${quotaTone(officialQuota.fiveHourLeft)}`} />
+                      <div className="quota-mini-content">
+                        <span className="quota-label">{officialQuota.fiveHourLabel || "5H quota"}</span>
+                        <span className="quota-time">{officialQuota.fiveHourReset || "—"}</span>
+                        <span className={`quota-percent ${quotaTone(officialQuota.fiveHourLeft)}`}>
+                          {Math.round(officialQuota.fiveHourLeft ?? 0)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className={`quota-mini-card ${quotaTone(officialQuota.weeklyLeft)}`}>
+                      <div className={`quota-mini-bg ${quotaTone(officialQuota.weeklyLeft)}`} />
+                      <div className="quota-mini-content">
+                        <span className="quota-label">{officialQuota.weeklyLabel || "Weekly quota"}</span>
+                        <span className="quota-time">{officialQuota.weeklyReset || "—"}</span>
+                        <span className={`quota-percent ${quotaTone(officialQuota.weeklyLeft)}`}>
+                          {Math.round(officialQuota.weeklyLeft ?? 0)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="provider-balance-row" title={balanceTitle(balance)}>
+                    <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
+                      {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
+                    </strong>
+                    <button
+                      className="icon-button balance-refresh-button"
+                      disabled={loadingBalanceId === provider.id}
+                      onClick={() => void refreshBalance(provider)}
+                      type="button"
+                      title={balanceTitle(balance)}
+                    >
+                      <SemiRefreshIcon />
+                    </button>
+                  </div>
+                )}
                 <div className="provider-actions">
                   <span className="provider-model-count">{provider.models.length} {t("models")}</span>
                   <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>

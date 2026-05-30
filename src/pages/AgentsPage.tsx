@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../types";
@@ -12,6 +11,7 @@ import {
   patchProviderPreviewField,
   patchProviderPreviewFromFields,
   renderInstructionTemplate,
+  renderCodexOAuthPreview,
   renderProviderPreview,
 } from "../utils/providerConfig";
 import { DeleteIcon, EditIcon, PlayIcon } from "../components/UiIcons";
@@ -73,11 +73,6 @@ export function AgentsPage({
   const [isModelListOpen, setIsModelListOpen] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
-  const [oauthStatus, setOauthStatus] = useState("");
-  const [oauthCallbackInput, setOauthCallbackInput] = useState("");
-  const [oauthAuthUrl, setOauthAuthUrl] = useState("");
-  const [oauthManualMode, setOauthManualMode] = useState(false);
-  const [isOauthBusy, setIsOauthBusy] = useState(false);
 
   const sortedProviders = useMemo(
     () =>
@@ -147,47 +142,9 @@ export function AgentsPage({
     setModelSearch("");
     setIsModelListOpen(false);
     setModelListError(null);
-    setOauthStatus("");
-    setOauthCallbackInput("");
-    setOauthAuthUrl("");
-    setOauthManualMode(false);
-    setIsOauthBusy(false);
     setShowAdvanced(false);
     setView("list");
   };
-
-  useEffect(() => {
-    if (view !== "form" || draft.agent !== "codex") return;
-    let active = true;
-    const unlisten = listen<string>("openai-oauth-code", async (event) => {
-      if (!active) return;
-      setIsOauthBusy(true);
-      setOauthStatus("OAuth code received. Exchanging token...");
-      try {
-        const result = await appApi.completeOpenAiOauth(event.payload, draft.model);
-        setDraft((cur) => ({
-          ...cur,
-          name: cur.name.trim() || result.email || "OpenAI OAuth",
-          apiProviderId: "",
-          baseUrl: "",
-          apiKey: "",
-          websiteUrl: "https://chatgpt.com",
-          configText: result.configText,
-        }));
-        setOauthStatus("OAuth complete. Save this provider, then enable it for Codex.");
-        setOauthManualMode(false);
-        setOauthCallbackInput("");
-      } catch (error) {
-        setOauthStatus(error instanceof Error ? error.message : String(error));
-      } finally {
-        setIsOauthBusy(false);
-      }
-    });
-    return () => {
-      active = false;
-      unlisten.then((fn) => fn());
-    };
-  }, [view, draft.agent, draft.model]);
 
   const updateDraft = (field: keyof Provider, value: string) => {
     if (field === "baseUrl" || field === "apiKey" || field === "apiProviderId") {
@@ -227,9 +184,13 @@ export function AgentsPage({
         modelStillAvailable || !apiProvider
           ? next
           : { ...next, model: providerModels[0]?.id ?? defaultModelForAgent(next.agent) };
+      const configText =
+        withModel.agent === "codex" && apiProvider?.openAiAuthJson
+          ? renderCodexOAuthPreview(withModel.model, apiProvider.openAiAuthJson)
+          : patchProviderPreviewFromFields(withModel);
       return {
         ...withModel,
-        configText: patchProviderPreviewFromFields(withModel),
+        configText,
       };
     });
   };
@@ -276,56 +237,6 @@ export function AgentsPage({
     }
   };
 
-  const startOfficialOpenAiOauth = async () => {
-    setIsOauthBusy(true);
-    setOauthStatus("Generating OpenAI OAuth URL...");
-    setOauthManualMode(false);
-    setOauthCallbackInput("");
-    setOauthAuthUrl("");
-    try {
-      const result = await appApi.startOpenAiOauth(true);
-      setOauthAuthUrl(result.authUrl);
-      if (result.manualCallbackRequired) {
-        setOauthManualMode(true);
-        setOauthStatus(result.message || "Finish login in the browser, then paste the callback URL below.");
-      } else {
-        setOauthStatus("Browser opened. Finish OpenAI login there.");
-      }
-    } catch (error) {
-      setOauthStatus(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsOauthBusy(false);
-    }
-  };
-
-  const copyOfficialOpenAiOauthUrl = async () => {
-    setIsOauthBusy(true);
-    setOauthStatus("Generating OpenAI OAuth URL...");
-    setOauthManualMode(true);
-    setOauthCallbackInput("");
-    try {
-      const result = await appApi.startOpenAiOauth(false);
-      setOauthAuthUrl(result.authUrl);
-      setOauthStatus("OAuth URL generated. Open it in your browser, finish login, then paste the callback URL below.");
-    } catch (error) {
-      setOauthStatus(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsOauthBusy(false);
-    }
-  };
-
-  const submitOfficialOpenAiCallback = async () => {
-    if (!oauthCallbackInput.trim()) return;
-    setIsOauthBusy(true);
-    setOauthStatus("Reading callback URL...");
-    try {
-      await appApi.submitOpenAiOauthCallback(oauthCallbackInput);
-    } catch (error) {
-      setOauthStatus(error instanceof Error ? error.message : String(error));
-      setIsOauthBusy(false);
-    }
-  };
-
   const agentLabel = (agent: AgentKind): string => {
     if (agent === "claude") return t("agentClaude");
     if (agent === "gemini") return t("agentGemini");
@@ -340,21 +251,6 @@ export function AgentsPage({
       baseUrl: `${provider.name} ${provider.baseUrl}`,
     };
   };
-
-  const showOfficialOpenAiOauth = Boolean(
-    draft.agent === "codex" &&
-    selectedApiProvider &&
-    (selectedApiProvider.providerType === "openai" ||
-      /codex official|openai official|api\.openai\.com|chatgpt\.com/.test(
-        [
-          selectedApiProvider.name,
-          selectedApiProvider.baseUrl,
-          selectedApiProvider.websiteUrl,
-        ]
-          .join(" ")
-          .toLowerCase(),
-      )),
-  );
 
   if (view === "form") {
     const isEditing = Boolean(draft.id);
@@ -478,59 +374,6 @@ export function AgentsPage({
                   <span>{t("apiKey")}</span>
                   <input value={draft.apiKey} onChange={(e) => updateDraft("apiKey", e.target.value)} placeholder="sk-..." type="password" />
                 </label>
-                {showOfficialOpenAiOauth ? (
-                  <div className="field field-full oauth-panel">
-                    <span>Official OpenAI OAuth</span>
-                    <div className="oauth-actions">
-                      <button
-                        className="secondary-button"
-                        disabled={isOauthBusy}
-                        onClick={() => void startOfficialOpenAiOauth()}
-                        type="button"
-                      >
-                        Login with OpenAI
-                      </button>
-                      <button
-                        className="secondary-button"
-                        disabled={isOauthBusy}
-                        onClick={() => void copyOfficialOpenAiOauthUrl()}
-                        type="button"
-                      >
-                        Generate URL
-                      </button>
-                    </div>
-                    {oauthStatus ? <p className="model-picker-status">{oauthStatus}</p> : null}
-                    {oauthAuthUrl ? (
-                      <textarea
-                        className="config-preview oauth-url-preview"
-                        readOnly
-                        rows={3}
-                        value={oauthAuthUrl}
-                        spellCheck={false}
-                      />
-                    ) : null}
-                    {oauthManualMode ? (
-                      <div className="oauth-manual-callback">
-                        <textarea
-                          className="config-preview oauth-url-preview"
-                          rows={4}
-                          value={oauthCallbackInput}
-                          onChange={(event) => setOauthCallbackInput(event.target.value)}
-                          placeholder="http://localhost:1455/auth/callback?code=...&state=..."
-                          spellCheck={false}
-                        />
-                        <button
-                          className="secondary-button"
-                          disabled={isOauthBusy || !oauthCallbackInput.trim()}
-                          onClick={() => void submitOfficialOpenAiCallback()}
-                          type="button"
-                        >
-                          Finish OAuth
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
 
               <div className="template-inline-block">

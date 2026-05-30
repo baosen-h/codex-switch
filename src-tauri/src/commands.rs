@@ -1111,6 +1111,9 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
             name: None,
             owned_by: None,
             description: None,
+            capabilities: Vec::new(),
+            input_modalities: Vec::new(),
+            output_modalities: Vec::new(),
         });
     }
 
@@ -1119,12 +1122,33 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
         .filter(|name| name != &id);
     let owned_by = first_string(value, &["owned_by", "ownedBy", "organization", "publisher"]);
     let description = first_string(value, &["description", "summary", "desc"]);
+    let capabilities = string_array(
+        value,
+        &[
+            "capabilities",
+            "supported_features",
+            "features",
+            "capability",
+            "abilities",
+        ],
+    );
+    let input_modalities = string_array(
+        value,
+        &["input_modalities", "inputModalities", "input", "inputs"],
+    );
+    let output_modalities = string_array(
+        value,
+        &["output_modalities", "outputModalities", "output", "outputs", "modalities"],
+    );
 
     Some(RemoteModel {
         id,
         name,
         owned_by,
         description,
+        capabilities,
+        input_modalities,
+        output_modalities,
     })
 }
 
@@ -1141,6 +1165,32 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
             .filter(|text| !text.is_empty())
             .map(str::to_string)
     })
+}
+
+fn string_array(value: &Value, keys: &[&str]) -> Vec<String> {
+    keys.iter()
+        .find_map(|key| {
+            value.get(*key).map(|item| {
+                if let Some(items) = item.as_array() {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string)
+                        .collect::<Vec<String>>()
+                } else if let Some(text) = item.as_str() {
+                    text.split([',', ' '])
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            })
+        })
+        .unwrap_or_default()
 }
 
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {
@@ -1208,10 +1258,21 @@ fn launch_terminal_command(
 }
 
 fn fetch_provider_balance(provider: &ApiProvider) -> Result<ProviderBalance, AppError> {
+    if provider.provider_type == "openai" {
+        if let Some(auth_json) = provider
+            .open_ai_auth_json
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return fetch_openai_oauth_usage(auth_json);
+        }
+    }
+
     let base = balance_root_url(&provider.base_url)?;
     if base.is_empty() || provider.api_key.trim().is_empty() {
         return Err(AppError::Message(
-            "Base URL and API key are required.".to_string(),
+            "Base URL and API key are required. Official OpenAI quota requires provider OAuth login.".to_string(),
         ));
     }
 
@@ -1340,6 +1401,17 @@ fn fetch_new_api_dashboard_balance(base: &str, api_key: &str) -> Result<Provider
         is_active: remaining > 0.0,
         next_reset_at: None,
         label: "Balance".to_string(),
+        plan_type: None,
+        five_hour_left: None,
+        five_hour_reset: None,
+        five_hour_reset_at: None,
+        five_hour_label: None,
+        weekly_left: None,
+        weekly_reset: None,
+        weekly_reset_at: None,
+        weekly_label: None,
+        credits_balance: None,
+        has_credits: false,
     })
 }
 
@@ -1381,5 +1453,191 @@ fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<Provider
             "Balance"
         }
         .to_string(),
+        plan_type: None,
+        five_hour_left: None,
+        five_hour_reset: None,
+        five_hour_reset_at: None,
+        five_hour_label: None,
+        weekly_left: None,
+        weekly_reset: None,
+        weekly_reset_at: None,
+        weekly_label: None,
+        credits_balance: None,
+        has_credits: false,
     })
+}
+
+fn fetch_openai_oauth_usage(auth_json: &str) -> Result<ProviderBalance, AppError> {
+    let auth: Value = serde_json::from_str(auth_json)
+        .map_err(|error| AppError::Message(format!("Invalid OpenAI OAuth JSON: {error}")))?;
+    let access_token = auth
+        .pointer("/tokens/access_token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| AppError::Message("OpenAI OAuth data has no access token.".to_string()))?;
+    let refresh_token = auth
+        .pointer("/tokens/refresh_token")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty());
+
+    let body = match request_openai_usage(access_token) {
+        Ok(value) => value,
+        Err(first_error) => {
+            let Some(refresh_token) = refresh_token else {
+                return Err(first_error);
+            };
+            let refreshed = crate::oauth::refresh_access_token(refresh_token)
+                .map_err(|error| AppError::Message(error.to_string()))?;
+            request_openai_usage(&refreshed.access_token)?
+        }
+    };
+
+    Ok(parse_openai_usage(&body))
+}
+
+fn request_openai_usage(access_token: &str) -> Result<Value, AppError> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let response = client
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .bearer_auth(access_token)
+        .header("Accept", "application/json")
+        .header("User-Agent", "codex_cli_rs/0.0.0 codex-cli")
+        .header("originator", "codex_cli_rs")
+        .send()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let status = response.status();
+    let body_text = response
+        .text()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let parsed = serde_json::from_str::<Value>(&body_text).ok();
+    if !status.is_success() {
+        let message = parsed
+            .as_ref()
+            .and_then(extract_api_error)
+            .unwrap_or_else(|| body_text.chars().take(180).collect::<String>());
+        return Err(AppError::Message(format!(
+            "OpenAI quota request failed with HTTP {}: {}",
+            status.as_u16(),
+            message
+        )));
+    }
+    parsed.ok_or_else(|| AppError::Message("Invalid OpenAI quota JSON.".to_string()))
+}
+
+fn parse_openai_usage(value: &Value) -> ProviderBalance {
+    let plan_type = value
+        .get("plan_type")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let primary = value.pointer("/rate_limit/primary_window");
+    let secondary = value.pointer("/rate_limit/secondary_window");
+    let (five_left, five_reset, five_label, five_reset_at) =
+        parse_usage_window(primary, "5H quota");
+    let (weekly_left, weekly_reset, weekly_label, weekly_reset_at) =
+        parse_usage_window(secondary, "Weekly quota");
+    let credits_balance = value.pointer("/credits/balance").and_then(number_value);
+    let has_credits = value
+        .pointer("/credits/has_credits")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || value
+            .pointer("/credits/unlimited")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+
+    ProviderBalance {
+        strategy: "openai_oauth_quota".to_string(),
+        remaining: Some(five_left as f64),
+        unit: "%".to_string(),
+        is_active: five_left > 0 || weekly_left > 0 || has_credits,
+        next_reset_at: five_reset_at,
+        label: "OpenAI quota".to_string(),
+        plan_type: Some(plan_type),
+        five_hour_left: Some(five_left),
+        five_hour_reset: Some(five_reset),
+        five_hour_reset_at: five_reset_at,
+        five_hour_label: Some(five_label),
+        weekly_left: Some(weekly_left),
+        weekly_reset: Some(weekly_reset),
+        weekly_reset_at,
+        weekly_label: Some(weekly_label),
+        credits_balance,
+        has_credits,
+    }
+}
+
+fn parse_usage_window(window: Option<&Value>, default_label: &str) -> (i32, String, String, Option<i64>) {
+    let Some(window) = window else {
+        return (0, "Unknown".to_string(), default_label.to_string(), None);
+    };
+    let used = window
+        .get("used_percent")
+        .and_then(number_value)
+        .unwrap_or(0.0)
+        .round()
+        .clamp(0.0, 100.0) as i32;
+    let left = 100 - used;
+    let reset_at = window.get("reset_at").and_then(number_value).map(|value| value as i64);
+    let reset = reset_at
+        .map(format_reset_seconds)
+        .or_else(|| {
+            window
+                .get("reset_after_seconds")
+                .or_else(|| window.get("reset_after_sec"))
+                .and_then(number_value)
+                .map(|value| format_duration_seconds(value as i64))
+        })
+        .unwrap_or_else(|| "Unknown".to_string());
+    let label = window
+        .get("limit_window_seconds")
+        .and_then(number_value)
+        .map(|seconds| usage_label_from_seconds(seconds as i64))
+        .unwrap_or_else(|| default_label.to_string());
+    (left, reset, label, reset_at)
+}
+
+fn number_value(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|text| text.parse::<f64>().ok()))
+}
+
+fn usage_label_from_seconds(seconds: i64) -> String {
+    if seconds <= 5 * 3600 + 600 {
+        "5H quota".to_string()
+    } else if seconds <= 24 * 3600 + 600 {
+        "24H quota".to_string()
+    } else if seconds <= 7 * 24 * 3600 + 3600 {
+        "Weekly quota".to_string()
+    } else {
+        format!("{}H quota", (seconds + 3599) / 3600)
+    }
+}
+
+fn format_reset_seconds(reset_at: i64) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or(0);
+    format_duration_seconds(reset_at - now)
+}
+
+fn format_duration_seconds(seconds: i64) -> String {
+    if seconds <= 0 {
+        return "Soon".to_string();
+    }
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours >= 24 {
+        format!("{}d {}h", hours / 24, hours % 24)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else {
+        format!("{}m", minutes.max(1))
+    }
 }

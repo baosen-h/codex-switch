@@ -135,7 +135,7 @@ impl Database {
     pub fn api_providers(&self) -> Result<Vec<ApiProvider>, AppError> {
         let mut statement = self.connection.prepare(
             r#"
-            SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+            SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, open_ai_auth_json, models_json, enabled, created_at, updated_at
             FROM api_providers
             ORDER BY enabled DESC, updated_at DESC, name ASC
             "#,
@@ -149,7 +149,7 @@ impl Database {
         self.connection
             .query_row(
                 r#"
-                SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+                SELECT id, name, provider_type, wire_api, base_url, api_key, website_url, open_ai_auth_json, models_json, enabled, created_at, updated_at
                 FROM api_providers
                 WHERE id = ?1
                 "#,
@@ -182,8 +182,8 @@ impl Database {
         self.connection.execute(
             r#"
             INSERT INTO api_providers (
-              id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+              id, name, provider_type, wire_api, base_url, api_key, website_url, open_ai_auth_json, models_json, enabled, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               provider_type = excluded.provider_type,
@@ -191,6 +191,7 @@ impl Database {
               base_url = excluded.base_url,
               api_key = excluded.api_key,
               website_url = excluded.website_url,
+              open_ai_auth_json = excluded.open_ai_auth_json,
               models_json = excluded.models_json,
               enabled = excluded.enabled,
               updated_at = excluded.updated_at
@@ -203,6 +204,7 @@ impl Database {
                 provider.base_url.trim(),
                 provider.api_key.trim(),
                 provider.website_url.trim(),
+                provider.open_ai_auth_json.as_deref().unwrap_or("").trim(),
                 models_json,
                 if provider.enabled { 1 } else { 0 },
                 created_at,
@@ -372,6 +374,7 @@ impl Database {
               base_url TEXT NOT NULL DEFAULT '',
               api_key TEXT NOT NULL DEFAULT '',
               website_url TEXT NOT NULL DEFAULT '',
+              open_ai_auth_json TEXT NOT NULL DEFAULT '',
               models_json TEXT NOT NULL DEFAULT '[]',
               enabled INTEGER NOT NULL DEFAULT 1,
               created_at TEXT NOT NULL,
@@ -415,6 +418,12 @@ impl Database {
             "api_providers",
             "wire_api",
             "TEXT NOT NULL DEFAULT 'responses'",
+        )?;
+        ensure_column(
+            &self.connection,
+            "api_providers",
+            "open_ai_auth_json",
+            "TEXT NOT NULL DEFAULT ''",
         )?;
         ensure_column(
             &self.connection,
@@ -470,7 +479,7 @@ impl Database {
         self.connection.execute_batch(
             r#"
             INSERT OR IGNORE INTO api_providers (
-              id, name, provider_type, wire_api, base_url, api_key, website_url, models_json, enabled, created_at, updated_at
+              id, name, provider_type, wire_api, base_url, api_key, website_url, open_ai_auth_json, models_json, enabled, created_at, updated_at
             )
             SELECT
               'api-from-' || id,
@@ -480,6 +489,7 @@ impl Database {
               base_url,
               api_key,
               website_url,
+              '',
               '[]',
               1,
               created_at,
@@ -585,8 +595,9 @@ fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {
 }
 
 fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Error> {
-    let models_json: String = row.get(7)?;
+    let models_json: String = row.get(8)?;
     let models: Vec<RemoteModel> = serde_json::from_str(&models_json).unwrap_or_default();
+    let open_ai_auth_json: String = row.get(7)?;
 
     Ok(ApiProvider {
         id: row.get(0)?,
@@ -596,10 +607,15 @@ fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Er
         base_url: row.get(4)?,
         api_key: row.get(5)?,
         website_url: row.get(6)?,
+        open_ai_auth_json: if open_ai_auth_json.trim().is_empty() {
+            None
+        } else {
+            Some(open_ai_auth_json)
+        },
         models,
-        enabled: row.get::<_, i64>(8)? == 1,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        enabled: row.get::<_, i64>(9)? == 1,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 

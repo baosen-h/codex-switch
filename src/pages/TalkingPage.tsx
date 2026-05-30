@@ -4,6 +4,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider, ChatAttachment, ChatMessage } from "../types";
+import { modelSupportsVision } from "../utils/modelCapabilities";
 import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
 
 interface TalkingPageProps {
@@ -191,6 +192,8 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
     enabledProviders.find((provider) => provider.id === activeTopic.providerId) ?? fallbackProvider;
   const modelOptions = selectedProvider?.models ?? [];
   const activeModel = activeTopic.model || firstModel(selectedProvider);
+  const selectedModel = modelOptions.find((item) => item.id === activeModel);
+  const canUseImages = Boolean(selectedModel && modelSupportsVision(selectedModel));
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -238,6 +241,11 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
 
   const addDraftAttachments = async (files: FileList | File[] | null, imageOnly = false) => {
     if (!files?.length) return;
+    const hasImage = Array.from(files).some((file) => file.type.startsWith("image/"));
+    if ((imageOnly || hasImage) && !canUseImages) {
+      onNotify("Selected model does not support image input.", "err");
+      return;
+    }
     try {
       const attachments = await Promise.all(Array.from(files).map((file) => fileToChatAttachment(file, imageOnly)));
       patchActiveTopic({ draftAttachments: [...(activeTopic.draftAttachments ?? []), ...attachments] });
@@ -260,6 +268,10 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
       .map((item) => item.getAsFile())
       .filter((file): file is File => Boolean(file));
     if (!files.length) return;
+    if (!canUseImages) {
+      onNotify("Selected model does not support image input.", "err");
+      return;
+    }
     event.preventDefault();
     void addDraftAttachments(files, true);
   };
@@ -273,7 +285,8 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     if (!event.dataTransfer.files.length) return;
     event.preventDefault();
-    void addDraftAttachments(event.dataTransfer.files);
+    const imageOnly = Array.from(event.dataTransfer.files).every((file) => file.type.startsWith("image/"));
+    void addDraftAttachments(event.dataTransfer.files, imageOnly);
   };
 
   const removeDraftAttachment = (id: string) => {
@@ -458,7 +471,9 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
             />
             <div className="prompt-tool-row">
               <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach file"><AttachIcon /></button>
-              <button type="button" onClick={() => imageInputRef.current?.click()} title="Attach image"><ImageIcon /></button>
+              {canUseImages ? (
+                <button type="button" onClick={() => imageInputRef.current?.click()} title="Attach image"><ImageIcon /></button>
+              ) : null}
               <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach text/code file"><BracesIcon /></button>
             </div>
             <button

@@ -6,6 +6,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider } from "../types";
+import { modelSupportsImageGeneration } from "../utils/modelCapabilities";
 import { EditIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon, SyncIcon, UploadIcon } from "../components/UiIcons";
 
 interface DrawingPageProps {
@@ -92,8 +93,7 @@ const CopyIcon = () => (
 
 function imageModels(provider?: ApiProvider) {
   const models = provider?.models ?? [];
-  const filtered = models.filter((model) => /image|dall|flux|sd|kolors|midjourney|mj|seedream|qwen-image|gpt-image/i.test(model.id));
-  return filtered.length ? filtered : models;
+  return models.filter((model) => modelSupportsImageGeneration(model));
 }
 
 function createRecord(provider?: ApiProvider, mode: DrawingMode = "draw"): DrawingRecord {
