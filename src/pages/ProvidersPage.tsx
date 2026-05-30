@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
-import type { ApiProvider, ApiProviderType, RemoteModel, WireApi } from "../types";
+import type { ApiProvider, ApiProviderType, ProviderBalance, RemoteModel, WireApi } from "../types";
 import { useI18n } from "../i18n/context";
-import { DeleteIcon, EditIcon } from "../components/UiIcons";
+import { DeleteIcon, EditIcon, RefreshIcon as SemiRefreshIcon } from "../components/UiIcons";
 
 interface ProvidersPageProps {
   providers: ApiProvider[];
@@ -74,6 +74,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const [draft, setDraft] = useState<ApiProvider>(emptyApiProvider);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
+  const [balanceMap, setBalanceMap] = useState<Record<string, ProviderBalance | { error: string }>>({});
+  const [loadingBalanceId, setLoadingBalanceId] = useState<string | null>(null);
 
   const sortedProviders = useMemo(
     () =>
@@ -157,6 +159,30 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     } catch (error) {
       console.error("Failed to open website", error);
     }
+  };
+
+  const refreshBalance = async (provider: ApiProvider) => {
+    setLoadingBalanceId(provider.id);
+    try {
+      const balance = await appApi.getProviderBalance(provider);
+      setBalanceMap((current) => ({ ...current, [provider.id]: balance }));
+    } catch (error) {
+      setBalanceMap((current) => ({
+        ...current,
+        [provider.id]: { error: error instanceof Error ? error.message : String(error) },
+      }));
+    } finally {
+      setLoadingBalanceId((current) => (current === provider.id ? null : current));
+    }
+  };
+
+  const balanceText = (balance?: ProviderBalance | { error: string }) => {
+    if (!balance) return t("notChecked");
+    if ("error" in balance) return "—";
+    if (balance.remaining !== undefined) {
+      return `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`;
+    }
+    return balance.strategy;
   };
 
   if (view === "form") {
@@ -277,23 +303,38 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
 
         <div className="provider-list">
           {sortedProviders.length ? (
-            sortedProviders.map((provider) => (
-              <div className={`provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
+            sortedProviders.map((provider) => {
+              const balance = balanceMap[provider.id];
+              return (
+              <div className={`provider-row api-provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
                     <ProviderAvatar provider={provider} size={56} />
                     <div className="provider-title-text">
                       <strong>{provider.name}</strong>
                       <small>{providerTypeLabel(provider.providerType)}</small>
-                      <small>{provider.wireApi === "chat" ? "chat_completions" : "responses"}</small>
                     </div>
                   </div>
-                  <p>{provider.baseUrl || t("openaiDefault")}</p>
                   {provider.websiteUrl.trim() ? (
                     <button className="provider-link" onClick={() => void openWebsite(provider.websiteUrl)} type="button">
                       {provider.websiteUrl}
                     </button>
                   ) : null}
+                </div>
+                <div className="provider-balance-row">
+                  <div className="provider-balance-card">
+                    <span>{balance && !("error" in balance) ? balance.label : "Balance"}</span>
+                    <strong>{balanceText(balance)}</strong>
+                  </div>
+                  <button
+                    className="icon-button balance-refresh-button"
+                    disabled={loadingBalanceId === provider.id}
+                    onClick={() => void refreshBalance(provider)}
+                    type="button"
+                    title={balance && "error" in balance ? balance.error : "Refresh balance"}
+                  >
+                    <SemiRefreshIcon />
+                  </button>
                 </div>
                 <div className="provider-actions">
                   <span className="provider-model-count">{provider.models.length} {t("models")}</span>
@@ -301,7 +342,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                   <button className="danger-button icon-action-button" onClick={() => void onDelete(provider.id)} type="button" title={t("del")}><DeleteIcon /></button>
                 </div>
               </div>
-            ))
+            );
+            })
           ) : (
             <p className="empty-state">{t("noApiProviders")}</p>
           )}

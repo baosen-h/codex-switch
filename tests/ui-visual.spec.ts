@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function installTauriMock(page: Page) {
   await page.addInitScript(() => {
+    const mockSettingsOverride = window.localStorage.getItem("codex-switch-ui-test-settings");
     const apiProviders = [
       {
         id: "api-openai",
@@ -147,6 +148,7 @@ async function installTauriMock(page: Page) {
         language: "en",
         backgroundColor: "dark",
         theme: "professional",
+        ...(mockSettingsOverride ? JSON.parse(mockSettingsOverride) : {}),
       },
     };
 
@@ -238,10 +240,15 @@ test("sidebar expands from hoverable brand control", async ({ page }) => {
 test("main pages render usable layouts", async ({ page }) => {
   await waitForApp(page);
 
+  await expect(page.getByText("chat_completions")).toHaveCount(0);
+  await expect(page.getByText("responses")).toHaveCount(0);
+  await page.locator(".provider-balance-row button").first().click();
+  await expect(page.locator(".provider-balance-card strong").first()).toHaveText("98 %");
   await capture(page, "10-providers");
 
   await page.getByTitle("Agents").click();
   await expect(page.locator(".provider-toolbar")).toBeVisible();
+  await expect(page.locator(".agent-balance-row")).toHaveCount(0);
   await capture(page, "11-agents");
 
   await page.getByTitle("Talking").click();
@@ -255,10 +262,25 @@ test("main pages render usable layouts", async ({ page }) => {
   await page.getByTitle("Sessions").click();
   await expect(page.locator(".sessions-layout")).toBeVisible();
   await capture(page, "14-sessions");
+  await page.locator(".session-list-item").first().click();
+  await expect(page.locator(".session-chat-header")).toBeHidden();
+  await expect(page.locator(".message-card")).toHaveCount(2);
+  await capture(page, "14b-session-selected");
 
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
   await capture(page, "15-settings");
+});
+
+test("anime light mode keeps content readable", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("codex-switch-ui-test-settings", JSON.stringify({ backgroundColor: "light", theme: "anime" }));
+  });
+  await waitForApp(page);
+  await page.getByTitle("Settings").click();
+  await expect(page.locator(".settings-page")).toBeVisible();
+  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(248, 250, 252)");
+  await capture(page, "16-anime-light-settings");
 });
 
 test("expanded sidebar pages do not clip primary panels", async ({ page }) => {

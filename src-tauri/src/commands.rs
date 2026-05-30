@@ -282,7 +282,13 @@ fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, Stri
 }
 
 #[tauri::command]
-pub fn generate_image(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
+pub async fn generate_image(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || generate_image_blocking(request))
+        .await
+        .map_err(|error| format!("Image generation task failed: {error}"))?
+}
+
+fn generate_image_blocking(request: ImageGenerationRequest) -> Result<ImageGenerationResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
     if provider_type == "anthropic" {
         return Err("This provider does not expose an image generation endpoint here.".to_string());

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent, WheelEvent } from "react";
+import { createPortal } from "react-dom";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
@@ -89,12 +90,6 @@ const CopyIcon = () => (
   </svg>
 );
 
-const DownloadIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M8 2.5v7M5.2 7.1 8 9.9l2.8-2.8M3 13.5h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
-
 function imageModels(provider?: ApiProvider) {
   const models = provider?.models ?? [];
   const filtered = models.filter((model) => /image|dall|flux|sd|kolors|midjourney|mj|seedream|qwen-image|gpt-image/i.test(model.id));
@@ -154,21 +149,6 @@ async function copyImage(image: string) {
     return;
   }
   throw new Error("Clipboard is not available.");
-}
-
-async function downloadImage(image: string, index: number) {
-  const link = document.createElement("a");
-  try {
-    const blob = await fetch(imageSrc(image)).then((response) => response.blob());
-    link.href = URL.createObjectURL(blob);
-    setTimeout(() => URL.revokeObjectURL(link.href), 8000);
-  } catch {
-    link.href = image;
-  }
-  link.download = `codex-switch-image-${index + 1}.png`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
 }
 
 function imageSrc(image: string): string {
@@ -263,13 +243,6 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
       const message = error instanceof Error ? error.message : String(error);
       onNotify(message, "err");
     }
-  };
-
-  const handleDownloadImage = () => {
-    if (!currentImage) return;
-    void downloadImage(currentImage, currentImageIndex).then(() => {
-      onNotify(t("imageDownloaded"), "ok");
-    });
   };
 
   const openZoomImage = (image: string) => {
@@ -594,7 +567,7 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
           ) : null}
         </aside>
       </article>
-      {zoomImage ? (
+      {zoomImage ? createPortal(
         <div className="image-zoom-modal" onClick={closeZoomImage} role="presentation">
           <button className="image-zoom-close" onClick={closeZoomImage} type="button" title="Close">X</button>
           <div
@@ -614,10 +587,10 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
             <button onClick={() => setZoomScale(1)} type="button" title="Reset zoom"><ResetZoomIcon /></button>
             <button onClick={() => zoomBy(0.25)} type="button" title="Zoom in"><ZoomIcon /></button>
             <button onClick={() => void handleCopyImage()} type="button" title={t("copyImage")}><CopyIcon /></button>
-            <button onClick={handleDownloadImage} type="button" title={t("downloadImage")}><DownloadIcon /></button>
             <button onClick={closeZoomImage} type="button" title="Close"><CloseIcon /></button>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </section>
   );

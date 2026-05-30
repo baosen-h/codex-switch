@@ -131,6 +131,9 @@
   --row: rgba(0, 115, 230, 0.12);
   --b0: rgba(157, 190, 255, 0.2);
   --b1: rgba(159, 198, 255, 0.32);
+  --t1: #f8fafc;
+  --t2: #b8c4d8;
+  --brand-fg: #f8fafc;
   --a: #0073e6;
   --a-dk: #0759aa;
   --a-d: rgba(0, 115, 230, 0.18);
@@ -149,6 +152,14 @@
     linear-gradient(180deg, rgba(3, 7, 14, 0.26) 0%, rgba(3, 7, 14, 0.46) 100%);
   --grain:
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px);
+}
+
+:root[data-theme="anime"][data-background-color="light"] {
+  --titlebar-bg: rgba(5, 9, 18, 0.78);
+  --sidebar-surface: rgba(5, 9, 18, 0.6);
+  --content-surface: rgba(7, 11, 20, 0.58);
+  --content-row-surface: rgba(10, 15, 26, 0.78);
+  color-scheme: dark;
 }
 
 :root[data-background-color="light"][data-theme="graphite"] {
@@ -312,7 +323,7 @@ select:focus {
 }
 
 .app-shell {
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 188px minmax(0, 1fr);
   background: transparent;
 }
 
@@ -353,8 +364,8 @@ select:focus {
 .sidebar {
   border-right: 1px solid var(--b0);
   background: var(--sidebar-surface);
-  padding: 1rem 0.75rem;
-  box-shadow: none;
+  padding: 0.85rem 0.65rem;
+  box-shadow: 12px 0 28px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(18px);
 }
 
@@ -363,8 +374,8 @@ select:focus {
 }
 
 .brand {
-  min-height: 42px;
-  margin-bottom: 1.1rem;
+  min-height: 34px;
+  margin-bottom: 0.75rem;
   padding: 0;
 }
 
@@ -383,21 +394,12 @@ select:focus {
 }
 
 .brand h1 {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--sans);
-  font-size: 0.98rem;
-  line-height: 1.15;
-  font-weight: 800;
-  letter-spacing: 0;
+  display: none;
 }
 
 .brand-mark {
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   display: inline-grid;
   place-items: center;
   border: 1px solid var(--b1);
@@ -456,8 +458,8 @@ select:focus {
 }
 
 .sidebar-inline-toggle {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -482,13 +484,13 @@ select:focus {
 .nav-item {
   position: relative;
   width: 100%;
-  height: 42px;
-  min-height: 42px;
-  padding: 0 0.68rem;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 0.58rem;
   border: 1px solid transparent;
   border-radius: 10px;
   color: var(--t2);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 650;
   letter-spacing: 0;
   justify-content: flex-start;
@@ -496,9 +498,9 @@ select:focus {
 }
 
 .sidebar-collapsed .nav-item {
-  width: 48px;
-  height: 48px;
-  min-height: 48px;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
   padding: 0;
   justify-content: center;
 }
@@ -537,8 +539,8 @@ select:focus {
   content: "";
   position: absolute;
   left: 9px;
-  top: 14px;
-  bottom: 14px;
+  top: 10px;
+  bottom: 10px;
   width: 3px;
   border-radius: 999px;
   background: var(--a);
@@ -853,13 +855,43 @@ select:focus {
 .provider-row,
 .session-editor {
   grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 86px;
+  min-height: 76px;
   border: 1px solid var(--b0);
   border-radius: var(--radius-md);
   background: var(--content-row-surface);
   box-shadow: none;
   backdrop-filter: none;
   transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.api-provider-row {
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 420px) auto;
+  align-items: center;
+}
+
+.api-provider-row .provider-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+}
+
+.api-provider-row .provider-title {
+  display: contents;
+}
+
+.api-provider-row .provider-title-text {
+  min-width: 0;
+}
+
+.api-provider-row .provider-title-text small {
+  display: none;
+}
+
+.api-provider-row .provider-link,
+.api-provider-row .provider-info p {
+  grid-column: 2;
+  margin-top: 0.18rem;
 }
 
 .provider-row:hover,
@@ -911,8 +943,25 @@ select:focus {
 }
 
 .agent-provider-row {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.agent-provider-row .provider-info {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.75rem;
+}
+
+.agent-provider-row .provider-title {
+  display: contents;
+}
+
+.agent-provider-row .provider-info p,
+.agent-provider-row .provider-link {
+  grid-column: 2;
+  margin-top: 0.18rem;
 }
 
 .icon-action-button,
@@ -925,12 +974,13 @@ select:focus {
   padding: 0;
 }
 
-.agent-balance-row {
+.agent-balance-row,
+.provider-balance-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: min(100%, 320px);
-  max-width: 20rem;
+  max-width: 24rem;
   margin: 0 auto;
   justify-content: center;
 }
@@ -939,7 +989,8 @@ select:focus {
   visibility: hidden;
 }
 
-.agent-balance-card {
+.agent-balance-card,
+.provider-balance-card {
   min-width: 0;
   flex: 1;
   height: 30px;
@@ -953,13 +1004,15 @@ select:focus {
   background: color-mix(in srgb, var(--p1) 78%, transparent);
 }
 
-.agent-balance-card span {
+.agent-balance-card span,
+.provider-balance-card span {
   color: var(--t2);
   font-size: 0.72rem;
   font-weight: 700;
 }
 
-.agent-balance-card strong {
+.agent-balance-card strong,
+.provider-balance-card strong {
   color: var(--a);
   font-family: var(--mono);
   font-size: 0.78rem;
@@ -1298,6 +1351,179 @@ select:focus {
   border-color: rgb(var(--accent-rgb) / 0.34);
   background: rgb(var(--accent-rgb) / 0.08);
   color: var(--t1);
+}
+
+:root[data-theme="anime"] .main-content {
+  background: color-mix(in srgb, var(--bg) 22%, transparent);
+}
+
+:root[data-theme="anime"] .providers-page,
+:root[data-theme="anime"] .talking-page,
+:root[data-theme="anime"] .drawing-page,
+:root[data-theme="anime"] .settings-page {
+  background: transparent;
+}
+
+:root[data-theme="anime"] .provider-toolbar,
+:root[data-theme="anime"] .session-connected-top,
+:root[data-theme="anime"] .chat-shell,
+:root[data-theme="anime"] .drawing-workspace,
+:root[data-theme="anime"] .settings-page > .card,
+:root[data-theme="anime"] .provider-connected-card,
+:root[data-theme="anime"] .session-connected-card {
+  background: color-mix(in srgb, var(--content-surface) 80%, transparent);
+}
+
+:root[data-theme="anime"] .provider-row,
+:root[data-theme="anime"] .session-editor,
+:root[data-theme="anime"] .message-card,
+:root[data-theme="anime"] .drawing-provider-card,
+:root[data-theme="anime"] .conversation-topic {
+  background: color-mix(in srgb, var(--content-row-surface) 84%, transparent);
+}
+
+.provider-info strong,
+.session-header strong,
+.conversation-topic strong {
+  font-size: 0.92rem;
+}
+
+.provider-info p,
+.provider-link,
+.provider-row small,
+.session-row p {
+  font-size: 0.82rem;
+}
+
+.provider-avatar {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px;
+}
+
+.api-provider-row .provider-avatar,
+.agent-provider-row .provider-avatar {
+  grid-row: 1 / span 2;
+}
+
+.provider-actions {
+  gap: 0.5rem;
+}
+
+.provider-model-count {
+  min-width: 5.2rem;
+  text-align: center;
+}
+
+.icon-action-button,
+.icon-button {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+}
+
+.balance-refresh-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+}
+
+.chat-shell {
+  grid-template-columns: clamp(210px, 23%, 280px) minmax(0, 1fr);
+}
+
+.rail-header {
+  min-height: 66px;
+  padding: 0.75rem 1rem;
+}
+
+.rail-header h2 {
+  max-width: 12rem;
+  font-size: 0.95rem;
+}
+
+.conversation-topic-list {
+  padding: 0.7rem;
+}
+
+.conversation-topic {
+  min-height: 54px;
+  padding: 0.62rem 2.55rem 0.62rem 0.75rem;
+}
+
+.conversation-topic span {
+  font-size: 0.76rem;
+}
+
+.chat-topbar {
+  min-height: 72px;
+  padding: 0.85rem 1.2rem;
+}
+
+.chat-inputbar textarea {
+  min-height: 84px;
+}
+
+.session-filter-row {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) 42px;
+  align-items: end;
+}
+
+.session-refresh-button {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  align-self: end;
+}
+
+.session-chat-header {
+  display: none;
+}
+
+.session-editor {
+  min-height: 0;
+}
+
+.session-row {
+  gap: 0.75rem;
+}
+
+.session-actions-row {
+  gap: 0.45rem;
+}
+
+.chat-thinking {
+  width: fit-content;
+  min-width: 7.5rem;
+  color: var(--t2);
+}
+
+.chat-thinking::after {
+  content: "";
+  display: inline-block;
+  width: 1.4em;
+  text-align: left;
+  animation: thinking-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes thinking-dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75%, 100% { content: "..."; }
+}
+
+.image-zoom-modal {
+  z-index: 10000;
+  background: rgb(0 0 0 / 0.86);
+}
+
+.drawing-main-panel {
+  min-width: 0;
+}
+
+.drawing-generating-artboard {
+  contain: paint;
 }
 
 .loading-screen {
