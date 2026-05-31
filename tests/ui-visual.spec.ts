@@ -181,6 +181,23 @@ async function installTauriMock(page: Page) {
         if (cmd === "send_chat_message") return Promise.resolve({ content: "Mock response for visual testing." });
         if (cmd === "generate_image") return Promise.resolve({ images: [] });
         if (cmd === "get_provider_balance") {
+          const provider = args.provider as { id?: string };
+          if (provider.id === "api-openai") {
+            return Promise.resolve({
+              strategy: "openai_oauth",
+              remaining: 0,
+              unit: "USD",
+              isActive: true,
+              label: "Balance",
+              creditsBalance: 0,
+              fiveHourLabel: "5H quota",
+              fiveHourLeft: 99,
+              fiveHourReset: "3h 22m",
+              weeklyLabel: "Weekly quota",
+              weeklyLeft: 6,
+              weeklyReset: "2h 33m",
+            });
+          }
           return Promise.resolve({ strategy: "openai_compat", remaining: 98, unit: "%", isActive: true, label: "Token quota" });
         }
         if (cmd === "launch_session") return Promise.resolve(true);
@@ -244,7 +261,8 @@ test("main pages render usable layouts", async ({ page }) => {
   await expect(page.getByText("chat_completions")).toHaveCount(0);
   await expect(page.getByText("responses")).toHaveCount(0);
   await page.locator(".provider-balance-row button").first().click();
-  await expect(page.locator(".provider-balance-value").first()).toHaveText("98 %");
+  await expect(page.locator(".provider-balance-value").first()).toHaveText("0.00 USD");
+  await expect(page.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
   await capture(page, "10-providers");
 
   await page.getByTitle("Agents").click();

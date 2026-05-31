@@ -43,34 +43,13 @@ const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: Translat
   { value: "animeNight", labelKey: "backgroundSceneNight" },
 ];
 
-const releaseChannelStorageKey = "codex-switch-release-channel";
-const releaseChannelOptions = [
-  { value: "stable", labelKey: "updateChannelStable" as const },
-  { value: "preview", labelKey: "updateChannelPreview" as const },
-];
-
 export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
-  const [releaseChannel, setReleaseChannel] = useState<string>(() => {
-    try {
-      return window.localStorage.getItem(releaseChannelStorageKey) || "stable";
-    } catch {
-      return "stable";
-    }
-  });
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(releaseChannelStorageKey, releaseChannel);
-    } catch {
-      // best effort
-    }
-  }, [releaseChannel]);
 
   const updateDraft = (field: keyof AppSettings, value: string | boolean) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -205,11 +184,6 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
           <label className="field field-full">
             <span>{t("appVersion")}</span>
             <div className="update-row">
-              <select value={releaseChannel} onChange={(event) => setReleaseChannel(event.target.value)}>
-                {releaseChannelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-                ))}
-              </select>
               <button className="secondary-button" onClick={() => void appApi.openExternalUrl("https://github.com/baosen-h/codex-switch/releases")} type="button">
                 {t("openReleases")} v{__APP_VERSION__}
               </button>

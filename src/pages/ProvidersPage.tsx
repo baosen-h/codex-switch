@@ -341,11 +341,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     return "red";
   };
 
-  const renderQuotaCard = (label: string, value?: number, reset?: string) => {
+  const renderQuotaCard = (label: string, value?: number, reset?: string, variant: "five-hour" | "weekly" = "five-hour") => {
     const tone = quotaTone(value);
     const height = Math.max(8, Math.min(100, value ?? 0));
     return (
-      <div className="quota-mini-card">
+      <div className={`quota-mini-card quota-mini-card-${variant}`}>
         <div className={`quota-mini-bg ${tone}`} style={{ height: `${height}%` }} />
         <div className="quota-mini-content">
           <span className="quota-label">{label}</span>
@@ -377,8 +377,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         </div>
         {openAiQuota ? (
           <div className="provider-quota-grid">
-            {renderQuotaCard(balance.fiveHourLabel || t("quotaFiveHour"), balance.fiveHourLeft, balance.fiveHourReset)}
-            {renderQuotaCard(balance.weeklyLabel || t("quotaWeekly"), balance.weeklyLeft, balance.weeklyReset)}
+            {renderQuotaCard(balance.fiveHourLabel || t("quotaFiveHour"), balance.fiveHourLeft, balance.fiveHourReset, "five-hour")}
+            {renderQuotaCard(balance.weeklyLabel || t("quotaWeekly"), balance.weeklyLeft, balance.weeklyReset, "weekly")}
           </div>
         ) : null}
       </div>
@@ -569,8 +569,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                         {websiteLabel(provider.websiteUrl)}
                       </button>
                     ) : null}
-                    {renderBalancePanel(provider, balance)}
                   </div>
+                  {renderBalancePanel(provider, balance)}
                   <div className="provider-actions">
                     <span className="provider-model-count">
                       {provider.models.length} {t("models")}
