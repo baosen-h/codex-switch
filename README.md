@@ -16,8 +16,6 @@
 
 Codex Switch is a Windows desktop app for managing API providers, agent configs, chat, image generation, and local session resume.
 
-This release focuses on a cleaner UI and provider compatibility. Codex can work with chat/completion providers such as DeepSeek and MiMo through the built-in wire-format translation layer.
-
 ## Highlights
 
 - API Providers: manage OpenAI, OpenAI Compatible / New API, Anthropic, Gemini, Ollama, OpenRouter, and Hugging Face records.
