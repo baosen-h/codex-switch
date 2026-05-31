@@ -30,11 +30,24 @@ Codex Switch 是一个 Windows 桌面应用，用于管理 API Provider、Agent 
 
 ## 截图
 
-| Providers | Agents |
-| --- | --- |
-| <img src="docs/images/api-provider.png" alt="API Providers" width="100%" /> | <img src="docs/images/agents.png" alt="Agents" width="100%" /> |
-| Talking | Drawing |
-| <img src="docs/images/talking.png" alt="Talking" width="100%" /> | <img src="docs/images/drawing.png" alt="Drawing" width="100%" /> |
+<table>
+  <tr>
+    <th align="center">Providers</th>
+    <th align="center">Agents</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/api-provider.png" alt="API Providers" width="100%" /></td>
+    <td><img src="docs/images/agents.png" alt="Agents" width="100%" /></td>
+  </tr>
+  <tr>
+    <th align="center">Talking</th>
+    <th align="center">Drawing</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/talking.png" alt="Talking" width="100%" /></td>
+    <td><img src="docs/images/drawing.png" alt="Drawing" width="100%" /></td>
+  </tr>
+</table>
 
 <p align="center">
   <img src="docs/images/light-mode.png" alt="浅色模式" width="760" />
