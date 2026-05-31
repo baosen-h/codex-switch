@@ -4,6 +4,7 @@ import { FloatingToast, type ToastState } from "./components/FloatingToast";
 import { OnboardingGuide } from "./components/OnboardingGuide";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
+import { UpdateNotice } from "./components/UpdateNotice";
 import { I18nProvider } from "./i18n/context";
 import type { Lang } from "./i18n/translations";
 import { AgentsPage } from "./pages/AgentsPage";
@@ -12,7 +13,7 @@ import { ProvidersPage } from "./pages/ProvidersPage";
 import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TalkingPage } from "./pages/TalkingPage";
-import type { ApiProvider, AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
+import type { ApiProvider, AppSettings, AppUpdateInfo, DashboardState, PageKey, Provider, SessionRecord } from "./types";
 import { applyBackgroundColor, applyBackgroundScene, applyTheme, normalizeAppTheme, normalizeBackgroundScene } from "./utils/theme";
 
 const emptyState: DashboardState = {
@@ -33,6 +34,7 @@ const emptyState: DashboardState = {
   },
 };
 
+const dismissedUpdateKey = "codex-switch-dismissed-update";
 
 let toastSeq = 0;
 
@@ -66,6 +68,7 @@ function App() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -95,6 +98,25 @@ function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkUpdate = async () => {
+      try {
+        const update = await appApi.checkAppUpdate(__APP_VERSION__);
+        if (!update || cancelled) return;
+        if (window.localStorage.getItem(dismissedUpdateKey) === update.latestVersion) return;
+        setAppUpdate(update);
+      } catch {
+        // Update checks should never affect normal startup or offline use.
+      }
+    };
+
+    void checkUpdate();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -241,6 +263,17 @@ function App() {
       "Terminal opened.",
     );
 
+  const dismissUpdate = useCallback(() => {
+    if (appUpdate) {
+      try {
+        window.localStorage.setItem(dismissedUpdateKey, appUpdate.latestVersion);
+      } catch {
+        // localStorage can be unavailable in restricted WebViews; dismissal still works for this run.
+      }
+    }
+    setAppUpdate(null);
+  }, [appUpdate]);
+
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
   ) : activePage === "providers" ? (
@@ -304,6 +337,7 @@ function App() {
           onSelectPage={setActivePage}
           onClose={() => setGuideOpen(false)}
         />
+        <UpdateNotice lang={lang} update={appUpdate} onDismiss={dismissUpdate} />
         <FloatingToast toast={toast} onDismiss={dismissToast} />
       </div>
     </I18nProvider>

@@ -121,6 +121,13 @@ export interface ProviderBalance {
   hasCredits?: boolean;
 }
 
+export interface AppUpdateInfo {
+  latestVersion: string;
+  releaseUrl: string;
+  releaseName?: string;
+  publishedAt?: string;
+}
+
 export interface SessionRecord {
   id: string;
   providerId: string;

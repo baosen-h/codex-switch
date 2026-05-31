@@ -6,6 +6,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
+    AppUpdateInfo,
     ApiProvider, AppSettings, ChatAttachment, ChatMessage, ChatRequest, ChatResponse,
     DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse, LaunchRequest,
     ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage, SessionRecord,
@@ -507,6 +508,95 @@ pub fn delete_session(source_path: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn get_provider_balance(provider: ApiProvider) -> Result<ProviderBalance, String> {
     fetch_provider_balance(&provider).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn check_app_update(current_version: String) -> Result<Option<AppUpdateInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || check_app_update_blocking(&current_version))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateInfo>, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response: Value = client
+        .get("https://api.github.com/repos/baosen-h/codex-switch/releases/latest")
+        .header("User-Agent", "codex-switch")
+        .send()
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?
+        .json()
+        .map_err(|error| error.to_string())?;
+
+    let latest_version = response
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim_start_matches('v')
+        .to_string();
+
+    if latest_version.is_empty() || compare_versions(&latest_version, current_version) <= 0 {
+        return Ok(None);
+    }
+
+    let release_url = response
+        .get("html_url")
+        .and_then(Value::as_str)
+        .unwrap_or("https://github.com/baosen-h/codex-switch/releases")
+        .to_string();
+
+    Ok(Some(AppUpdateInfo {
+        latest_version,
+        release_url,
+        release_name: response
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_string),
+        published_at: response
+            .get("published_at")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }))
+}
+
+fn compare_versions(a: &str, b: &str) -> i32 {
+    let left = parse_version_parts(a);
+    let right = parse_version_parts(b);
+    let max_len = left.len().max(right.len());
+
+    for index in 0..max_len {
+        let left_part = left.get(index).copied().unwrap_or(0);
+        let right_part = right.get(index).copied().unwrap_or(0);
+        if left_part > right_part {
+            return 1;
+        }
+        if left_part < right_part {
+            return -1;
+        }
+    }
+
+    0
+}
+
+fn parse_version_parts(version: &str) -> Vec<i32> {
+    version
+        .trim()
+        .trim_start_matches('v')
+        .split('.')
+        .map(|part| {
+            part.split(|ch: char| !ch.is_ascii_digit())
+                .next()
+                .unwrap_or("0")
+                .parse::<i32>()
+                .unwrap_or(0)
+        })
+        .collect()
 }
 
 #[tauri::command]

@@ -201,6 +201,17 @@ async function installTauriMock(page: Page) {
           }
           return Promise.resolve({ strategy: "openai_compat", remaining: 98, unit: "%", isActive: true, label: "Token quota" });
         }
+        if (cmd === "check_app_update") {
+          if (window.localStorage.getItem("codex-switch-ui-test-update") === "true") {
+            return Promise.resolve({
+              latestVersion: "9.9.9",
+              releaseUrl: "https://github.com/baosen-h/codex-switch/releases/tag/v9.9.9",
+              releaseName: "v9.9.9",
+              publishedAt: new Date().toISOString(),
+            });
+          }
+          return Promise.resolve(null);
+        }
         if (cmd === "launch_session") return Promise.resolve(true);
         if (cmd === "get_session_messages") {
           return Promise.resolve([
@@ -306,6 +317,22 @@ test("anime background in light mode keeps content readable", async ({ page }) =
   await expect(page.locator("html")).toHaveAttribute("data-background-scene", "anime");
   await expect(page.locator("label").first()).toHaveCSS("color", "rgb(15, 23, 42)");
   await capture(page, "16-anime-light-settings");
+});
+
+test("update notice appears when a newer release exists", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("codex-switch-ui-test-update", "true");
+    window.localStorage.removeItem("codex-switch-dismissed-update");
+  });
+  await waitForApp(page);
+
+  const notice = page.locator(".update-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("v9.9.9");
+  await capture(page, "17-update-notice");
+
+  await page.getByTitle("Dismiss this version").click();
+  await expect(notice).toHaveCount(0);
 });
 
 test("expanded sidebar pages do not clip primary panels", async ({ page }) => {

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ApiProvider,
+  AppUpdateInfo,
   AppSettings,
   ChatRequest,
   ChatResponse,
@@ -68,6 +69,9 @@ export const appApi = {
   },
   getProviderBalance(provider: ApiProvider): Promise<ProviderBalance> {
     return invoke("get_provider_balance", { provider });
+  },
+  checkAppUpdate(currentVersion: string): Promise<AppUpdateInfo | null> {
+    return invoke("check_app_update", { currentVersion });
   },
   openExternalUrl(url: string): Promise<boolean> {
     return invoke("open_external_url", { url });
