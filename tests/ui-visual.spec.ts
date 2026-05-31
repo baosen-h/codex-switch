@@ -262,7 +262,7 @@ test("main pages render usable layouts", async ({ page }) => {
   await expect(page.getByText("chat_completions")).toHaveCount(0);
   await expect(page.getByText("responses")).toHaveCount(0);
   const openAiRow = page.locator(".api-provider-row").filter({ hasText: "codex official" }).first();
-  await openAiRow.locator(".provider-quota-actions button").click();
+  await openAiRow.locator(".balance-refresh-button").click();
   await expect(openAiRow.locator(".provider-balance-value")).toHaveCount(0);
   await expect(openAiRow.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
   await capture(page, "10-providers");

@@ -1290,20 +1290,11 @@ select:focus {
 
 .provider-balance-panel-quota .provider-quota-grid {
   justify-self: start;
-}
-
-.provider-balance-panel-quota .provider-quota-grid {
   grid-template-columns: repeat(2, 164px);
 }
 
 .provider-balance-panel .provider-balance-row {
   width: fit-content;
-}
-
-.provider-quota-actions {
-  display: flex;
-  justify-content: flex-start;
-  min-height: 28px;
 }
 
 .api-provider-row .provider-actions {

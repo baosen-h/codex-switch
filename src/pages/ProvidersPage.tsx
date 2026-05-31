@@ -366,17 +366,15 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       <div className={`provider-balance-panel ${openAiQuota ? "provider-balance-panel-quota" : ""}`} title={balanceTitle(balance)}>
         {openAiQuota ? (
           <>
-            <div className="provider-quota-actions">
-              <button
-                className="icon-button balance-refresh-button"
-                disabled={loadingBalanceId === provider.id}
-                onClick={() => void refreshBalance(provider)}
-                type="button"
-                title={balanceTitle(balance)}
-              >
-                <SemiRefreshIcon />
-              </button>
-            </div>
+            <button
+              className="icon-button balance-refresh-button"
+              disabled={loadingBalanceId === provider.id}
+              onClick={() => void refreshBalance(provider)}
+              type="button"
+              title={balanceTitle(balance)}
+            >
+              <SemiRefreshIcon />
+            </button>
             {quotaBalance ? (
               <div className="provider-quota-grid">
                 {renderQuotaCard(quotaBalance.fiveHourLabel || t("quotaFiveHour"), quotaBalance.fiveHourLeft, quotaBalance.fiveHourReset, "five-hour")}
