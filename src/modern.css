@@ -1268,6 +1268,21 @@ select:focus {
   justify-self: start;
 }
 
+.provider-balance-panel-quota {
+  width: max-content;
+  max-width: 100%;
+  justify-self: center;
+}
+
+.provider-balance-panel-quota .provider-balance-row,
+.provider-balance-panel-quota .provider-quota-grid {
+  justify-self: start;
+}
+
+.provider-balance-panel-quota .provider-quota-grid {
+  grid-template-columns: repeat(2, 144px);
+}
+
 .provider-balance-panel .provider-balance-row {
   width: fit-content;
 }
@@ -1390,7 +1405,7 @@ select:focus {
 }
 
 .quota-percent {
-  justify-self: end;
+  justify-self: start;
   font-family: var(--mono);
   font-size: 0.74rem;
   font-weight: 800;
