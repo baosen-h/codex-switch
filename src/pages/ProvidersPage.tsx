@@ -357,30 +357,49 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const renderBalancePanel = (provider: ApiProvider, balance?: ProviderBalance | { error: string }) => {
-    const openAiQuota =
-      balance && !("error" in balance) && (balance.fiveHourLeft !== undefined || balance.weeklyLeft !== undefined);
+    const quotaBalance =
+      balance && !("error" in balance) && (balance.fiveHourLeft !== undefined || balance.weeklyLeft !== undefined)
+        ? balance
+        : null;
+    const openAiQuota = provider.providerType === "openai";
     return (
       <div className={`provider-balance-panel ${openAiQuota ? "provider-balance-panel-quota" : ""}`} title={balanceTitle(balance)}>
-        <div className="provider-balance-row">
-          <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
-            {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
-          </strong>
-          <button
-            className="icon-button balance-refresh-button"
-            disabled={loadingBalanceId === provider.id}
-            onClick={() => void refreshBalance(provider)}
-            type="button"
-            title={balanceTitle(balance)}
-          >
-            <SemiRefreshIcon />
-          </button>
-        </div>
         {openAiQuota ? (
-          <div className="provider-quota-grid">
-            {renderQuotaCard(balance.fiveHourLabel || t("quotaFiveHour"), balance.fiveHourLeft, balance.fiveHourReset, "five-hour")}
-            {renderQuotaCard(balance.weeklyLabel || t("quotaWeekly"), balance.weeklyLeft, balance.weeklyReset, "weekly")}
+          <>
+            <div className="provider-quota-actions">
+              <button
+                className="icon-button balance-refresh-button"
+                disabled={loadingBalanceId === provider.id}
+                onClick={() => void refreshBalance(provider)}
+                type="button"
+                title={balanceTitle(balance)}
+              >
+                <SemiRefreshIcon />
+              </button>
+            </div>
+            {quotaBalance ? (
+              <div className="provider-quota-grid">
+                {renderQuotaCard(quotaBalance.fiveHourLabel || t("quotaFiveHour"), quotaBalance.fiveHourLeft, quotaBalance.fiveHourReset, "five-hour")}
+                {renderQuotaCard(quotaBalance.weeklyLabel || t("quotaWeekly"), quotaBalance.weeklyLeft, quotaBalance.weeklyReset, "weekly")}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="provider-balance-row">
+            <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
+              {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
+            </strong>
+            <button
+              className="icon-button balance-refresh-button"
+              disabled={loadingBalanceId === provider.id}
+              onClick={() => void refreshBalance(provider)}
+              type="button"
+              title={balanceTitle(balance)}
+            >
+              <SemiRefreshIcon />
+            </button>
           </div>
-        ) : null}
+        )}
       </div>
     );
   };
@@ -569,8 +588,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                         {websiteLabel(provider.websiteUrl)}
                       </button>
                     ) : null}
+                    {renderBalancePanel(provider, balance)}
                   </div>
-                  {renderBalancePanel(provider, balance)}
                   <div className="provider-actions">
                     <span className="provider-model-count">
                       {provider.models.length} {t("models")}

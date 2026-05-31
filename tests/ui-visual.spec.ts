@@ -8,11 +8,12 @@ async function installTauriMock(page: Page) {
       {
         id: "api-openai",
         name: "codex official",
-        providerType: "openai-compatible",
+        providerType: "openai",
         wireApi: "responses",
         baseUrl: "",
         apiKey: "",
         websiteUrl: "https://chatgpt.com",
+        openAiAuthJson: JSON.stringify({ access_token: "mock" }),
         models: [{ id: "gpt-5.1-codex" }, { id: "gpt-5.1" }, { id: "o4-mini" }],
         enabled: true,
         createdAt: "",
@@ -260,9 +261,10 @@ test("main pages render usable layouts", async ({ page }) => {
 
   await expect(page.getByText("chat_completions")).toHaveCount(0);
   await expect(page.getByText("responses")).toHaveCount(0);
-  await page.locator(".provider-balance-row button").first().click();
-  await expect(page.locator(".provider-balance-value").first()).toHaveText("0.00 USD");
-  await expect(page.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
+  const openAiRow = page.locator(".api-provider-row").filter({ hasText: "codex official" }).first();
+  await openAiRow.locator(".provider-quota-actions button").click();
+  await expect(openAiRow.locator(".provider-balance-value")).toHaveCount(0);
+  await expect(openAiRow.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
   await capture(page, "10-providers");
 
   await page.getByTitle("Agents").click();
