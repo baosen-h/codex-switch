@@ -47,9 +47,14 @@ Codex Switch is a Windows desktop app for managing API providers, agent configs,
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/images/light-mode.png" alt="Settings in light mode" width="760" />
-</p>
+<table>
+  <tr>
+    <th align="center">Settings</th>
+  </tr>
+  <tr>
+    <td><img src="docs/images/light-mode.png" alt="Settings in light mode" width="100%" /></td>
+  </tr>
+</table>
 
 ## Install
 
