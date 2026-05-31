@@ -1,6 +1,6 @@
 use crate::agent_writer::{
     resolve_claude_dir, resolve_codex_dir, resolve_gemini_dir, write_provider, AgentDirs,
-    AGENT_CODEX,
+    AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI,
 };
 use crate::database::Database;
 use crate::error::AppError;
@@ -411,6 +411,45 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
         &session.resume_command,
     )
     .map_err(|error| error.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn launch_provider(state: State<'_, AppState>, provider_id: String) -> Result<bool, String> {
+    let db = state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?;
+
+    let provider = db
+        .provider_by_id(&provider_id)
+        .map_err(|error| error.to_string())?;
+    let settings = db.settings().map_err(|error| error.to_string())?;
+    let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
+    let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
+    let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+    write_provider(
+        &provider,
+        &AgentDirs {
+            codex: &codex_dir,
+            claude: &claude_dir,
+            gemini: &gemini_dir,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    let workspace = if settings.default_workspace.trim().is_empty() {
+        ".".to_string()
+    } else {
+        settings.default_workspace.clone()
+    };
+    let command = match provider.agent.as_str() {
+        AGENT_CLAUDE => "claude",
+        AGENT_GEMINI => "gemini",
+        _ => "codex",
+    };
+    launch_terminal_command(&settings.terminal_program, &workspace, command)
+        .map_err(|error| error.to_string())?;
     Ok(true)
 }
 

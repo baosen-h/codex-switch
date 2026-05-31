@@ -156,7 +156,8 @@ export interface HandoffPreview {
 }
 
 export type BackgroundColorMode = "system" | "dark" | "light";
-export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "anime";
+export type BackgroundScene = "none" | "anime" | "animeSakura" | "animeNight";
+export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "slate" | "rose" | "violet";
 
 export interface AppSettings {
   codexConfigDir: string;
@@ -167,6 +168,7 @@ export interface AppSettings {
   autoRecordSessions: boolean;
   language: string;
   backgroundColor: BackgroundColorMode;
+  backgroundScene: BackgroundScene;
   theme: AppTheme;
 }
 

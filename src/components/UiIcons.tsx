@@ -16,6 +16,11 @@ import {
   IconPaperclip,
   IconPlay,
   IconPlus,
+  IconBolt,
+  IconBranch,
+  IconEyeOpenedStroked,
+  IconFolderOpen,
+  IconGlobeStroked,
   IconRefresh,
   IconSendStroked,
   IconServerStroked,
@@ -155,4 +160,28 @@ export function AttachIcon({ size = 16, style, ...props }: IconProps = {}) {
 
 export function ListIcon({ size = 16, style, ...props }: IconProps = {}) {
   return <IconList {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function LaunchIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconTerminal {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function ResumeIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconFolderOpen {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function BranchIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconBranch {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function BoltIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconBolt {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function GlobeIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconGlobeStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function VisionIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconEyeOpenedStroked {...props} style={semiIconStyle(size, style)} />;
 }

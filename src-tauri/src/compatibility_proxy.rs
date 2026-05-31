@@ -12,6 +12,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use url::Url;
 
 pub const PROXY_HOST: &str = "127.0.0.1";
 pub const PROXY_PORT: u16 = 47632;
@@ -74,7 +75,7 @@ fn select_provider_for_request(
         .iter()
         .filter(|provider| provider.agent == AGENT_CODEX)
         .filter(|provider| provider.model.trim().eq_ignore_ascii_case(&model))
-        .find(|provider| provider.wire_api.trim() == "chat")
+        .find(|provider| uses_chat_completions(provider))
         .cloned()
         .or_else(|| {
             providers
@@ -466,5 +467,28 @@ fn parse_debug_json(bytes: &[u8]) -> Option<Value> {
 }
 
 fn uses_chat_completions(provider: &Provider) -> bool {
-    provider.wire_api.trim() == "chat"
+    let base_url = provider.base_url.trim();
+    if base_url.is_empty() || is_proxy_base_url(base_url) {
+        return false;
+    }
+    if provider.wire_api.trim() == "chat" {
+        return true;
+    }
+    !is_openai_endpoint(base_url)
+}
+
+fn is_proxy_base_url(base_url: &str) -> bool {
+    normalize_base_url(base_url) == normalize_base_url(&proxy_base_url())
+}
+
+fn is_openai_endpoint(base_url: &str) -> bool {
+    Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+        .map(|host| host == "api.openai.com" || host.ends_with(".openai.com"))
+        .unwrap_or_else(|| base_url.to_ascii_lowercase().contains("api.openai.com"))
+}
+
+fn normalize_base_url(base_url: &str) -> String {
+    base_url.trim().trim_end_matches('/').to_ascii_lowercase()
 }

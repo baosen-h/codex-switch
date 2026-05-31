@@ -13,7 +13,7 @@ import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TalkingPage } from "./pages/TalkingPage";
 import type { ApiProvider, AppSettings, DashboardState, PageKey, Provider, SessionRecord } from "./types";
-import { applyBackgroundColor, applyTheme, normalizeAppTheme } from "./utils/theme";
+import { applyBackgroundColor, applyBackgroundScene, applyTheme, normalizeAppTheme, normalizeBackgroundScene } from "./utils/theme";
 
 const emptyState: DashboardState = {
   apiProviders: [],
@@ -28,6 +28,7 @@ const emptyState: DashboardState = {
     autoRecordSessions: true,
     language: "en",
     backgroundColor: "system",
+    backgroundScene: "none",
     theme: "professional",
   },
 };
@@ -73,6 +74,7 @@ function App() {
 
   const lang: Lang = (data.settings.language as Lang) || "en";
   const backgroundColorMode = data.settings.backgroundColor || "system";
+  const backgroundScene = normalizeBackgroundScene(data.settings.backgroundScene);
   const theme = normalizeAppTheme(data.settings.theme);
 
   const refresh = useCallback(async (nextMessage?: string) => {
@@ -109,6 +111,10 @@ function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    applyBackgroundScene(backgroundScene);
+  }, [backgroundScene]);
 
   useEffect(() => {
     applyBackgroundColor(backgroundColorMode);
@@ -229,6 +235,12 @@ function App() {
       "Session opened.",
     );
 
+  const handleLaunchProvider = async (id: string) =>
+    runAction(
+      () => appApi.launchProvider(id),
+      "Terminal opened.",
+    );
+
   const content = loading ? (
     <div className="loading-screen">{lang === "zh" ? "加载中..." : "LOADING..."}</div>
   ) : activePage === "providers" ? (
@@ -266,6 +278,7 @@ function App() {
       providers={data.providers}
       onActivate={handleActivateProvider}
       onDelete={handleDeleteProvider}
+      onLaunchProvider={handleLaunchProvider}
       onSave={handleSaveProvider}
     />
   );

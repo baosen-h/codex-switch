@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../api/tauri";
+import { ModelCapabilityBadges } from "../components/ModelCapabilityBadges";
 import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar";
-import type { ApiProvider, ApiProviderType, ProviderBalance, RemoteModel, WireApi } from "../types";
+import type { ApiProvider, ApiProviderType, ProviderBalance } from "../types";
 import { useI18n } from "../i18n/context";
 import { DeleteIcon, EditIcon, RefreshIcon as SemiRefreshIcon } from "../components/UiIcons";
+import { inferWireApiForApiProvider } from "../utils/providerConfig";
 
 interface ProvidersPageProps {
   providers: ApiProvider[];
@@ -33,7 +35,7 @@ const emptyApiProvider: ApiProvider = {
   id: "",
   name: "",
   providerType: "openai-compatible",
-  wireApi: "responses",
+  wireApi: "chat",
   baseUrl: "",
   apiKey: "",
   websiteUrl: "",
@@ -43,6 +45,29 @@ const emptyApiProvider: ApiProvider = {
   createdAt: "",
   updatedAt: "",
 };
+
+const BALANCE_STORAGE_KEY = "codex-switch-provider-balance-v1";
+
+function loadBalanceMap(): Record<string, ProviderBalance | { error: string }> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BALANCE_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function websiteLabel(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    const path = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
+    return `${parsed.hostname.replace(/^www\./, "")}${path}` || trimmed;
+  } catch {
+    return trimmed.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+  }
+}
 
 const AddIcon = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
@@ -76,7 +101,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const [draft, setDraft] = useState<ApiProvider>(emptyApiProvider);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
-  const [balanceMap, setBalanceMap] = useState<Record<string, ProviderBalance | { error: string }>>({});
+  const [balanceMap, setBalanceMap] = useState<Record<string, ProviderBalance | { error: string }>>(loadBalanceMap);
   const [loadingBalanceId, setLoadingBalanceId] = useState<string | null>(null);
   const [oauthStatus, setOauthStatus] = useState("");
   const [oauthCallbackInput, setOauthCallbackInput] = useState("");
@@ -93,6 +118,14 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       }),
     [providers],
   );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BALANCE_STORAGE_KEY, JSON.stringify(balanceMap));
+    } catch {
+      // Balance cache is best-effort UI state.
+    }
+  }, [balanceMap]);
 
   const openForm = (provider?: ApiProvider) => {
     setDraft(provider ? { ...provider, providerType: normalizeProviderType(provider.providerType) } : emptyApiProvider);
@@ -164,6 +197,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     setDraft((current) => ({
       ...current,
       providerType: normalizedType,
+      wireApi: inferWireApiForApiProvider({ providerType: normalizedType, baseUrl: current.baseUrl }),
       baseUrl:
         !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
           ? preset?.baseUrl || ""
@@ -200,7 +234,12 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const handleSubmit = async () => {
-    await onSave({ ...draft, providerType: normalizeProviderType(draft.providerType) });
+    const normalizedProviderType = normalizeProviderType(draft.providerType);
+    await onSave({
+      ...draft,
+      providerType: normalizedProviderType,
+      wireApi: inferWireApiForApiProvider({ providerType: normalizedProviderType, baseUrl: draft.baseUrl }),
+    });
     closeForm();
   };
 
@@ -280,6 +319,9 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const balanceText = (balance?: ProviderBalance | { error: string }) => {
     if (!balance) return "--";
     if ("error" in balance) return "—";
+    if (typeof balance.creditsBalance === "number") {
+      return `${balance.creditsBalance.toFixed(2)} USD`;
+    }
     if (balance.remaining !== undefined) {
       return `${balance.remaining.toFixed(balance.unit === "%" ? 0 : 2)} ${balance.unit}`;
     }
@@ -293,14 +335,55 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const quotaTone = (value?: number) => {
-    if (value === undefined) return "neutral";
+    if (value === undefined) return "";
     if (value >= 50) return "green";
     if (value >= 20) return "orange";
     return "red";
   };
 
-  const hasOpenAiQuota = (balance?: ProviderBalance | { error: string }): balance is ProviderBalance =>
-    Boolean(balance && !("error" in balance) && balance.fiveHourLeft !== undefined);
+  const renderQuotaCard = (label: string, value?: number, reset?: string) => {
+    const tone = quotaTone(value);
+    const height = Math.max(8, Math.min(100, value ?? 0));
+    return (
+      <div className="quota-mini-card">
+        <div className={`quota-mini-bg ${tone}`} style={{ height: `${height}%` }} />
+        <div className="quota-mini-content">
+          <span className="quota-label">{label}</span>
+          <span className="quota-time">{reset || "--"}</span>
+          <strong className={`quota-percent ${tone}`}>{value ?? "--"}%</strong>
+        </div>
+      </div>
+    );
+  };
+
+  const renderBalancePanel = (provider: ApiProvider, balance?: ProviderBalance | { error: string }) => {
+    const openAiQuota =
+      balance && !("error" in balance) && (balance.fiveHourLeft !== undefined || balance.weeklyLeft !== undefined);
+    return (
+      <div className={`provider-balance-panel ${openAiQuota ? "provider-balance-panel-quota" : ""}`} title={balanceTitle(balance)}>
+        <div className="provider-balance-row">
+          <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
+            {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
+          </strong>
+          <button
+            className="icon-button balance-refresh-button"
+            disabled={loadingBalanceId === provider.id}
+            onClick={() => void refreshBalance(provider)}
+            type="button"
+            title={balanceTitle(balance)}
+          >
+            <SemiRefreshIcon />
+          </button>
+        </div>
+        {openAiQuota ? (
+          <div className="provider-quota-grid">
+            {renderQuotaCard(balance.fiveHourLabel || t("quotaFiveHour"), balance.fiveHourLeft, balance.fiveHourReset)}
+            {renderQuotaCard(balance.weeklyLabel || t("quotaWeekly"), balance.weeklyLeft, balance.weeklyReset)}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   if (view === "form") {
     const isEditing = Boolean(draft.id);
@@ -334,13 +417,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     {providerTypes.map((item) => (
                       <option key={item.value} value={item.value}>{item.label}</option>
                     ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Upstream protocol</span>
-                  <select value={draft.wireApi} onChange={(event) => updateDraft("wireApi", event.target.value as WireApi)}>
-                    <option value="responses">responses · /v1/responses</option>
-                    <option value="chat">chat_completions · /chat/completions</option>
                   </select>
                 </label>
                 <label className="field">
@@ -433,8 +509,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                   {draft.models.length ? (
                     draft.models.map((model) => (
                       <div className="api-model-pill" key={model.id}>
-                        <strong>{model.name || model.id}</strong>
-                        <span>{model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || t("modelFromProvider")}</span>
+                        <div className="api-model-pill-main">
+                          <strong>{model.name || model.id}</strong>
+                          <span>{model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || t("modelFromProvider")}</span>
+                        </div>
+                        <ModelCapabilityBadges model={model} />
                       </div>
                     ))
                   ) : (
@@ -475,69 +554,36 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
           {sortedProviders.length ? (
             sortedProviders.map((provider) => {
               const balance = balanceMap[provider.id];
-              const officialQuota = hasOpenAiQuota(balance) ? balance : undefined;
               return (
-              <div className={`provider-row api-provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
-                <div className="provider-info">
-                  <div className="provider-title">
-                    <ProviderAvatar provider={provider} size={56} />
-                    <div className="provider-title-text">
-                      <strong>{provider.name}</strong>
-                      <small>{providerTypeLabel(provider.providerType)}</small>
-                    </div>
-                  </div>
-                  {provider.websiteUrl.trim() ? (
-                    <button className="provider-link" onClick={() => void openWebsite(provider.websiteUrl)} type="button">
-                      {provider.websiteUrl}
-                    </button>
-                  ) : null}
-                </div>
-                {officialQuota ? (
-                  <div className="provider-quota-grid" title={balanceTitle(balance)}>
-                    <div className={`quota-mini-card ${quotaTone(officialQuota.fiveHourLeft)}`}>
-                      <div className={`quota-mini-bg ${quotaTone(officialQuota.fiveHourLeft)}`} />
-                      <div className="quota-mini-content">
-                        <span className="quota-label">{officialQuota.fiveHourLabel || "5H quota"}</span>
-                        <span className="quota-time">{officialQuota.fiveHourReset || "—"}</span>
-                        <span className={`quota-percent ${quotaTone(officialQuota.fiveHourLeft)}`}>
-                          {Math.round(officialQuota.fiveHourLeft ?? 0)}%
-                        </span>
+                <div className={`provider-row api-provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
+                  <div className="provider-info">
+                    <div className="provider-title">
+                      <ProviderAvatar provider={provider} size={56} />
+                      <div className="provider-title-text">
+                        <strong>{provider.name}</strong>
+                        <small>{providerTypeLabel(provider.providerType)}</small>
                       </div>
                     </div>
-                    <div className={`quota-mini-card ${quotaTone(officialQuota.weeklyLeft)}`}>
-                      <div className={`quota-mini-bg ${quotaTone(officialQuota.weeklyLeft)}`} />
-                      <div className="quota-mini-content">
-                        <span className="quota-label">{officialQuota.weeklyLabel || "Weekly quota"}</span>
-                        <span className="quota-time">{officialQuota.weeklyReset || "—"}</span>
-                        <span className={`quota-percent ${quotaTone(officialQuota.weeklyLeft)}`}>
-                          {Math.round(officialQuota.weeklyLeft ?? 0)}%
-                        </span>
-                      </div>
-                    </div>
+                    {provider.websiteUrl.trim() ? (
+                      <button className="provider-link" onClick={() => void openWebsite(provider.websiteUrl)} title={provider.websiteUrl} type="button">
+                        {websiteLabel(provider.websiteUrl)}
+                      </button>
+                    ) : null}
+                    {renderBalancePanel(provider, balance)}
                   </div>
-                ) : (
-                  <div className="provider-balance-row" title={balanceTitle(balance)}>
-                    <strong className={`provider-balance-value ${balance && "error" in balance ? "provider-balance-error" : ""}`}>
-                      {loadingBalanceId === provider.id ? "..." : balanceText(balance)}
-                    </strong>
-                    <button
-                      className="icon-button balance-refresh-button"
-                      disabled={loadingBalanceId === provider.id}
-                      onClick={() => void refreshBalance(provider)}
-                      type="button"
-                      title={balanceTitle(balance)}
-                    >
-                      <SemiRefreshIcon />
+                  <div className="provider-actions">
+                    <span className="provider-model-count">
+                      {provider.models.length} {t("models")}
+                    </span>
+                    <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}>
+                      <EditIcon />
+                    </button>
+                    <button className="danger-button icon-action-button" onClick={() => void onDelete(provider.id)} type="button" title={t("del")}>
+                      <DeleteIcon />
                     </button>
                   </div>
-                )}
-                <div className="provider-actions">
-                  <span className="provider-model-count">{provider.models.length} {t("models")}</span>
-                  <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>
-                  <button className="danger-button icon-action-button" onClick={() => void onDelete(provider.id)} type="button" title={t("del")}><DeleteIcon /></button>
                 </div>
-              </div>
-            );
+              );
             })
           ) : (
             <p className="empty-state">{t("noApiProviders")}</p>

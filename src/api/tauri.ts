@@ -51,6 +51,9 @@ export const appApi = {
   launchCodex(payload: LaunchRequest): Promise<boolean> {
     return invoke("launch_codex", { request: payload });
   },
+  launchProvider(providerId: string): Promise<boolean> {
+    return invoke("launch_provider", { providerId });
+  },
   getSessionMessages(sourcePath: string): Promise<SessionMessage[]> {
     return invoke("get_session_messages", { sourcePath });
   },

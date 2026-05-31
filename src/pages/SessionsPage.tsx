@@ -2,7 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentKind, HandoffMode, HandoffPreview, SessionMessage, SessionRecord } from "../types";
 import { useI18n } from "../i18n/context";
 import { formatConversationTime, timeAgo } from "../utils/time";
-import { CopyIcon, DeleteIcon, ListIcon, PlayIcon, RefreshIcon } from "../components/UiIcons";
+import { BoltIcon, BranchIcon, CopyIcon, DeleteIcon, ListIcon, RefreshIcon, ResumeIcon } from "../components/UiIcons";
 
 const PixelX = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
@@ -391,7 +391,7 @@ export function SessionsPage({
                                 type="button"
                                 title={`${t("openResume")}: ${session.resumeCommand}`}
                               >
-                                <PlayIcon />
+                                <ResumeIcon />
                               </button>
                               <button
                                 className="session-action-btn session-action-btn--copy"
@@ -421,7 +421,7 @@ export function SessionsPage({
                                         title={choice.description}
                                       >
                                         <span className="session-handoff-pill-icon">
-                                          {choice.mode === "fast" ? "⚡" : "📋"}
+                                          {choice.mode === "fast" ? <BoltIcon size={13} /> : <BranchIcon size={13} />}
                                         </span>
                                         <span className="session-handoff-pill-label">{choice.title}</span>
                                       </button>

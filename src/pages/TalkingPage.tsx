@@ -4,7 +4,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider, ChatAttachment, ChatMessage } from "../types";
-import { modelSupportsVision } from "../utils/modelCapabilities";
+import { modelSupportsChat, modelSupportsVision } from "../utils/modelCapabilities";
 import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
 
 interface TalkingPageProps {
@@ -179,7 +179,13 @@ function attachmentLabel(attachment: ChatAttachment): string {
 
 export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
   const { t } = useI18n();
-  const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
+  const enabledProviders = useMemo(
+    () =>
+      providers.filter(
+        (provider) => provider.enabled && provider.models.some(modelSupportsChat),
+      ),
+    [providers],
+  );
   const fallbackProvider = enabledProviders[0];
   const [topics, setTopics] = useState<ChatTopic[]>(() => loadTopics(fallbackProvider));
   const [activeId, setActiveId] = useState(topics[0]?.id ?? "");

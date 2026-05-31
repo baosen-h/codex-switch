@@ -34,25 +34,31 @@ export function OnboardingGuide({ open, activePage, onSelectPage, onClose }: Onb
   const steps = useMemo<TourStep[]>(
     () => [
       {
-        selector: ".sidebar",
+        selector: ".nav-list",
         title: t("guideSidebarTitle"),
         body: t("guideSidebarBody"),
       },
       {
         page: "providers",
-        selector: ".provider-toolbar",
+        selector: ".provider-toolbar .add-button",
         title: t("guideProvidersTitle"),
         body: t("guideProvidersBody"),
       },
       {
         page: "providers",
-        selector: ".api-provider-row, .provider-toolbar .add-button",
+        selector: ".api-provider-row .provider-balance-panel, .api-provider-row .provider-actions",
+        title: t("guideBalanceTitle"),
+        body: t("guideBalanceBody"),
+      },
+      {
+        page: "providers",
+        selector: ".api-provider-row",
         title: t("guideOpenAiAuthTitle"),
         body: t("guideOpenAiAuthBody"),
       },
       {
         page: "agents",
-        selector: ".provider-tabs-connected",
+        selector: ".provider-tabs-connected, .agent-provider-row .provider-actions",
         title: t("guideAgentsTitle"),
         body: t("guideAgentsBody"),
       },
@@ -70,9 +76,15 @@ export function OnboardingGuide({ open, activePage, onSelectPage, onClose }: Onb
       },
       {
         page: "sessions",
-        selector: ".session-connected-top",
+        selector: ".session-refresh-button, .session-list-panel",
         title: t("guideSessionsTitle"),
         body: t("guideSessionsBody"),
+      },
+      {
+        page: "settings",
+        selector: ".settings-page .form-grid",
+        title: t("guideSettingsControlsTitle"),
+        body: t("guideSettingsControlsBody"),
       },
     ],
     [t],
@@ -199,4 +211,3 @@ export function OnboardingGuide({ open, activePage, onSelectPage, onClose }: Onb
     document.body,
   );
 }
-

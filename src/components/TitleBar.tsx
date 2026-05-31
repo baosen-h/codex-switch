@@ -1,8 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { appApi } from "../api/tauri";
 import { CloseIcon, MaximizeIcon, MinimizeIcon } from "./UiIcons";
 
 const isTauriRuntime = "__TAURI_INTERNALS__" in window;
 const appWindow = isTauriRuntime ? getCurrentWindow() : null;
+const releasesUrl = "https://github.com/baosen-h/codex-switch/releases";
 
 export function TitleBar() {
   return (
@@ -13,6 +15,14 @@ export function TitleBar() {
         onMouseDown={(e) => { if (e.button === 0) void appWindow?.startDragging(); }}
       >
         <span className="titlebar-title">Codex Switch</span>
+        <button
+          className="titlebar-version"
+          onClick={() => void appApi.openExternalUrl(releasesUrl)}
+          type="button"
+          title="Open releases"
+        >
+          v{__APP_VERSION__}
+        </button>
       </div>
       <div className="titlebar-controls">
         <button

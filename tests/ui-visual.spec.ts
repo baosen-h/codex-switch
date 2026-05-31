@@ -273,14 +273,18 @@ test("main pages render usable layouts", async ({ page }) => {
   await capture(page, "15-settings");
 });
 
-test("anime light mode keeps content readable", async ({ page }) => {
+test("anime background in light mode keeps content readable", async ({ page }) => {
   await page.addInitScript(() => {
-    window.localStorage.setItem("codex-switch-ui-test-settings", JSON.stringify({ backgroundColor: "light", theme: "anime" }));
+    window.localStorage.setItem(
+      "codex-switch-ui-test-settings",
+      JSON.stringify({ backgroundColor: "light", backgroundScene: "anime", theme: "professional" }),
+    );
   });
   await waitForApp(page);
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
-  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(23, 32, 51)");
+  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "anime");
+  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(15, 23, 42)");
   await capture(page, "16-anime-light-settings");
 });
 

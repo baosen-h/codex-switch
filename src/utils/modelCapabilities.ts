@@ -80,9 +80,14 @@ const VISION_ALLOWED = [
   "mistral-medium-(2508|latest)",
   "mistral-small-(2506|latest)",
   "mimo-v2-omni(?:-[\\w-]+)?",
+  "mimo-v2\\.5(?:[-.\\w]+)?",
   "glm-5v-turbo",
 ];
 const VISION_REGEX = new RegExp(`\\b(${VISION_ALLOWED.join("|")})\\b`, "i");
+
+const REASONING_REGEX = /\b(o[134](?:-[\w.]+)?|gpt-5(?:-[\w.]+)?|deepseek-(?:r|reasoner|v[34])(?:[-.\w]+)?|mimo-v2(?:\.5)?(?:[-.\w]+)?|qwq|qvq|gemini-2\.5(?:-[\w.]+)?|claude-(?:sonnet|opus|haiku)-4(?:[-.\w]+)?)\b/i;
+const FUNCTION_REGEX = /\b(gpt-[45](?:[-.\w]+)?|o[134](?:[-.\w]+)?|claude-(?:3|4)(?:[-.\w]+)?|gemini-(?:1\.5|2|3)(?:[-.\w]+)?|deepseek-v[34](?:[-.\w]+)?|qwen(?:2|3)?(?:[-.\w]+)?|glm-[45](?:[-.\w]+)?|mistral-(?:large|medium|small)(?:[-.\w]+)?)\b/i;
+const WEB_REGEX = /\b(search|web|sonar|perplexity)\b/i;
 
 function lowerId(model: Pick<RemoteModel, "id" | "name">): string {
   return `${model.id} ${model.name ?? ""}`.toLowerCase();
@@ -107,3 +112,25 @@ export function modelSupportsImageGeneration(model: RemoteModel): boolean {
   return IMAGE_REGEX.test(id);
 }
 
+export function modelSupportsChat(model: RemoteModel): boolean {
+  const caps = capabilityList(model);
+  if (caps.some((cap) => cap.includes("embedding") || cap.includes("rerank"))) return false;
+  if (caps.includes("image_generation")) return false;
+  const id = lowerId(model);
+  if (IMAGE_REGEX.test(id)) return false;
+  return true;
+}
+
+export type ModelCapabilityTag = "vision" | "reasoning" | "function" | "web" | "image";
+
+export function getModelCapabilityTags(model: RemoteModel): ModelCapabilityTag[] {
+  const caps = capabilityList(model);
+  const id = lowerId(model);
+  const tags: ModelCapabilityTag[] = [];
+  if (caps.includes("image_recognition") || VISION_REGEX.test(id)) tags.push("vision");
+  if (caps.includes("reasoning") || REASONING_REGEX.test(id)) tags.push("reasoning");
+  if (caps.includes("function_call") || FUNCTION_REGEX.test(id)) tags.push("function");
+  if (caps.includes("web_search") || WEB_REGEX.test(id)) tags.push("web");
+  if (caps.includes("image_generation") || IMAGE_REGEX.test(id)) tags.push("image");
+  return tags;
+}

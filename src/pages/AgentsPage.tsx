@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
+import { ModelCapabilityBadges } from "../components/ModelCapabilityBadges";
 import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../types";
 import { useI18n } from "../i18n/context";
 import { iconForAgent } from "../components/BrandIcons";
@@ -8,13 +9,14 @@ import {
   agentTabs,
   defaultModelForAgent,
   emptyProvider,
+  inferWireApiForApiProvider,
   patchProviderPreviewField,
   patchProviderPreviewFromFields,
   renderInstructionTemplate,
   renderCodexOAuthPreview,
   renderProviderPreview,
 } from "../utils/providerConfig";
-import { DeleteIcon, EditIcon, PlayIcon } from "../components/UiIcons";
+import { DeleteIcon, EditIcon, LaunchIcon, PlayIcon } from "../components/UiIcons";
 
 interface AgentsPageProps {
   apiProviders: ApiProvider[];
@@ -22,6 +24,7 @@ interface AgentsPageProps {
   onSave: (provider: Provider) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onActivate: (id: string) => Promise<void>;
+  onLaunchProvider: (id: string) => Promise<void>;
 }
 
 const AddIcon = () => (
@@ -62,6 +65,7 @@ export function AgentsPage({
   onSave,
   onDelete,
   onActivate,
+  onLaunchProvider,
 }: AgentsPageProps) {
   const { t } = useI18n();
   const [view, setView] = useState<"list" | "form">("list");
@@ -176,7 +180,7 @@ export function AgentsPage({
         baseUrl: apiProvider?.baseUrl ?? "",
         apiKey: apiProvider?.apiKey ?? "",
         websiteUrl: apiProvider?.websiteUrl ?? "",
-        wireApi: apiProvider?.wireApi ?? cur.wireApi,
+        wireApi: apiProvider ? inferWireApiForApiProvider(apiProvider) : cur.wireApi,
       };
       const providerModels = apiProvider?.models ?? [];
       const modelStillAvailable = providerModels.some((model) => model.id === next.model);
@@ -355,6 +359,7 @@ export function AgentsPage({
                               <span className="model-picker-option-meta">
                                 {model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || t("modelFromProvider")}
                               </span>
+                              <ModelCapabilityBadges model={model} />
                             </button>
                           ))
                         ) : (
@@ -460,6 +465,7 @@ export function AgentsPage({
                 </div>
                 <div className="provider-actions">
                   <button className="secondary-button icon-action-button" onClick={() => openForm(provider)} type="button" title={t("edit")}><EditIcon /></button>
+                  <button className="secondary-button icon-action-button" onClick={() => void onLaunchProvider(provider.id)} type="button" title={t("openCli")}><LaunchIcon /></button>
                   {!provider.isCurrent ? (
                     <button className="secondary-button icon-action-button" onClick={() => void onActivate(provider.id)} type="button" title={t("enable")}><PlayIcon /></button>
                   ) : null}

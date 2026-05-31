@@ -163,7 +163,10 @@ function nextFrame(): Promise<void> {
 
 export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
   const { t } = useI18n();
-  const enabledProviders = useMemo(() => providers.filter((provider) => provider.enabled), [providers]);
+  const enabledProviders = useMemo(
+    () => providers.filter((provider) => provider.enabled && provider.models.some(modelSupportsImageGeneration)),
+    [providers],
+  );
   const fallbackProvider = enabledProviders[0];
   const [records, setRecords] = useState<DrawingRecord[]>(() => loadRecords(fallbackProvider));
   const [activeId, setActiveId] = useState(records[0]?.id ?? "");
@@ -318,17 +321,27 @@ export function DrawingPage({ providers, onNotify }: DrawingPageProps) {
     setIsGenerating(true);
     try {
       await nextFrame();
-      const response = await appApi.generateImage({
-        provider: selectedProvider,
-        model: activeModel,
-        prompt: activeRecord.prompt,
-        size: activeRecord.size,
-        quality: activeRecord.quality,
-        background: activeRecord.background,
-        count: activeRecord.count,
-        inputImages: activeRecord.mode === "edit" ? activeRecord.inputImages : [],
-      });
-      patchActiveRecord({ images: response.images });
+      const requestedCount = Math.max(1, Math.min(4, activeRecord.count));
+      const collectedImages: string[] = [];
+      while (collectedImages.length < requestedCount) {
+        const response = await appApi.generateImage({
+          provider: selectedProvider,
+          model: activeModel,
+          prompt: activeRecord.prompt,
+          size: activeRecord.size,
+          quality: activeRecord.quality,
+          background: activeRecord.background,
+          count: Math.max(1, requestedCount - collectedImages.length),
+          inputImages: activeRecord.mode === "edit" ? activeRecord.inputImages : [],
+        });
+        if (!response.images.length) break;
+        collectedImages.push(...response.images);
+        if (response.images.length < 1) break;
+      }
+      if (!collectedImages.length) {
+        throw new Error(t("imageGenerateError"));
+      }
+      patchActiveRecord({ images: collectedImages.slice(0, requestedCount) });
       setCurrentImageIndex(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

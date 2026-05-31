@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { appApi } from "../api/tauri";
-import type { AppSettings, AppTheme, BackgroundColorMode } from "../types";
+import type { AppSettings, AppTheme, BackgroundColorMode, BackgroundScene } from "../types";
 import type { TranslationKey } from "../i18n/translations";
 import { useI18n } from "../i18n/context";
-import { applyTheme, normalizeAppTheme, switchBackgroundColorWithReveal } from "../utils/theme";
+import { applyTheme, normalizeAppTheme, normalizeBackgroundScene, switchBackgroundColorWithReveal } from "../utils/theme";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -26,21 +26,51 @@ const shellOptions = [
 ];
 
 const themeOptions: Array<{ value: AppTheme; labelKey: TranslationKey }> = [
-  { value: "anime", labelKey: "themeAnime" },
   { value: "professional", labelKey: "themeProfessional" },
   { value: "graphite", labelKey: "themeGraphite" },
   { value: "indigo", labelKey: "themeIndigo" },
   { value: "teal", labelKey: "themeTeal" },
   { value: "amber", labelKey: "themeAmber" },
+  { value: "slate", labelKey: "themeSlate" },
+  { value: "rose", labelKey: "themeRose" },
+  { value: "violet", labelKey: "themeViolet" },
+];
+
+const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: TranslationKey }> = [
+  { value: "none", labelKey: "backgroundSceneNone" },
+  { value: "anime", labelKey: "backgroundSceneAnime" },
+  { value: "animeSakura", labelKey: "backgroundSceneSakura" },
+  { value: "animeNight", labelKey: "backgroundSceneNight" },
+];
+
+const releaseChannelStorageKey = "codex-switch-release-channel";
+const releaseChannelOptions = [
+  { value: "stable", labelKey: "updateChannelStable" as const },
+  { value: "preview", labelKey: "updateChannelPreview" as const },
 ];
 
 export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
+  const [releaseChannel, setReleaseChannel] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem(releaseChannelStorageKey) || "stable";
+    } catch {
+      return "stable";
+    }
+  });
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(releaseChannelStorageKey, releaseChannel);
+    } catch {
+      // best effort
+    }
+  }, [releaseChannel]);
 
   const updateDraft = (field: keyof AppSettings, value: string | boolean) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -68,6 +98,7 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
   const selectedShell = shellOptions.some((option) => option.value === draft.terminalProgram)
     ? draft.terminalProgram
     : "__custom__";
+  const selectedScene = normalizeBackgroundScene(draft.backgroundScene);
 
   const pickDirectory = async (field: PathFieldKey) => {
     try {
@@ -153,12 +184,36 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
             </select>
           </label>
           <label className="field">
+            <span>{t("backgroundScene")}</span>
+            <select
+              value={selectedScene}
+              onChange={(event) => updateAndSave("backgroundScene", event.target.value)}
+            >
+              {backgroundSceneOptions.map((option) => (
+                <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
             <span>{t("theme")}</span>
             <select value={normalizeAppTheme(draft.theme)} onChange={handleThemeChange}>
               {themeOptions.map((option) => (
                 <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
               ))}
             </select>
+          </label>
+          <label className="field field-full">
+            <span>{t("appVersion")}</span>
+            <div className="update-row">
+              <select value={releaseChannel} onChange={(event) => setReleaseChannel(event.target.value)}>
+                {releaseChannelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
+                ))}
+              </select>
+              <button className="secondary-button" onClick={() => void appApi.openExternalUrl("https://github.com/baosen-h/codex-switch/releases")} type="button">
+                {t("openReleases")} v{__APP_VERSION__}
+              </button>
+            </div>
           </label>
           <label className="checkbox-field">
             <input

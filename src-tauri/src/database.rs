@@ -280,6 +280,7 @@ impl Database {
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
             language: self.setting("language")?,
             background_color: self.setting("background_color")?,
+            background_scene: self.setting("background_scene")?,
             theme: self.setting("theme")?,
         })
     }
@@ -300,6 +301,7 @@ impl Database {
         )?;
         self.set_setting("language", settings.language.clone())?;
         self.set_setting("background_color", settings.background_color.clone())?;
+        self.set_setting("background_scene", settings.background_scene.clone())?;
         self.set_setting("theme", settings.theme.clone())?;
         self.settings()
     }
@@ -464,12 +466,19 @@ impl Database {
         self.ensure_setting("auto_record_sessions", "true".to_string())?;
         self.ensure_setting("language", "en".to_string())?;
         self.ensure_setting("background_color", "system".to_string())?;
+        self.ensure_setting("background_scene", "none".to_string())?;
         self.ensure_setting("theme", "anime".to_string())?;
 
         let theme = self.setting("theme")?;
         if matches!(theme.as_str(), "system" | "dark" | "light") {
-            self.set_setting("background_color", theme)?;
+            self.set_setting("background_color", theme.clone())?;
             self.set_setting("theme", "anime".to_string())?;
+        }
+        if theme == "anime" {
+            if self.setting("background_scene")? == "none" {
+                self.set_setting("background_scene", "anime".to_string())?;
+            }
+            self.set_setting("theme", "professional".to_string())?;
         }
 
         Ok(())

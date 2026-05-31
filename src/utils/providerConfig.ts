@@ -1,4 +1,4 @@
-import type { AgentKind, Provider } from "../types";
+import type { AgentKind, ApiProvider, Provider, WireApi } from "../types";
 
 export const emptyProvider: Provider = {
   id: "",
@@ -20,6 +20,37 @@ export const emptyProvider: Provider = {
 
 export const agentTabs: AgentKind[] = ["codex", "claude", "gemini"];
 export const CODEX_COMPAT_PROXY_BASE_URL = "http://127.0.0.1:47632/v1";
+
+function normalizedEndpoint(baseUrl: string): string {
+  return baseUrl.trim().replace(/\/$/, "").toLowerCase();
+}
+
+function isCodexProxyEndpoint(baseUrl: string): boolean {
+  const normalized = normalizedEndpoint(baseUrl);
+  return normalized === CODEX_COMPAT_PROXY_BASE_URL || normalized === "http://localhost:47632/v1";
+}
+
+function isOpenAiEndpoint(baseUrl: string): boolean {
+  const trimmed = baseUrl.trim();
+  if (!trimmed) return false;
+  try {
+    const host = new URL(trimmed).hostname.toLowerCase();
+    return host === "api.openai.com" || host.endsWith(".openai.com");
+  } catch {
+    return /(^|\.)openai\.com(\/|$)/i.test(trimmed);
+  }
+}
+
+export function shouldUseCodexCompatibilityProxy(provider: Pick<Provider, "baseUrl" | "wireApi">): boolean {
+  const baseUrl = provider.baseUrl.trim();
+  if (!baseUrl || isCodexProxyEndpoint(baseUrl)) return false;
+  if (provider.wireApi === "chat") return true;
+  return !isOpenAiEndpoint(baseUrl);
+}
+
+export function inferWireApiForApiProvider(provider: Pick<ApiProvider, "providerType" | "baseUrl">): WireApi {
+  return provider.providerType === "openai" ? "responses" : "chat";
+}
 
 export function defaultModelForAgent(agent: AgentKind): string {
   if (agent === "claude") return "claude-opus-4-5";
@@ -47,10 +78,9 @@ export function renderCodexOAuthPreview(model: string, authJson: string): string
 function renderCodexPreview(provider: Provider): string {
   const model = provider.model.trim() || "gpt-5.4";
   const upstreamBaseUrl = provider.baseUrl.trim();
-  const baseUrl =
-    normalizedWireApi(provider.wireApi) === "chat"
-      ? CODEX_COMPAT_PROXY_BASE_URL
-      : upstreamBaseUrl;
+  const baseUrl = shouldUseCodexCompatibilityProxy(provider)
+    ? CODEX_COMPAT_PROXY_BASE_URL
+    : upstreamBaseUrl;
   const hasCustom = Boolean(upstreamBaseUrl);
   const lines: string[] = ["# ── ~/.codex/config.toml ──"];
   if (hasCustom) lines.push('model_provider = "custom"');
@@ -226,9 +256,13 @@ function replaceCodexWireApi(preview: string, wireApi: string): string {
 }
 
 function replaceCodexBaseUrl(preview: string, baseUrl: string, wireApi: string): string {
-  const value =
-    normalizedWireApi(wireApi) === "chat" ? CODEX_COMPAT_PROXY_BASE_URL : baseUrl.trim();
   const selectedWireApi = normalizedWireApi(wireApi);
+  const value = shouldUseCodexCompatibilityProxy({
+    baseUrl,
+    wireApi: selectedWireApi,
+  })
+    ? CODEX_COMPAT_PROXY_BASE_URL
+    : baseUrl.trim();
   const sectionPatch = replaceTomlStringInSection(
     preview,
     "model_providers.custom",
@@ -411,17 +445,19 @@ function parseCodexPreview(preview: string, current: Provider): Partial<Provider
     extraStart === -1 ? current.extraToml : configSection.slice(extraStart).join("\n").trim();
   const authJson = parseJsonBlock(authSection.join("\n"));
   const apiKeyValue = authJson?.OPENAI_API_KEY;
+  const previewBaseUrl = matchQuotedValue(preview, "base_url");
+  const previewWireApi = normalizedWireApi(matchQuotedValue(preview, "wire_api"));
+  const isProxyBaseUrl = normalizedEndpoint(previewBaseUrl) === normalizedEndpoint(CODEX_COMPAT_PROXY_BASE_URL);
+  const shouldProxy =
+    isProxyBaseUrl || shouldUseCodexCompatibilityProxy({ baseUrl: previewBaseUrl, wireApi: previewWireApi });
 
   return {
     model: matchQuotedValue(preview, "model"),
-    wireApi:
-      matchQuotedValue(preview, "base_url") === CODEX_COMPAT_PROXY_BASE_URL
-        ? "chat"
-        : normalizedWireApi(matchQuotedValue(preview, "wire_api")),
+    wireApi: shouldProxy ? "chat" : previewWireApi,
     baseUrl:
-      matchQuotedValue(preview, "base_url") === CODEX_COMPAT_PROXY_BASE_URL
+      isProxyBaseUrl
         ? current.baseUrl
-        : matchQuotedValue(preview, "base_url"),
+        : previewBaseUrl,
     apiKey: typeof apiKeyValue === "string" ? apiKeyValue : "",
     extraToml,
   };
