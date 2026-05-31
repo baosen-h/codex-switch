@@ -206,12 +206,16 @@ async function installTauriMock(page: Page) {
             return Promise.resolve({
               latestVersion: "9.9.9",
               releaseUrl: "https://github.com/baosen-h/codex-switch/releases/tag/v9.9.9",
+              installerUrl: "https://github.com/baosen-h/codex-switch/releases/download/v9.9.9/Codex.Switch_9.9.9_x64-setup.exe",
+              installerName: "Codex.Switch_9.9.9_x64-setup.exe",
+              installerDigest: "sha256:mock",
               releaseName: "v9.9.9",
               publishedAt: new Date().toISOString(),
             });
           }
           return Promise.resolve(null);
         }
+        if (cmd === "download_and_install_update") return Promise.resolve(true);
         if (cmd === "launch_session") return Promise.resolve(true);
         if (cmd === "get_session_messages") {
           return Promise.resolve([
@@ -329,6 +333,7 @@ test("update notice appears when a newer release exists", async ({ page }) => {
   const notice = page.locator(".update-notice");
   await expect(notice).toBeVisible();
   await expect(notice).toContainText("v9.9.9");
+  await expect(notice.getByRole("button", { name: "Update" })).toBeVisible();
   await capture(page, "17-update-notice");
 
   await page.getByTitle("Dismiss this version").click();

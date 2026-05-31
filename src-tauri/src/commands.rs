@@ -6,7 +6,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    AppUpdateInfo,
+    AppUpdateInfo, UpdateDownloadProgress,
     ApiProvider, AppSettings, ChatAttachment, ChatMessage, ChatRequest, ChatResponse,
     DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse, LaunchRequest,
     ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage, SessionRecord,
@@ -17,8 +17,10 @@ use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fs;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -519,7 +521,7 @@ pub async fn check_app_update(current_version: String) -> Result<Option<AppUpdat
 
 fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateInfo>, String> {
     let client = Client::builder()
-        .timeout(Duration::from_secs(12))
+        .connect_timeout(Duration::from_secs(15))
         .build()
         .map_err(|error| error.to_string())?;
 
@@ -549,10 +551,14 @@ fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateIn
         .and_then(Value::as_str)
         .unwrap_or("https://github.com/baosen-h/codex-switch/releases")
         .to_string();
+    let asset = select_update_asset(response.get("assets").and_then(Value::as_array));
 
     Ok(Some(AppUpdateInfo {
         latest_version,
         release_url,
+        installer_url: asset.as_ref().map(|item| item.url.clone()),
+        installer_name: asset.as_ref().map(|item| item.name.clone()),
+        installer_digest: asset.as_ref().and_then(|item| item.digest.clone()),
         release_name: response
             .get("name")
             .and_then(Value::as_str)
@@ -563,6 +569,208 @@ fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateIn
             .and_then(Value::as_str)
             .map(str::to_string),
     }))
+}
+
+#[derive(Debug, Clone)]
+struct UpdateAsset {
+    name: String,
+    url: String,
+    digest: Option<String>,
+}
+
+fn select_update_asset(assets: Option<&Vec<Value>>) -> Option<UpdateAsset> {
+    let assets = assets?;
+    let arch_hint = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "x86" => "x86",
+        "aarch64" => "arm64",
+        other => other,
+    };
+
+    assets
+        .iter()
+        .filter_map(|asset| {
+            let name = asset.get("name")?.as_str()?.to_string();
+            let url = asset.get("browser_download_url")?.as_str()?.to_string();
+            let lower = name.to_ascii_lowercase();
+            let digest = asset
+                .get("digest")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+
+            let mut score = 0;
+            if lower.ends_with(".exe") && lower.contains("setup") {
+                score += 80;
+            } else if lower.ends_with(".msi") {
+                score += 60;
+            } else {
+                return None;
+            }
+            if lower.contains(arch_hint) {
+                score += 20;
+            }
+
+            Some((score, UpdateAsset { name, url, digest }))
+        })
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, asset)| asset)
+}
+
+#[tauri::command]
+pub async fn download_and_install_update(
+    app: AppHandle,
+    update: AppUpdateInfo,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || download_and_install_update_blocking(app, update))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn download_and_install_update_blocking(app: AppHandle, update: AppUpdateInfo) -> Result<bool, String> {
+    let installer_url = update
+        .installer_url
+        .as_deref()
+        .ok_or_else(|| "No installer asset is available for this release.".to_string())?;
+    let installer_name = update
+        .installer_name
+        .as_deref()
+        .ok_or_else(|| "Installer asset name is missing.".to_string())?;
+
+    if !installer_url.starts_with("https://github.com/baosen-h/codex-switch/releases/download/") {
+        return Err("Refusing to download update from an unexpected URL.".to_string());
+    }
+
+    let file_name = sanitize_asset_name(installer_name);
+    let update_dir = dirs::home_dir()
+        .ok_or_else(|| "Unable to determine home directory".to_string())?
+        .join(".codex-switch")
+        .join("updates")
+        .join(format!("v{}", update.latest_version.trim_start_matches('v')));
+    fs::create_dir_all(&update_dir).map_err(|error| error.to_string())?;
+
+    let installer_path = update_dir.join(&file_name);
+    let partial_path = update_dir.join(format!("{file_name}.part"));
+    download_update_file(
+        &app,
+        installer_url,
+        update.installer_digest.as_deref(),
+        &partial_path,
+        &installer_path,
+    )?;
+
+    emit_update_progress(&app, "launching", Some(100));
+    launch_update_installer(&installer_path)?;
+    app.exit(0);
+    Ok(true)
+}
+
+fn sanitize_asset_name(name: &str) -> String {
+    name.chars()
+        .map(|ch| match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            other => other,
+        })
+        .collect()
+}
+
+fn download_update_file(
+    app: &AppHandle,
+    url: &str,
+    expected_digest: Option<&str>,
+    partial_path: &PathBuf,
+    target_path: &PathBuf,
+) -> Result<(), String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut response = client
+        .get(url)
+        .header("User-Agent", "codex-switch")
+        .send()
+        .map_err(|error| error.to_string())?
+        .error_for_status()
+        .map_err(|error| error.to_string())?;
+
+    let total = response.content_length().unwrap_or(0);
+    let mut loaded: u64 = 0;
+    let mut hasher = Sha256::new();
+    let mut file = fs::File::create(partial_path).map_err(|error| error.to_string())?;
+    let mut buffer = [0_u8; 64 * 1024];
+
+    emit_update_progress(app, "downloading", Some(0));
+    loop {
+        let read = response.read(&mut buffer).map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])
+            .map_err(|error| error.to_string())?;
+        hasher.update(&buffer[..read]);
+        loaded += read as u64;
+        if total > 0 {
+            let percent = ((loaded as f64 / total as f64) * 100.0).round() as i32;
+            emit_update_progress(app, "downloading", Some(percent.clamp(0, 99)));
+        }
+    }
+    file.flush().map_err(|error| error.to_string())?;
+
+    emit_update_progress(app, "verifying", Some(100));
+    if let Some(expected) = expected_digest.and_then(|value| value.strip_prefix("sha256:")) {
+        let actual = format!("{:x}", hasher.finalize());
+        if !actual.eq_ignore_ascii_case(expected) {
+            let _ = fs::remove_file(partial_path);
+            return Err(format!(
+                "Downloaded installer failed SHA-256 verification. expected {expected}, got {actual}"
+            ));
+        }
+    }
+
+    if target_path.exists() {
+        fs::remove_file(target_path).map_err(|error| error.to_string())?;
+    }
+    fs::rename(partial_path, target_path).map_err(|error| error.to_string())
+}
+
+fn emit_update_progress(app: &AppHandle, status: &str, percent: Option<i32>) {
+    let _ = app.emit(
+        "update-download-progress",
+        UpdateDownloadProgress {
+            status: status.to_string(),
+            percent,
+        },
+    );
+}
+
+#[cfg(target_os = "windows")]
+fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
+    let installer = path.to_string_lossy().replace('\'', "''");
+    let lower = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    let command = if lower.ends_with(".msi") {
+        format!(
+            "Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i','{installer}','/passive' -Verb RunAs -WindowStyle Hidden"
+        )
+    } else {
+        format!(
+            "Start-Process -FilePath '{installer}' -ArgumentList '/S','--force-run' -Verb RunAs -WindowStyle Hidden"
+        )
+    };
+
+    Command::new("powershell")
+        .args(["-NoProfile", "-NoLogo", "-Command", &command])
+        .spawn()
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn launch_update_installer(_path: &PathBuf) -> Result<(), String> {
+    Err("In-app installation is currently only supported on Windows.".to_string())
 }
 
 fn compare_versions(a: &str, b: &str) -> i32 {

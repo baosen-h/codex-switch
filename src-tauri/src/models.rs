@@ -165,9 +165,23 @@ pub struct AppUpdateInfo {
     pub latest_version: String,
     pub release_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub installer_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installer_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub release_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDownloadProgress {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percent: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

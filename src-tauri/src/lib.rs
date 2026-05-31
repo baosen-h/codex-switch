@@ -15,7 +15,7 @@ use commands::{
     generate_image, get_dashboard, get_provider_balance, get_session_messages, launch_codex,
     launch_provider, launch_session, list_provider_models, open_external_url, pick_directory,
     save_api_provider, save_provider, save_settings, send_chat_message, AppState,
-    check_app_update,
+    check_app_update, download_and_install_update,
 };
 use oauth::{complete_openai_oauth, start_openai_oauth, submit_openai_oauth_callback};
 use models::Provider;
@@ -108,6 +108,7 @@ pub fn run() {
             delete_session,
             get_provider_balance,
             check_app_update,
+            download_and_install_update,
             list_provider_models,
             open_external_url,
             start_openai_oauth,

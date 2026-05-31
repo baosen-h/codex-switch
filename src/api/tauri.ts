@@ -73,6 +73,9 @@ export const appApi = {
   checkAppUpdate(currentVersion: string): Promise<AppUpdateInfo | null> {
     return invoke("check_app_update", { currentVersion });
   },
+  downloadAndInstallUpdate(update: AppUpdateInfo): Promise<boolean> {
+    return invoke("download_and_install_update", { update });
+  },
   openExternalUrl(url: string): Promise<boolean> {
     return invoke("open_external_url", { url });
   },

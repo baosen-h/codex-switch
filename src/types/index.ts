@@ -124,8 +124,16 @@ export interface ProviderBalance {
 export interface AppUpdateInfo {
   latestVersion: string;
   releaseUrl: string;
+  installerUrl?: string;
+  installerName?: string;
+  installerDigest?: string;
   releaseName?: string;
   publishedAt?: string;
+}
+
+export interface UpdateDownloadProgress {
+  status: "downloading" | "verifying" | "launching";
+  percent?: number;
 }
 
 export interface SessionRecord {
