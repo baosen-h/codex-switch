@@ -16,9 +16,12 @@
 
 Codex Switch 是一个 Windows 桌面应用，用于管理 API Provider、Agent 配置、对话、图片生成和本地会话恢复。
 
-## 功能
+这版是一次较大的更新，重点是更清晰的界面和更好的 Provider 兼容性。Codex 可以通过内置的 wire format 转换层，支持 DeepSeek、MiMo 等 chat/completion 类型的 Provider。
+
+## 重点功能
 
 - API Providers：管理 OpenAI、OpenAI Compatible / New API、Anthropic、Gemini、Ollama、OpenRouter、Hugging Face 记录。
+- Codex 兼容：DeepSeek、MiMo 等 chat/completion Provider 可以转换后接入 Codex。
 - Agents：根据 Provider 记录生成 Codex、Claude Code、Gemini 配置。
 - Talking：在模型支持时，进行文本、文件和图片对话。
 - Drawing：使用支持的模型生成和编辑图片。
