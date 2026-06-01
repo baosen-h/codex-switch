@@ -666,6 +666,7 @@ fn download_and_install_update_blocking(
 
     emit_update_progress(&app, "launching", Some(100));
     launch_update_installer(&installer_path)?;
+    crate::remove_tray_icon(&app);
     app.exit(0);
     Ok(true)
 }
@@ -752,28 +753,47 @@ fn emit_update_progress(app: &AppHandle, status: &str, percent: Option<i32>) {
 
 #[cfg(target_os = "windows")]
 fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
-    let installer = path.to_string_lossy().replace('\'', "''");
+    let installer = ps_single_quote(&path.to_string_lossy());
+    let app_exe = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .to_string_lossy()
+        .to_string();
+    let app_exe = ps_single_quote(&app_exe);
+    let pid = std::process::id();
     let lower = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
 
-    let command = if lower.ends_with(".msi") {
+    let install_command = if lower.ends_with(".msi") {
         format!(
-            "Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i','{installer}','/passive' -Verb RunAs -WindowStyle Hidden"
+            "Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i','{installer}','/passive') -Verb RunAs -Wait -WindowStyle Hidden"
         )
     } else {
         format!(
-            "Start-Process -FilePath '{installer}' -ArgumentList '/S','--force-run' -Verb RunAs -WindowStyle Hidden"
+            "Start-Process -FilePath '{installer}' -ArgumentList @('/S','--force-run') -Verb RunAs -Wait -WindowStyle Hidden"
         )
     };
+
+    let command = format!(
+        "$ErrorActionPreference='Stop'; \
+         Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
+         {install_command}; \
+         Start-Sleep -Milliseconds 600; \
+         if (Test-Path '{app_exe}') {{ Start-Process -FilePath '{app_exe}' }}"
+    );
 
     Command::new("powershell")
         .args(["-NoProfile", "-NoLogo", "-Command", &command])
         .spawn()
         .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn ps_single_quote(value: &str) -> String {
+    value.replace('\'', "''")
 }
 
 #[cfg(not(target_os = "windows"))]

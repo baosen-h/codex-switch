@@ -186,7 +186,7 @@ fn quit_app(app: &AppHandle) {
     app.exit(0);
 }
 
-fn remove_tray_icon(app: &AppHandle) {
+pub(crate) fn remove_tray_icon(app: &AppHandle) {
     let holder: State<'_, TrayHolder> = app.state();
     let tray = holder.0.lock().ok().and_then(|mut guard| guard.take());
     drop(tray);
