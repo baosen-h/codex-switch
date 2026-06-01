@@ -323,6 +323,28 @@ test("anime background in light mode keeps content readable", async ({ page }) =
   await capture(page, "16-anime-light-settings");
 });
 
+test("character background scenes use bundled image assets", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "codex-switch-ui-test-settings",
+      JSON.stringify({ backgroundColor: "dark", backgroundScene: "raidenShogun", theme: "professional" }),
+    );
+  });
+  await waitForApp(page);
+  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "raidenShogun");
+
+  const wallpaper = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue("--wallpaper"),
+  );
+  expect(wallpaper).toContain("raiden-shogun");
+  expect(wallpaper).toContain(".jpg");
+  expect(wallpaper).not.toContain("data:image/svg+xml");
+
+  const renderedBackground = await page.evaluate(() => getComputedStyle(document.body, "::before").backgroundImage);
+  expect(renderedBackground).toContain("raiden-shogun");
+  await capture(page, "18-raiden-background");
+});
+
 test("update notice appears when a newer release exists", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("codex-switch-ui-test-update", "true");

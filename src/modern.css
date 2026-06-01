@@ -35,6 +35,7 @@
   --wallpaper: none;
   --wallpaper-fallback: none;
   --wallpaper-veil: none;
+  --wallpaper-position: center center;
   --grain:
     repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 3px);
   --mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
@@ -350,7 +351,7 @@ body::after {
 :root[data-background-scene]:not([data-background-scene="none"]) body::before {
   background:
     var(--wallpaper-veil),
-    var(--wallpaper) center / cover no-repeat,
+    var(--wallpaper) var(--wallpaper-position) / cover no-repeat,
     var(--wallpaper-fallback),
     var(--bg);
 }

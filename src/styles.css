@@ -43,6 +43,7 @@
   --wallpaper-veil:
     linear-gradient(90deg, rgba(3,7,14,0.64) 0%, rgba(5,9,18,0.42) 38%, rgba(5,9,18,0.26) 100%),
     linear-gradient(180deg, rgba(3,7,14,0.26) 0%, rgba(3,7,14,0.46) 100%);
+  --wallpaper-position: center center;
   --grain:
     repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px);
 
@@ -156,7 +157,7 @@ body::before {
   z-index: 0;
   background:
     var(--wallpaper-veil),
-    var(--wallpaper) center / cover no-repeat,
+    var(--wallpaper) var(--wallpaper-position, center center) / cover no-repeat,
     var(--wallpaper-fallback),
     var(--bg);
 }

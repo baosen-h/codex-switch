@@ -1,4 +1,12 @@
 import type { AppTheme, BackgroundColorMode, BackgroundScene } from "../types";
+import ayakaSnowWallpaper from "../assets/backgrounds/ayaka-snow.jpg";
+import furinaStageWallpaper from "../assets/backgrounds/furina-stage.jpg";
+import hutaoLanternWallpaper from "../assets/backgrounds/hutao-lantern.jpg";
+import keqingVioletWallpaper from "../assets/backgrounds/keqing-violet.jpg";
+import lumineGoldWallpaper from "../assets/backgrounds/lumine-gold.jpg";
+import nahidaDreamWallpaper from "../assets/backgrounds/nahida-dream.jpg";
+import raidenShogunWallpaper from "../assets/backgrounds/raiden-shogun.jpg";
+import yaeSakuraWallpaper from "../assets/backgrounds/yae-sakura.jpg";
 
 export function normalizeAppTheme(theme: AppTheme | string | undefined): AppTheme {
   switch (theme) {
@@ -66,6 +74,7 @@ type BackgroundWallpaper = {
   wallpaper?: string;
   wallpaperFallback?: string;
   wallpaperVeil?: string;
+  wallpaperPosition?: string;
 };
 
 const backgroundScenes: Record<BackgroundScene, BackgroundWallpaper> = {
@@ -75,17 +84,44 @@ const backgroundScenes: Record<BackgroundScene, BackgroundWallpaper> = {
     wallpaperVeil: "none",
   },
   anime: animeScene("#7dd3fc", "#f0abfc", "#07111d", "#122342", "#2a1737", 0),
-  animeSakura: animeScene("#f9a8d4", "#fda4af", "#160817", "#35152c", "#4a1830", 1),
+  animeSakura: imageScene(
+    yaeSakuraWallpaper,
+    animeScene("#f9a8d4", "#fda4af", "#160817", "#35152c", "#4a1830", 1),
+  ),
   animeNight: animeScene("#a78bfa", "#60a5fa", "#060816", "#111a3c", "#23133d", 2),
   mikuStage: animeScene("#22d3ee", "#2dd4bf", "#04131c", "#093343", "#102a38", 3),
-  raidenShogun: animeScene("#c084fc", "#f472b6", "#090713", "#21113a", "#3a1745", 4),
-  lumineGold: animeScene("#fde68a", "#93c5fd", "#111008", "#32240d", "#403214", 5),
-  hutaoLantern: animeScene("#fb7185", "#fb923c", "#170708", "#351214", "#432113", 6),
-  ayakaSnow: animeScene("#bfdbfe", "#93c5fd", "#07121e", "#17304a", "#1b2542", 7),
-  yaeSakura: animeScene("#f0abfc", "#f9a8d4", "#130812", "#34162c", "#451c39", 8),
-  nahidaDream: animeScene("#86efac", "#fde68a", "#07140d", "#1b331d", "#26391a", 9),
-  furinaStage: animeScene("#38bdf8", "#818cf8", "#06111d", "#133052", "#142342", 10),
-  keqingViolet: animeScene("#c4b5fd", "#818cf8", "#0d0818", "#23143b", "#351b52", 11),
+  raidenShogun: imageScene(
+    raidenShogunWallpaper,
+    animeScene("#c084fc", "#f472b6", "#090713", "#21113a", "#3a1745", 4),
+  ),
+  lumineGold: imageScene(
+    lumineGoldWallpaper,
+    animeScene("#fde68a", "#93c5fd", "#111008", "#32240d", "#403214", 5),
+  ),
+  hutaoLantern: imageScene(
+    hutaoLanternWallpaper,
+    animeScene("#fb7185", "#fb923c", "#170708", "#351214", "#432113", 6),
+  ),
+  ayakaSnow: imageScene(
+    ayakaSnowWallpaper,
+    animeScene("#bfdbfe", "#93c5fd", "#07121e", "#17304a", "#1b2542", 7),
+  ),
+  yaeSakura: imageScene(
+    yaeSakuraWallpaper,
+    animeScene("#f0abfc", "#f9a8d4", "#130812", "#34162c", "#451c39", 8),
+  ),
+  nahidaDream: imageScene(
+    nahidaDreamWallpaper,
+    animeScene("#86efac", "#fde68a", "#07140d", "#1b331d", "#26391a", 9),
+  ),
+  furinaStage: imageScene(
+    furinaStageWallpaper,
+    animeScene("#38bdf8", "#818cf8", "#06111d", "#133052", "#142342", 10),
+  ),
+  keqingViolet: imageScene(
+    keqingVioletWallpaper,
+    animeScene("#c4b5fd", "#818cf8", "#0d0818", "#23143b", "#351b52", 11),
+  ),
   animeCyberGirl: animeScene("#22d3ee", "#d946ef", "#050b15", "#0d2534", "#251238", 12),
   animeIdolPink: animeScene("#fb7185", "#f0abfc", "#170912", "#35152d", "#481934", 13),
   animeMaidCafe: animeScene("#d8b4fe", "#fbbf24", "#100b17", "#271d33", "#3a2544", 14),
@@ -94,6 +130,18 @@ const backgroundScenes: Record<BackgroundScene, BackgroundWallpaper> = {
   animeKimonoFestival: animeScene("#f87171", "#facc15", "#170909", "#35151a", "#42270f", 17),
   animeMechaPilot: animeScene("#22d3ee", "#f87171", "#060b12", "#132434", "#2d1822", 18),
 };
+
+function imageScene(
+  imageUrl: string,
+  fallback: BackgroundWallpaper,
+  wallpaperPosition = "center center",
+): BackgroundWallpaper {
+  return {
+    ...fallback,
+    wallpaper: `url("${imageUrl}")`,
+    wallpaperPosition,
+  };
+}
 
 function animeScene(
   accent: string,
@@ -192,6 +240,7 @@ export function applyBackgroundScene(scene: BackgroundScene): void {
   root.style.setProperty("--wallpaper", wallpaper.wallpaper ?? "none");
   root.style.setProperty("--wallpaper-fallback", wallpaper.wallpaperFallback ?? "none");
   root.style.setProperty("--wallpaper-veil", wallpaper.wallpaperVeil ?? "none");
+  root.style.setProperty("--wallpaper-position", wallpaper.wallpaperPosition ?? "center center");
 }
 
 type StartViewTransition = (callback: () => void) => { finished: Promise<void> };
