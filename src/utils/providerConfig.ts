@@ -1,4 +1,4 @@
-import type { AgentKind, ApiProvider, Provider, WireApi } from "../types";
+import type { AgentKind, Provider } from "../types";
 
 export const emptyProvider: Provider = {
   id: "",
@@ -30,26 +30,10 @@ function isCodexProxyEndpoint(baseUrl: string): boolean {
   return normalized === CODEX_COMPAT_PROXY_BASE_URL || normalized === "http://localhost:47632/v1";
 }
 
-function isOpenAiEndpoint(baseUrl: string): boolean {
-  const trimmed = baseUrl.trim();
-  if (!trimmed) return false;
-  try {
-    const host = new URL(trimmed).hostname.toLowerCase();
-    return host === "api.openai.com" || host.endsWith(".openai.com");
-  } catch {
-    return /(^|\.)openai\.com(\/|$)/i.test(trimmed);
-  }
-}
-
 export function shouldUseCodexCompatibilityProxy(provider: Pick<Provider, "baseUrl" | "wireApi">): boolean {
   const baseUrl = provider.baseUrl.trim();
   if (!baseUrl || isCodexProxyEndpoint(baseUrl)) return false;
-  if (provider.wireApi === "chat") return true;
-  return !isOpenAiEndpoint(baseUrl);
-}
-
-export function inferWireApiForApiProvider(provider: Pick<ApiProvider, "providerType" | "baseUrl">): WireApi {
-  return provider.providerType === "openai" ? "responses" : "chat";
+  return provider.wireApi === "chat";
 }
 
 export function defaultModelForAgent(agent: AgentKind): string {

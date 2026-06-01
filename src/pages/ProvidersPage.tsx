@@ -6,7 +6,6 @@ import { ProviderAvatar, ProviderTypeAvatar } from "../components/ProviderAvatar
 import type { ApiProvider, ApiProviderType, ProviderBalance } from "../types";
 import { useI18n } from "../i18n/context";
 import { DeleteIcon, EditIcon, RefreshIcon as SemiRefreshIcon } from "../components/UiIcons";
-import { inferWireApiForApiProvider } from "../utils/providerConfig";
 
 interface ProvidersPageProps {
   providers: ApiProvider[];
@@ -35,7 +34,7 @@ const emptyApiProvider: ApiProvider = {
   id: "",
   name: "",
   providerType: "openai-compatible",
-  wireApi: "chat",
+  wireApi: "responses",
   baseUrl: "",
   apiKey: "",
   websiteUrl: "",
@@ -197,7 +196,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     setDraft((current) => ({
       ...current,
       providerType: normalizedType,
-      wireApi: inferWireApiForApiProvider({ providerType: normalizedType, baseUrl: current.baseUrl }),
       baseUrl:
         !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
           ? preset?.baseUrl || ""
@@ -238,7 +236,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     await onSave({
       ...draft,
       providerType: normalizedProviderType,
-      wireApi: inferWireApiForApiProvider({ providerType: normalizedProviderType, baseUrl: draft.baseUrl }),
+      wireApi: draft.wireApi === "chat" ? "chat" : "responses",
     });
     closeForm();
   };
@@ -434,6 +432,13 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     {providerTypes.map((item) => (
                       <option key={item.value} value={item.value}>{item.label}</option>
                     ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Wire format</span>
+                  <select value={draft.wireApi} onChange={(event) => updateDraft("wireApi", event.target.value as ApiProvider["wireApi"])}>
+                    <option value="responses">Responses API</option>
+                    <option value="chat">Chat Completions</option>
                   </select>
                 </label>
                 <label className="field">

@@ -52,7 +52,10 @@ pub struct TokenResponse {
 }
 
 #[tauri::command]
-pub fn start_openai_oauth(app: AppHandle, open_browser: Option<bool>) -> Result<StartOauthResult, String> {
+pub fn start_openai_oauth(
+    app: AppHandle,
+    open_browser: Option<bool>,
+) -> Result<StartOauthResult, String> {
     let pkce = generate_pkce();
     let state = generate_state();
     let redirect_uri = redirect_uri();
@@ -107,7 +110,10 @@ pub fn submit_openai_oauth_callback(app: AppHandle, input: String) -> Result<(),
 }
 
 #[tauri::command]
-pub fn complete_openai_oauth(code: String, model: Option<String>) -> Result<CompleteOauthResult, String> {
+pub fn complete_openai_oauth(
+    code: String,
+    model: Option<String>,
+) -> Result<CompleteOauthResult, String> {
     let code_verifier = {
         let mut pending = pending_login()
             .lock()
@@ -123,8 +129,7 @@ pub fn complete_openai_oauth(code: String, model: Option<String>) -> Result<Comp
         .id_token
         .clone()
         .ok_or_else(|| "OAuth response did not include id_token".to_string())?;
-    let email = parse_email_from_id_token(&id_token)
-        .unwrap_or_else(|| "OpenAI OAuth".to_string());
+    let email = parse_email_from_id_token(&id_token).unwrap_or_else(|| "OpenAI OAuth".to_string());
     let expires_at = token.expires_in.map(rfc3339_expires_at);
     let refresh_token = token
         .refresh_token
@@ -267,7 +272,11 @@ fn validate_state(provided_state: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn exchange_code(code: &str, redirect_uri: &str, code_verifier: &str) -> Result<TokenResponse, String> {
+fn exchange_code(
+    code: &str,
+    redirect_uri: &str,
+    code_verifier: &str,
+) -> Result<TokenResponse, String> {
     let body = format!(
         "grant_type=authorization_code&code={}&redirect_uri={}&client_id={}&code_verifier={}",
         urlencoding::encode(code),

@@ -9,7 +9,6 @@ import {
   agentTabs,
   defaultModelForAgent,
   emptyProvider,
-  inferWireApiForApiProvider,
   patchProviderPreviewField,
   patchProviderPreviewFromFields,
   renderInstructionTemplate,
@@ -180,7 +179,7 @@ export function AgentsPage({
         baseUrl: apiProvider?.baseUrl ?? "",
         apiKey: apiProvider?.apiKey ?? "",
         websiteUrl: apiProvider?.websiteUrl ?? "",
-        wireApi: apiProvider ? inferWireApiForApiProvider(apiProvider) : cur.wireApi,
+        wireApi: apiProvider?.wireApi ?? cur.wireApi,
       };
       const providerModels = apiProvider?.models ?? [];
       const modelStillAvailable = providerModels.some((model) => model.id === next.model);

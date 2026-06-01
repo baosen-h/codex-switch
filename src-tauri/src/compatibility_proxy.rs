@@ -12,10 +12,11 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use url::Url;
 
 pub const PROXY_HOST: &str = "127.0.0.1";
 pub const PROXY_PORT: u16 = 47632;
+const UPSTREAM_MAX_RETRIES: usize = 3;
+const UPSTREAM_RETRY_BASE_MS: u64 = 500;
 
 pub fn proxy_base_url() -> String {
     format!("http://{}:{}/v1", PROXY_HOST, PROXY_PORT)
@@ -47,10 +48,7 @@ fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<
     let request = read_http_request(&mut stream)?;
     let provider = select_provider_for_request(&db, &request)?;
 
-    let response = route_request(&provider, request)?;
-    stream
-        .write_all(&response)
-        .map_err(|error| error.to_string())?;
+    route_request(&provider, request, &mut stream)?;
     Ok(())
 }
 
@@ -146,18 +144,18 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
     }
     body.truncate(content_length);
 
-    Ok(HttpRequest {
-        method,
-        path,
-        body,
-    })
+    Ok(HttpRequest { method, path, body })
 }
 
 fn find_header_end(data: &[u8]) -> Option<usize> {
     data.windows(4).position(|window| window == b"\r\n\r\n")
 }
 
-fn route_request(provider: &Provider, request: HttpRequest) -> Result<Vec<u8>, String> {
+fn route_request(
+    provider: &Provider,
+    request: HttpRequest,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
     let path = request.path.split('?').next().unwrap_or("");
 
     if request.method == "GET" && (path == "/v1/models" || path.ends_with("/models")) {
@@ -166,39 +164,48 @@ fn route_request(provider: &Provider, request: HttpRequest) -> Result<Vec<u8>, S
         } else {
             provider.model.trim()
         };
-        return Ok(http_response(
+        return write_http_response(
+            stream,
             200,
             "application/json",
             relay_translate::synthetic_models_response(model),
-        ));
+        );
     }
 
     if request.method != "POST" || !(path == "/v1/responses" || path.ends_with("/responses")) {
-        return Ok(http_response(
+        return write_http_response(
+            stream,
             404,
             "application/json",
             br#"{"error":{"message":"unsupported compatibility proxy route"}}"#.to_vec(),
-        ));
+        );
     }
 
-    if uses_chat_completions(provider) {
-        handle_chat_completions_provider(provider, request)
+    let response = if uses_chat_completions(provider) {
+        handle_chat_completions_provider(provider, request, stream)?
     } else {
-        handle_responses_provider(provider, request)
+        Some(handle_responses_provider(provider, request)?)
+    };
+    if let Some(response) = response {
+        stream
+            .write_all(&response)
+            .map_err(|error| error.to_string())?;
     }
+    Ok(())
 }
 
 fn handle_chat_completions_provider(
     provider: &Provider,
     request: HttpRequest,
-) -> Result<Vec<u8>, String> {
+    client_stream: &mut TcpStream,
+) -> Result<Option<Vec<u8>>, String> {
     let upstream_model = if provider.model.trim().is_empty() {
         extract_model(&request.body).unwrap_or_else(|| "model".to_string())
     } else {
         provider.model.trim().to_string()
     };
 
-    let (mut chat_body, mut translator_state) =
+    let (mut chat_body, translator_state) =
         relay_translate::translate_request(&request.body, &upstream_model)
             .map_err(|error| error.to_string())?;
     ensure_chat_model_and_stream(&mut chat_body, &upstream_model)?;
@@ -211,6 +218,19 @@ fn handle_chat_completions_provider(
     );
 
     let upstream_url = chat_completions_url(&provider.base_url)?;
+    let stream_requested = request_body_stream_requested(&request.body);
+    if stream_requested {
+        return handle_chat_completions_streaming(
+            provider,
+            &upstream_url,
+            chat_body,
+            translator_state,
+            client_stream,
+            &request.body,
+        )
+        .map(|()| None);
+    }
+
     let response = post_json(&upstream_url, &provider.api_key, chat_body.clone())?;
     if !response.status.is_success() {
         write_debug_snapshot(
@@ -220,45 +240,107 @@ fn handle_chat_completions_provider(
             Some(&chat_body),
             Some((response.status.as_u16(), &response.body)),
         );
-        return Ok(http_response(
+        return Ok(Some(http_response(
             response.status.as_u16(),
             "application/json",
             response.body,
-        ));
-    }
-
-    let stream_requested = request_body_stream_requested(&request.body);
-    if stream_requested {
-        let mut out = Vec::new();
-        out.extend(relay_translate::emit_created(&translator_state));
-        let content_type = response
-            .content_type
-            .to_ascii_lowercase();
-        if content_type.contains("text/event-stream") {
-            let mut buffer = ChatSseBuffer::new();
-            buffer.push(&response.body);
-            for event in buffer.drain_events() {
-                match event {
-                    ChatSseEvent::Data(payload) => {
-                        for chunk in relay_translate::handle_chunk(&mut translator_state, &payload) {
-                            out.extend(chunk);
-                        }
-                    }
-                    ChatSseEvent::Done => break,
-                }
-            }
-            out.extend(relay_translate::emit_completed(&mut translator_state));
-        } else {
-            out = relay_translate::translate_sync_response(&translator_state, &response.body)
-                .map(|body| synthetic_sse_from_response(&body))
-                .unwrap_or(out);
-        }
-        return Ok(http_response(200, "text/event-stream", out));
+        )));
     }
 
     let body = relay_translate::translate_sync_response(&translator_state, &response.body)
         .map_err(|error| error.to_string())?;
-    Ok(http_response(200, "application/json", body))
+    Ok(Some(http_response(200, "application/json", body)))
+}
+
+fn handle_chat_completions_streaming(
+    provider: &Provider,
+    upstream_url: &str,
+    chat_body: Vec<u8>,
+    mut translator_state: relay_translate::TranslatorState,
+    client_stream: &mut TcpStream,
+    codex_body: &[u8],
+) -> Result<(), String> {
+    let mut upstream = post_json_stream(upstream_url, &provider.api_key, chat_body.clone())?;
+    if !upstream.status().is_success() {
+        let status = upstream.status().as_u16();
+        let content_type = upstream
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("application/json")
+            .to_string();
+        let mut body = Vec::new();
+        upstream
+            .read_to_end(&mut body)
+            .map_err(|error| error.to_string())?;
+        write_debug_snapshot(
+            "upstream_error",
+            provider,
+            Some(codex_body),
+            Some(&chat_body),
+            Some((status, &body)),
+        );
+        return write_http_response(client_stream, status, &content_type, body);
+    }
+
+    write_sse_headers(client_stream)?;
+    client_stream
+        .write_all(&relay_translate::emit_created(&translator_state))
+        .map_err(|error| error.to_string())?;
+
+    let content_type = upstream
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_ascii_lowercase();
+
+    if content_type.contains("text/event-stream") {
+        let mut buffer = ChatSseBuffer::new();
+        let mut bytes = [0_u8; 8192];
+        loop {
+            let n = upstream
+                .read(&mut bytes)
+                .map_err(|error| error.to_string())?;
+            if n == 0 {
+                break;
+            }
+            buffer.push(&bytes[..n]);
+            for event in buffer.drain_events() {
+                match event {
+                    ChatSseEvent::Data(payload) => {
+                        for chunk in relay_translate::handle_chunk(&mut translator_state, &payload)
+                        {
+                            client_stream
+                                .write_all(&chunk)
+                                .map_err(|error| error.to_string())?;
+                        }
+                    }
+                    ChatSseEvent::Done => {
+                        client_stream
+                            .write_all(&relay_translate::emit_completed(&mut translator_state))
+                            .map_err(|error| error.to_string())?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        client_stream
+            .write_all(&relay_translate::emit_completed(&mut translator_state))
+            .map_err(|error| error.to_string())?;
+    } else {
+        let mut body = Vec::new();
+        upstream
+            .read_to_end(&mut body)
+            .map_err(|error| error.to_string())?;
+        let body = relay_translate::translate_sync_response(&translator_state, &body)
+            .map(|body| synthetic_sse_from_response(&body))
+            .unwrap_or_else(|_| relay_translate::emit_completed(&mut translator_state));
+        client_stream
+            .write_all(&body)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn handle_responses_provider(provider: &Provider, request: HttpRequest) -> Result<Vec<u8>, String> {
@@ -282,10 +364,72 @@ struct UpstreamResponse {
 }
 
 fn post_json(url: &str, api_key: &str, body: Vec<u8>) -> Result<UpstreamResponse, String> {
+    let mut response = post_json_stream(url, api_key, body)?;
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    let mut body = Vec::new();
+    response
+        .read_to_end(&mut body)
+        .map_err(|error| error.to_string())?;
+    Ok(UpstreamResponse {
+        status,
+        content_type,
+        body,
+    })
+}
+
+fn post_json_stream(
+    url: &str,
+    api_key: &str,
+    body: Vec<u8>,
+) -> Result<reqwest::blocking::Response, String> {
+    let mut attempt = 0usize;
+    loop {
+        match post_json_stream_once(url, api_key, body.clone()) {
+            Ok(mut response)
+                if is_retryable_status(response.status().as_u16())
+                    && attempt < UPSTREAM_MAX_RETRIES =>
+            {
+                let delay = retry_delay_ms(response.headers(), attempt);
+                let mut discard = Vec::new();
+                let _ = response.read_to_end(&mut discard);
+                thread::sleep(Duration::from_millis(delay));
+                attempt += 1;
+            }
+            Ok(response) => return Ok(response),
+            Err(error) if attempt < UPSTREAM_MAX_RETRIES => {
+                let delay = retry_delay_ms(&HeaderMap::new(), attempt);
+                thread::sleep(Duration::from_millis(delay));
+                attempt += 1;
+                if attempt > UPSTREAM_MAX_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+fn post_json_stream_once(
+    url: &str,
+    api_key: &str,
+    body: Vec<u8>,
+) -> Result<reqwest::blocking::Response, String> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert("Accept", HeaderValue::from_static("application/json, text/event-stream"));
-    headers.insert("User-Agent", HeaderValue::from_static("codex-switch-proxy/0.1.7"));
+    headers.insert(
+        "Accept",
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static("codex-switch-proxy/0.1.7"),
+    );
     if !api_key.trim().is_empty() {
         let bearer = HeaderValue::from_str(&format!("Bearer {}", api_key.trim()))
             .map_err(|error| error.to_string())?;
@@ -302,26 +446,43 @@ fn post_json(url: &str, api_key: &str, body: Vec<u8>) -> Result<UpstreamResponse
         .body(body)
         .send()
         .map_err(|error| error.to_string())?;
-    let status = response.status();
-    let content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
+    Ok(response)
+}
+
+fn is_retryable_status(status: u16) -> bool {
+    matches!(status, 429 | 500 | 502 | 503 | 504)
+}
+
+fn retry_delay_ms(headers: &HeaderMap, attempt: usize) -> u64 {
+    if let Some(value) = headers
+        .get("retry-after")
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let body = response.bytes().map_err(|error| error.to_string())?.to_vec();
-    Ok(UpstreamResponse {
-        status,
-        content_type,
-        body,
-    })
+        .and_then(parse_retry_after_ms)
+    {
+        return value.min(10_000);
+    }
+    let shift = attempt.min(5) as u32;
+    let factor = 1_u64.checked_shl(shift).unwrap_or(32);
+    (UPSTREAM_RETRY_BASE_MS * factor).min(12_000)
+}
+
+fn parse_retry_after_ms(value: &str) -> Option<u64> {
+    let seconds = value.trim().parse::<f64>().ok()?;
+    if seconds.is_sign_negative() || !seconds.is_finite() {
+        return None;
+    }
+    Some((seconds * 1000.0) as u64)
 }
 
 fn ensure_chat_model_and_stream(body: &mut Vec<u8>, model: &str) -> Result<(), String> {
     let mut value: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
     if let Some(object) = value.as_object_mut() {
         object.insert("model".to_string(), Value::String(model.to_string()));
-        if object.get("stream").and_then(Value::as_bool).unwrap_or(false) {
+        if object
+            .get("stream")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             object.insert(
                 "stream_options".to_string(),
                 serde_json::json!({ "include_usage": true }),
@@ -335,7 +496,12 @@ fn ensure_chat_model_and_stream(body: &mut Vec<u8>, model: &str) -> Result<(), S
 fn extract_model(body: &[u8]) -> Option<String> {
     serde_json::from_slice::<Value>(body)
         .ok()
-        .and_then(|value| value.get("model").and_then(Value::as_str).map(str::to_string))
+        .and_then(|value| {
+            value
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
 }
 
 fn request_body_stream_requested(body: &[u8]) -> bool {
@@ -396,6 +562,25 @@ fn http_response(status: u16, content_type: &str, body: Vec<u8>) -> Vec<u8> {
     .into_bytes();
     out.extend(body);
     out
+}
+
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: Vec<u8>,
+) -> Result<(), String> {
+    stream
+        .write_all(&http_response(status, content_type, body))
+        .map_err(|error| error.to_string())
+}
+
+fn write_sse_headers(stream: &mut TcpStream) -> Result<(), String> {
+    stream
+        .write_all(
+            b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\naccess-control-allow-origin: *\r\nconnection: close\r\n\r\n",
+        )
+        .map_err(|error| error.to_string())
 }
 
 fn synthetic_sse_from_response(response_body: &[u8]) -> Vec<u8> {
@@ -467,28 +652,5 @@ fn parse_debug_json(bytes: &[u8]) -> Option<Value> {
 }
 
 fn uses_chat_completions(provider: &Provider) -> bool {
-    let base_url = provider.base_url.trim();
-    if base_url.is_empty() || is_proxy_base_url(base_url) {
-        return false;
-    }
-    if provider.wire_api.trim() == "chat" {
-        return true;
-    }
-    !is_openai_endpoint(base_url)
-}
-
-fn is_proxy_base_url(base_url: &str) -> bool {
-    normalize_base_url(base_url) == normalize_base_url(&proxy_base_url())
-}
-
-fn is_openai_endpoint(base_url: &str) -> bool {
-    Url::parse(base_url)
-        .ok()
-        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
-        .map(|host| host == "api.openai.com" || host.ends_with(".openai.com"))
-        .unwrap_or_else(|| base_url.to_ascii_lowercase().contains("api.openai.com"))
-}
-
-fn normalize_base_url(base_url: &str) -> String {
-    base_url.trim().trim_end_matches('/').to_ascii_lowercase()
+    provider.wire_api.trim() == "chat"
 }

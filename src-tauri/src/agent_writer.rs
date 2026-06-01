@@ -3,7 +3,6 @@ use crate::error::AppError;
 use crate::models::Provider;
 use std::fs;
 use std::path::{Path, PathBuf};
-use url::Url;
 
 pub const AGENT_CODEX: &str = "codex";
 pub const AGENT_CLAUDE: &str = "claude";
@@ -223,30 +222,7 @@ pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppErro
 }
 
 fn uses_codex_proxy(provider: &Provider) -> bool {
-    let base_url = provider.base_url.trim();
-    if base_url.is_empty() || is_codex_proxy_base_url(base_url) {
-        return false;
-    }
-    if provider.wire_api.trim() == "chat" {
-        return true;
-    }
-    !is_openai_endpoint(base_url)
-}
-
-fn is_codex_proxy_base_url(base_url: &str) -> bool {
-    normalize_base_url(base_url) == normalize_base_url(&proxy_base_url())
-}
-
-fn is_openai_endpoint(base_url: &str) -> bool {
-    Url::parse(base_url)
-        .ok()
-        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
-        .map(|host| host == "api.openai.com" || host.ends_with(".openai.com"))
-        .unwrap_or_else(|| base_url.to_ascii_lowercase().contains("api.openai.com"))
-}
-
-fn normalize_base_url(base_url: &str) -> String {
-    base_url.trim().trim_end_matches('/').to_ascii_lowercase()
+    provider.wire_api.trim() == "chat"
 }
 
 pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {

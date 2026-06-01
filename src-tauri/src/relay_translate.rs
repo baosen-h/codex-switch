@@ -54,6 +54,7 @@ pub struct TranslatorState {
     item_id: Option<String>,
     next_idx: usize,
     tool_calls: BTreeMap<usize, ToolCallInProgress>,
+    namespace_map: BTreeMap<String, String>,
     reasoning_idx: Option<usize>,
     reasoning_item_id: Option<String>,
     finalized: bool,
@@ -68,7 +69,12 @@ struct ToolCallInProgress {
 }
 
 impl TranslatorState {
-    fn new(model: String, stream_requested: bool, request_metadata: Value) -> Self {
+    fn new(
+        model: String,
+        stream_requested: bool,
+        request_metadata: Value,
+        namespace_map: BTreeMap<String, String>,
+    ) -> Self {
         let now = unix_secs();
         Self {
             response_id: format!("resp_{}", now),
@@ -83,6 +89,7 @@ impl TranslatorState {
             item_id: None,
             next_idx: 0,
             tool_calls: BTreeMap::new(),
+            namespace_map,
             reasoning_idx: None,
             reasoning_item_id: None,
             finalized: false,
@@ -142,6 +149,7 @@ pub fn translate_request(
             request_metadata.insert(k.to_string(), v);
         }
     }
+    let namespace_map = build_namespace_map(&data);
 
     // Step 1: normalize → messages array (port of normalizer.py)
     normalize_request(&mut data);
@@ -164,8 +172,59 @@ pub fn translate_request(
         model_for_state,
         stream_requested,
         Value::Object(request_metadata),
+        namespace_map,
     );
     Ok((bytes, state))
+}
+
+fn build_namespace_map(data: &Value) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    let Some(tools) = data.get("tools").and_then(Value::as_array) else {
+        return map;
+    };
+    for tool in tools {
+        collect_namespace_tools(tool, None, &mut map);
+    }
+    map
+}
+
+fn collect_namespace_tools(
+    tool: &Value,
+    namespace: Option<&str>,
+    map: &mut BTreeMap<String, String>,
+) {
+    let ttype = tool.get("type").and_then(Value::as_str).unwrap_or("");
+    if ttype == "namespace" {
+        let ns = tool.get("name").and_then(Value::as_str).or(namespace);
+        if let Some(inner) = tool.get("tools").and_then(Value::as_array) {
+            for nested in inner {
+                collect_namespace_tools(nested, ns, map);
+            }
+        }
+        return;
+    }
+
+    let Some(ns) = namespace else {
+        return;
+    };
+    let name = tool
+        .get("name")
+        .and_then(Value::as_str)
+        .or_else(|| tool.pointer("/function/name").and_then(Value::as_str));
+    if let Some(name) = name {
+        if !name.is_empty() {
+            map.insert(name.to_string(), ns.to_string());
+        }
+    }
+}
+
+fn attach_namespace(item: &mut Value, state: &TranslatorState, name: &str) {
+    let Some(namespace) = state.namespace_map.get(name) else {
+        return;
+    };
+    if let Some(obj) = item.as_object_mut() {
+        obj.insert("namespace".to_string(), Value::String(namespace.clone()));
+    }
 }
 
 // ──── Normalizer (port of normalizer.py) ────
@@ -217,6 +276,8 @@ fn normalize_request(data: &mut Value) {
             }
         }
     }
+
+    repair_tool_message_links(&mut messages);
 
     let obj = match data.as_object_mut() {
         Some(o) => o,
@@ -588,6 +649,70 @@ fn process_tool_output(item: &Value, messages: &mut Vec<Value>) {
     }));
 }
 
+fn repair_tool_message_links(messages: &mut Vec<Value>) {
+    let mut repaired: Vec<Value> = Vec::with_capacity(messages.len());
+    let mut pending: Vec<String> = Vec::new();
+
+    for message in messages.drain(..) {
+        let role = message.get("role").and_then(Value::as_str).unwrap_or("");
+        if role == "tool" {
+            let tool_call_id = message.get("tool_call_id").and_then(Value::as_str);
+            let Some(tool_call_id) = tool_call_id else {
+                continue;
+            };
+            if let Some(pos) = pending.iter().position(|id| id == tool_call_id) {
+                pending.remove(pos);
+                repaired.push(message);
+            } else {
+                eprintln!(
+                    "[relay_translate] dropped orphan tool message: tool_call_id={}",
+                    tool_call_id
+                );
+            }
+            continue;
+        }
+
+        synthesize_missing_tool_outputs(&mut repaired, &mut pending);
+        let next_pending = if role == "assistant" {
+            assistant_tool_call_ids(&message)
+        } else {
+            Vec::new()
+        };
+        repaired.push(message);
+        pending = next_pending;
+    }
+
+    synthesize_missing_tool_outputs(&mut repaired, &mut pending);
+    *messages = repaired;
+}
+
+fn assistant_tool_call_ids(message: &Value) -> Vec<String> {
+    message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .map(|calls| {
+            calls
+                .iter()
+                .filter_map(|call| call.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn synthesize_missing_tool_outputs(messages: &mut Vec<Value>, pending: &mut Vec<String>) {
+    for id in pending.drain(..) {
+        eprintln!(
+            "[relay_translate] synthesized missing tool output: tool_call_id={}",
+            id
+        );
+        messages.push(json!({
+            "role": "tool",
+            "tool_call_id": id,
+            "content": "[tool output missing - no function_call_output was provided for this call_id]",
+        }));
+    }
+}
+
 fn is_empty_value(v: &Value) -> bool {
     match v {
         Value::Null => true,
@@ -876,7 +1001,10 @@ fn transform_tool(tool: Value, is_glm: bool, model: &str, out: &mut Vec<Value>) 
                     }
                 }
                 _ => {
-                    let nsname = tool.get("name").and_then(Value::as_str).unwrap_or("(unnamed)");
+                    let nsname = tool
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("(unnamed)");
                     eprintln!("[relay_translate] drop empty namespace tool {:?}", nsname);
                 }
             }
@@ -942,10 +1070,18 @@ fn function_tool_as_chat(tool: Value) -> Option<Value> {
         .filter(|name| !name.trim().is_empty())?;
     let mut function = Map::new();
     function.insert("name".to_string(), Value::String(name.to_string()));
-    if let Some(description) = obj.get("description").cloned().filter(|value| !value.is_null()) {
+    if let Some(description) = obj
+        .get("description")
+        .cloned()
+        .filter(|value| !value.is_null())
+    {
         function.insert("description".to_string(), description);
     }
-    if let Some(parameters) = obj.get("parameters").cloned().filter(|value| !value.is_null()) {
+    if let Some(parameters) = obj
+        .get("parameters")
+        .cloned()
+        .filter(|value| !value.is_null())
+    {
         function.insert("parameters".to_string(), parameters);
     }
     if let Some(strict @ Value::Bool(_)) = obj.get("strict").cloned() {
@@ -1072,6 +1208,11 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
             if !state.tool_calls.contains_key(&idx) {
                 let output_idx = state.next_idx;
                 state.next_idx += 1;
+                let initial_name = tc_delta
+                    .pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let call_id = tc_delta
                     .get("id")
                     .and_then(Value::as_str)
@@ -1082,18 +1223,19 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
                     ToolCallInProgress {
                         output_index: output_idx,
                         call_id: call_id.clone(),
-                        name: String::new(),
+                        name: initial_name.clone(),
                         arguments: String::new(),
                     },
                 );
-                let item_view = json!({
+                let mut item_view = json!({
                     "id": call_id,
                     "type": "function_call",
                     "status": "in_progress",
-                    "name": "",
+                    "name": initial_name,
                     "arguments": "",
                     "call_id": call_id,
                 });
+                attach_namespace(&mut item_view, state, &initial_name);
                 out.push(encode_event(
                     state,
                     "response.output_item.added",
@@ -1108,7 +1250,9 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
             let tc = state.tool_calls.get_mut(&idx).expect("just inserted");
             if let Some(fn_delta) = tc_delta.get("function") {
                 if let Some(name_part) = fn_delta.get("name").and_then(Value::as_str) {
-                    tc.name.push_str(name_part);
+                    if tc.name.is_empty() || name_part != tc.name {
+                        tc.name.push_str(name_part);
+                    }
                 }
                 if let Some(args_part) = fn_delta.get("arguments") {
                     let appended = match args_part {
@@ -1161,6 +1305,17 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
                         "item": item_view,
                     }),
                 ));
+                out.push(encode_event(
+                    state,
+                    "response.reasoning_summary_part.added",
+                    json!({
+                        "response_id": state.response_id,
+                        "item_id": item_id,
+                        "output_index": idx,
+                        "summary_index": 0,
+                        "part": {"type": "summary_text", "text": ""},
+                    }),
+                ));
             }
             let idx = state.reasoning_idx.expect("just set");
             let item_id = state
@@ -1205,6 +1360,17 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
                         "response_id": state.response_id,
                         "output_index": idx,
                         "item": message_view,
+                    }),
+                ));
+                out.push(encode_event(
+                    state,
+                    "response.content_part.added",
+                    json!({
+                        "response_id": state.response_id,
+                        "item_id": item_id,
+                        "output_index": idx,
+                        "content_index": 0,
+                        "part": {"type": "output_text", "text": "", "annotations": []},
                     }),
                 ));
             }
@@ -1263,6 +1429,28 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
             .item_id
             .clone()
             .unwrap_or_else(|| format!("msg_{}", unix_ms()));
+        out.extend(encode_event(
+            state,
+            "response.output_text.done",
+            json!({
+                "response_id": state.response_id,
+                "item_id": item_id,
+                "output_index": idx,
+                "content_index": 0,
+                "text": state.full_content.clone(),
+            }),
+        ));
+        out.extend(encode_event(
+            state,
+            "response.content_part.done",
+            json!({
+                "response_id": state.response_id,
+                "item_id": item_id,
+                "output_index": idx,
+                "content_index": 0,
+                "part": {"type": "output_text", "text": state.full_content.clone(), "annotations": []},
+            }),
+        ));
         closing.push((
             idx,
             json!({
@@ -1279,6 +1467,28 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
             .reasoning_item_id
             .clone()
             .unwrap_or_else(|| format!("rs_{}", unix_ms()));
+        out.extend(encode_event(
+            state,
+            "response.reasoning_summary_text.done",
+            json!({
+                "response_id": state.response_id,
+                "item_id": item_id,
+                "output_index": idx,
+                "summary_index": 0,
+                "text": state.full_reasoning_content.clone(),
+            }),
+        ));
+        out.extend(encode_event(
+            state,
+            "response.reasoning_summary_part.done",
+            json!({
+                "response_id": state.response_id,
+                "item_id": item_id,
+                "output_index": idx,
+                "summary_index": 0,
+                "part": {"type": "summary_text", "text": state.full_reasoning_content.clone()},
+            }),
+        ));
         // encrypted_content：把完整 reasoning 塞到 codex 会原样保留并下轮回传
         // 的这个字段里。codex 在下一轮把整段历史送回我们 input 时，reasoning item
         // 仍然带着 encrypted_content；process_reasoning_item 从中读出来填回
@@ -1295,14 +1505,16 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
         ));
     }
     for tc in state.tool_calls.values() {
+        let safe_arguments = salvage_tool_call_arguments(&tc.arguments);
         let mut item = json!({
             "id": tc.call_id,
             "type": "function_call",
             "status": "completed",
             "name": tc.name,
-            "arguments": tc.arguments,
+            "arguments": safe_arguments,
             "call_id": tc.call_id,
         });
+        attach_namespace(&mut item, state, &tc.name);
         // Codex-side coercion: shell tools map onto local_shell_call.
         if matches!(
             tc.name.as_str(),
@@ -1310,7 +1522,7 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
         ) {
             if let Some(o) = item.as_object_mut() {
                 o.insert("type".to_string(), Value::String("local_shell_call".into()));
-                if let Ok(args_json) = serde_json::from_str::<Value>(&tc.arguments) {
+                if let Ok(args_json) = serde_json::from_str::<Value>(&safe_arguments) {
                     let command = args_json
                         .get("command")
                         .cloned()
@@ -1327,6 +1539,29 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
     closing.sort_by_key(|(idx, _)| *idx);
 
     for (idx, item) in closing {
+        if matches!(
+            item.get("type").and_then(Value::as_str),
+            Some("function_call") | Some("local_shell_call")
+        ) {
+            let item_id = item
+                .get("id")
+                .cloned()
+                .unwrap_or_else(|| Value::String(format!("fc_{}", unix_ms())));
+            let arguments = item
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| Value::String(String::new()));
+            out.extend(encode_event(
+                state,
+                "response.function_call_arguments.done",
+                json!({
+                    "response_id": state.response_id,
+                    "item_id": item_id,
+                    "output_index": idx,
+                    "arguments": arguments,
+                }),
+            ));
+        }
         out.extend(encode_event(
             state,
             "response.output_item.done",
@@ -1400,21 +1635,23 @@ fn collect_final_output(state: &TranslatorState) -> Value {
         ));
     }
     for tc in state.tool_calls.values() {
+        let safe_arguments = salvage_tool_call_arguments(&tc.arguments);
         let mut item = json!({
             "id": tc.call_id,
             "type": "function_call",
             "status": "completed",
             "name": tc.name,
-            "arguments": tc.arguments,
+            "arguments": safe_arguments,
             "call_id": tc.call_id,
         });
+        attach_namespace(&mut item, state, &tc.name);
         if matches!(
             tc.name.as_str(),
             "shell" | "container.exec" | "shell_command"
         ) {
             if let Some(o) = item.as_object_mut() {
                 o.insert("type".to_string(), Value::String("local_shell_call".into()));
-                if let Ok(args_json) = serde_json::from_str::<Value>(&tc.arguments) {
+                if let Ok(args_json) = serde_json::from_str::<Value>(&safe_arguments) {
                     let command = args_json
                         .get("command")
                         .cloned()
@@ -1430,6 +1667,14 @@ fn collect_final_output(state: &TranslatorState) -> Value {
     }
     closing.sort_by_key(|(idx, _)| *idx);
     Value::Array(closing.into_iter().map(|(_, v)| v).collect())
+}
+
+fn salvage_tool_call_arguments(raw: &str) -> String {
+    if raw.is_empty() || serde_json::from_str::<Value>(raw).is_ok() {
+        raw.to_string()
+    } else {
+        "{}".to_string()
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1476,6 +1721,7 @@ pub fn translate_sync_response(
                 Value::String(s) => s,
                 other => serde_json::to_string(&other).unwrap_or_default(),
             };
+            let args_string = salvage_tool_call_arguments(&args_string);
             let mut item = json!({
                 "id": id.clone(),
                 "type": "function_call",
@@ -1489,6 +1735,7 @@ pub fn translate_sync_response(
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
+            attach_namespace(&mut item, state, &name_str);
             if matches!(
                 name_str.as_str(),
                 "shell" | "container.exec" | "shell_command"
@@ -1517,7 +1764,7 @@ pub fn translate_sync_response(
                 "type": "message",
                 "role": "assistant",
                 "status": "completed",
-                "content": [{"type": "text", "text": content}],
+                "content": [{"type": "output_text", "text": content, "annotations": []}],
             }));
         }
     }
@@ -1527,6 +1774,8 @@ pub fn translate_sync_response(
                 "id": format!("rs_{}", unix_ms()),
                 "type": "reasoning",
                 "summary": [{"type": "summary_text", "text": reasoning_content}],
+                "encrypted_content": reasoning_content,
+                "status": "completed",
             }));
         }
     }
@@ -1543,19 +1792,61 @@ pub fn translate_sync_response(
         total_tokens = o.get("total_tokens").and_then(Value::as_u64).unwrap_or(0);
     }
 
-    let resp_obj = json!({
-        "id": format!("zai_{}", z_data.get("id").and_then(Value::as_str).unwrap_or("")),
-        "object": "response",
-        "created": z_data.get("created").cloned().unwrap_or(json!(state.created_at)),
-        "model": z_data.get("model").cloned().unwrap_or(Value::String(state.model.clone())),
-        "status": "completed",
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-        "output": output_items,
-    });
+    let finish_reason = choice
+        .get("finish_reason")
+        .and_then(Value::as_str)
+        .unwrap_or("stop");
+    let status = if finish_reason == "length" {
+        "incomplete"
+    } else {
+        "completed"
+    };
+    let mut resp_obj = build_response_skeleton(state, status, Value::Array(output_items));
+    if let Some(o) = resp_obj.as_object_mut() {
+        o.insert(
+            "id".to_string(),
+            Value::String(format!(
+                "resp_{}",
+                z_data
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&state.response_id)
+            )),
+        );
+        o.insert(
+            "created_at".to_string(),
+            z_data
+                .get("created")
+                .cloned()
+                .unwrap_or(json!(state.created_at)),
+        );
+        o.insert(
+            "model".to_string(),
+            z_data
+                .get("model")
+                .cloned()
+                .unwrap_or(Value::String(state.model.clone())),
+        );
+        o.insert(
+            "usage".to_string(),
+            json!({
+                "input_tokens": prompt_tokens,
+                "output_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            }),
+        );
+        o.insert(
+            "incomplete_details".to_string(),
+            if finish_reason == "length" {
+                json!({"reason": "max_output_tokens"})
+            } else {
+                Value::Null
+            },
+        );
+        o.insert("error".to_string(), Value::Null);
+        o.insert("truncation".to_string(), Value::String("disabled".into()));
+        o.insert("text".to_string(), json!({"format": {"type": "text"}}));
+    }
     serde_json::to_vec(&resp_obj).map_err(|e| TranslateError::Serialize(e.to_string()))
 }
 
@@ -1764,13 +2055,59 @@ mod tests {
         let messages = v["messages"].as_array().unwrap();
         assert_eq!(
             messages.len(),
-            1,
-            "two consecutive calls collapse into one assistant msg"
+            3,
+            "two consecutive calls collapse into one assistant msg and get placeholder outputs"
         );
         let tool_calls = messages[0]["tool_calls"].as_array().unwrap();
         assert_eq!(tool_calls.len(), 2);
         assert_eq!(tool_calls[0]["function"]["name"], "a");
         assert_eq!(tool_calls[1]["function"]["name"], "b");
+        assert_eq!(messages[1]["role"], "tool");
+        assert_eq!(messages[1]["tool_call_id"], "c1");
+        assert_eq!(messages[2]["role"], "tool");
+        assert_eq!(messages[2]["tool_call_id"], "c2");
+    }
+
+    #[test]
+    fn orphan_tool_output_is_dropped() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "I will run it."}]},
+                {"type": "function_call_output", "call_id": "call_missing", "output": "unsupported call: "}
+            ],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        let messages = v["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "assistant");
+        assert!(
+            messages
+                .iter()
+                .all(|m| m.get("role").and_then(Value::as_str) != Some("tool")),
+            "orphan tool messages must not be sent upstream"
+        );
+    }
+
+    #[test]
+    fn missing_tool_output_is_synthesized_before_next_message() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {"type": "function_call", "call_id": "call_a", "name": "lookup", "arguments": "{}"},
+                {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "next"}]}
+            ],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        let messages = v["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "assistant");
+        assert_eq!(messages[1]["role"], "tool");
+        assert_eq!(messages[1]["tool_call_id"], "call_a");
+        assert_eq!(messages[2]["role"], "user");
     }
 
     #[test]
@@ -1839,8 +2176,10 @@ mod tests {
             translate_request(&serde_json::to_vec(&codex).unwrap(), "glm-5.1").unwrap();
         let v: Value = serde_json::from_slice(&body).unwrap();
         // body 里不该再带 previous_response_id（chat_completions 协议里不存在）
-        assert!(v.get("previous_response_id").map_or(true, |p| p.is_null()),
-            "previous_response_id 应当被忽略，不出现在翻译后 chat 请求里");
+        assert!(
+            v.get("previous_response_id").map_or(true, |p| p.is_null()),
+            "previous_response_id 应当被忽略，不出现在翻译后 chat 请求里"
+        );
     }
 
     #[test]
@@ -1911,6 +2250,10 @@ mod tests {
         assert!(contains_event(
             &all,
             b"response.function_call_arguments.delta"
+        ));
+        assert!(contains_event(
+            &all,
+            b"response.function_call_arguments.done"
         ));
         assert!(contains_event(&all, b"response.output_item.done"));
         assert!(contains_event(&all, b"response.completed"));
@@ -2033,10 +2376,14 @@ mod tests {
         let v = parse(&body);
         assert_eq!(v["object"], "response");
         assert_eq!(v["status"], "completed");
+        assert_eq!(v["created_at"], 1700000000);
         let output = v["output"].as_array().unwrap();
         assert_eq!(output.len(), 1);
         assert_eq!(output[0]["type"], "message");
+        assert_eq!(output[0]["content"][0]["type"], "output_text");
         assert_eq!(output[0]["content"][0]["text"], "hello!");
+        assert_eq!(v["usage"]["input_tokens"], 5);
+        assert_eq!(v["usage"]["output_tokens"], 3);
         assert_eq!(v["usage"]["total_tokens"], 8);
     }
 
@@ -2129,14 +2476,17 @@ mod tests {
         let v = parse(&body);
         let messages = v["messages"].as_array().unwrap();
         // 历史不再丢：c2 的 tool output 也得在
-        let c1_present = messages.iter().any(|m| {
-            m.get("tool_call_id").and_then(Value::as_str) == Some("c1")
-        });
-        let c2_present = messages.iter().any(|m| {
-            m.get("tool_call_id").and_then(Value::as_str) == Some("c2")
-        });
+        let c1_present = messages
+            .iter()
+            .any(|m| m.get("tool_call_id").and_then(Value::as_str) == Some("c1"));
+        let c2_present = messages
+            .iter()
+            .any(|m| m.get("tool_call_id").and_then(Value::as_str) == Some("c2"));
         assert!(c1_present, "c1 tool output must be present");
-        assert!(c2_present, "c2 tool output must be present (no longer pruned)");
+        assert!(
+            c2_present,
+            "c2 tool output must be present (no longer pruned)"
+        );
         // reasoning_content 从 encrypted_content 提到 assistant 消息上了
         let assistant = messages
             .iter()
@@ -2172,11 +2522,100 @@ mod tests {
         let tools = v["tools"].as_array().unwrap();
         let names: Vec<String> = tools
             .iter()
-            .filter_map(|t| t.pointer("/function/name").and_then(Value::as_str).map(String::from))
+            .filter_map(|t| {
+                t.pointer("/function/name")
+                    .and_then(Value::as_str)
+                    .map(String::from)
+            })
             .collect();
-        assert!(names.contains(&"inner_a".to_string()), "namespace inner_a should be flattened: {:?}", names);
-        assert!(names.contains(&"inner_b".to_string()), "namespace inner_b should be flattened: {:?}", names);
-        assert!(names.contains(&"top".to_string()), "top-level function should survive: {:?}", names);
+        assert!(
+            names.contains(&"inner_a".to_string()),
+            "namespace inner_a should be flattened: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"inner_b".to_string()),
+            "namespace inner_b should be flattened: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"top".to_string()),
+            "top-level function should survive: {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn namespace_is_restored_on_sync_tool_call() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "hi",
+            "tools": [
+                {"type": "namespace", "name": "packyapi", "tools": [
+                    {"type": "function", "function": {"name": "_fetch", "parameters": {"type": "object"}}}
+                ]}
+            ],
+        });
+        let (_body, state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let chat = json!({
+            "id": "chatcmpl-tool",
+            "created": 1700000000,
+            "model": "deepseek-v4-flash",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_fetch",
+                        "type": "function",
+                        "function": {"name": "_fetch", "arguments": "{\"url\":\"https://www.packyapi.com\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = translate_sync_response(&state, &serde_json::to_vec(&chat).unwrap()).unwrap();
+        let v = parse(&body);
+        let output = v["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "function_call");
+        assert_eq!(output[0]["name"], "_fetch");
+        assert_eq!(output[0]["namespace"], "packyapi");
+    }
+
+    #[test]
+    fn namespace_is_restored_on_stream_tool_call() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "hi",
+            "stream": true,
+            "tools": [
+                {"type": "namespace", "name": "packyapi", "tools": [
+                    {"type": "function", "function": {"name": "_fetch", "parameters": {"type": "object"}}}
+                ]}
+            ],
+        });
+        let (_body, mut state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let chunk = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_fetch",
+                        "function": {
+                            "name": "_fetch",
+                            "arguments": "{\"url\":\"https://www.packyapi.com\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+        let mut all: Vec<u8> = Vec::new();
+        for e in handle_chunk(&mut state, &serde_json::to_vec(&chunk).unwrap()) {
+            all.extend(e);
+        }
+        all.extend(emit_completed(&mut state));
+        assert!(contains_bytes(&all, b"\"namespace\":\"packyapi\""));
     }
 
     #[test]

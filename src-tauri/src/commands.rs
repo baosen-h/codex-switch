@@ -6,10 +6,10 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    AppUpdateInfo, UpdateDownloadProgress,
-    ApiProvider, AppSettings, ChatAttachment, ChatMessage, ChatRequest, ChatResponse,
-    DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse, LaunchRequest,
-    ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage, SessionRecord,
+    ApiProvider, AppSettings, AppUpdateInfo, ChatAttachment, ChatMessage, ChatRequest,
+    ChatResponse, DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse,
+    LaunchRequest, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
+    SessionRecord, UpdateDownloadProgress,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -626,7 +626,10 @@ pub async fn download_and_install_update(
         .map_err(|error| error.to_string())?
 }
 
-fn download_and_install_update_blocking(app: AppHandle, update: AppUpdateInfo) -> Result<bool, String> {
+fn download_and_install_update_blocking(
+    app: AppHandle,
+    update: AppUpdateInfo,
+) -> Result<bool, String> {
     let installer_url = update
         .installer_url
         .as_deref()
@@ -645,7 +648,10 @@ fn download_and_install_update_blocking(app: AppHandle, update: AppUpdateInfo) -
         .ok_or_else(|| "Unable to determine home directory".to_string())?
         .join(".codex-switch")
         .join("updates")
-        .join(format!("v{}", update.latest_version.trim_start_matches('v')));
+        .join(format!(
+            "v{}",
+            update.latest_version.trim_start_matches('v')
+        ));
     fs::create_dir_all(&update_dir).map_err(|error| error.to_string())?;
 
     let installer_path = update_dir.join(&file_name);
@@ -700,7 +706,9 @@ fn download_update_file(
 
     emit_update_progress(app, "downloading", Some(0));
     loop {
-        let read = response.read(&mut buffer).map_err(|error| error.to_string())?;
+        let read = response
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
         if read == 0 {
             break;
         }
@@ -1475,7 +1483,13 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
     );
     let output_modalities = string_array(
         value,
-        &["output_modalities", "outputModalities", "output", "outputs", "modalities"],
+        &[
+            "output_modalities",
+            "outputModalities",
+            "output",
+            "outputs",
+            "modalities",
+        ],
     );
 
     Some(RemoteModel {
@@ -1907,7 +1921,10 @@ fn parse_openai_usage(value: &Value) -> ProviderBalance {
     }
 }
 
-fn parse_usage_window(window: Option<&Value>, default_label: &str) -> (i32, String, String, Option<i64>) {
+fn parse_usage_window(
+    window: Option<&Value>,
+    default_label: &str,
+) -> (i32, String, String, Option<i64>) {
     let Some(window) = window else {
         return (0, "Unknown".to_string(), default_label.to_string(), None);
     };
@@ -1918,7 +1935,10 @@ fn parse_usage_window(window: Option<&Value>, default_label: &str) -> (i32, Stri
         .round()
         .clamp(0.0, 100.0) as i32;
     let left = 100 - used;
-    let reset_at = window.get("reset_at").and_then(number_value).map(|value| value as i64);
+    let reset_at = window
+        .get("reset_at")
+        .and_then(number_value)
+        .map(|value| value as i64);
     let reset = reset_at
         .map(format_reset_seconds)
         .or_else(|| {
