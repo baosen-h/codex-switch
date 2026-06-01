@@ -70,6 +70,7 @@ impl Database {
 
     pub fn save_provider(&self, provider: Provider) -> Result<Provider, AppError> {
         let now = current_time_string();
+        let provider = self.with_linked_api_provider(provider)?;
         let provider_id = if provider.id.trim().is_empty() {
             format!("provider-{}", Uuid::new_v4())
         } else {
@@ -253,7 +254,9 @@ impl Database {
             params![id, current_time_string()],
         )?;
 
-        self.provider_by_id(id)
+        let provider = self.provider_by_id(id)?;
+        let provider = self.with_linked_api_provider(provider)?;
+        self.save_provider(provider)
     }
 
     pub fn current_provider_for_agent(&self, agent: &str) -> Result<Provider, AppError> {
@@ -268,6 +271,34 @@ impl Database {
             .ok_or_else(|| AppError::message("No active provider configured for this agent"))?;
 
         self.provider_by_id(&id)
+    }
+
+    fn with_linked_api_provider(&self, mut provider: Provider) -> Result<Provider, AppError> {
+        let api_provider_id = provider.api_provider_id.trim();
+        if api_provider_id.is_empty() {
+            return Ok(provider);
+        }
+        let Ok(api_provider) = self.api_provider_by_id(api_provider_id) else {
+            return Ok(provider);
+        };
+
+        let next_base_url = api_provider.base_url.trim().to_string();
+        let next_api_key = api_provider.api_key.trim().to_string();
+        let next_website_url = api_provider.website_url.trim().to_string();
+        let next_wire_api = normalized_wire_api(&api_provider.wire_api);
+        let changed = provider.base_url != next_base_url
+            || provider.api_key != next_api_key
+            || provider.website_url != next_website_url
+            || normalized_wire_api(&provider.wire_api) != next_wire_api;
+
+        provider.base_url = next_base_url;
+        provider.api_key = next_api_key;
+        provider.website_url = next_website_url;
+        provider.wire_api = next_wire_api;
+        if changed && provider.agent == "codex" {
+            provider.config_text.clear();
+        }
+        Ok(provider)
     }
 
     pub fn settings(&self) -> Result<AppSettings, AppError> {
