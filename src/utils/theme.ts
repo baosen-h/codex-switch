@@ -26,10 +26,6 @@ export function normalizeAppTheme(theme: AppTheme | string | undefined): AppThem
 
 export function normalizeBackgroundScene(scene: BackgroundScene | string | undefined): BackgroundScene {
   switch (scene) {
-    case "anime":
-    case "animeSakura":
-    case "animeNight":
-    case "mikuStage":
     case "raidenShogun":
     case "lumineGold":
     case "hutaoLantern":
@@ -38,6 +34,12 @@ export function normalizeBackgroundScene(scene: BackgroundScene | string | undef
     case "nahidaDream":
     case "furinaStage":
     case "keqingViolet":
+      return scene;
+    case "animeSakura":
+      return "yaeSakura";
+    case "anime":
+    case "animeNight":
+    case "mikuStage":
     case "animeCyberGirl":
     case "animeIdolPink":
     case "animeMaidCafe":
@@ -46,10 +48,10 @@ export function normalizeBackgroundScene(scene: BackgroundScene | string | undef
     case "animeKimonoFestival":
     case "animeMechaPilot":
     case "none":
-      return scene;
+      return "none";
     case "tech":
     case "city":
-      return "anime";
+      return "none";
     default:
       return "none";
   }

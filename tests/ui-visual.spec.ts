@@ -308,19 +308,42 @@ test("main pages render usable layouts", async ({ page }) => {
   await capture(page, "15-settings");
 });
 
-test("anime background in light mode keeps content readable", async ({ page }) => {
+test("real background in light mode keeps content readable", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(
       "codex-switch-ui-test-settings",
-      JSON.stringify({ backgroundColor: "light", backgroundScene: "anime", theme: "professional" }),
+      JSON.stringify({ backgroundColor: "light", backgroundScene: "raidenShogun", theme: "professional" }),
     );
   });
   await waitForApp(page);
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "anime");
+  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "raidenShogun");
   await expect(page.locator("label").first()).toHaveCSS("color", "rgb(15, 23, 42)");
-  await capture(page, "16-anime-light-settings");
+  await capture(page, "16-real-background-light-settings");
+});
+
+test("settings only lists image-backed background scenes", async ({ page }) => {
+  await waitForApp(page);
+  await page.getByTitle("Settings").click();
+
+  const backgroundSceneSelect = page.locator(".field").filter({ hasText: "Background scene" }).locator("select");
+  const options = await backgroundSceneSelect.locator("option").evaluateAll((items) =>
+    items.map((item) => ({ value: item.getAttribute("value"), text: item.textContent })),
+  );
+
+  expect(options.map((option) => option.value)).toEqual([
+    "none",
+    "raidenShogun",
+    "lumineGold",
+    "hutaoLantern",
+    "ayakaSnow",
+    "yaeSakura",
+    "nahidaDream",
+    "furinaStage",
+    "keqingViolet",
+  ]);
+  expect(options.map((option) => option.text).join(" ")).not.toContain("Anime night");
 });
 
 test("character background scenes use bundled image assets", async ({ page }) => {
@@ -360,6 +383,25 @@ test("update notice appears when a newer release exists", async ({ page }) => {
 
   await page.getByTitle("Dismiss this version").click();
   await expect(notice).toHaveCount(0);
+});
+
+test("update notice refreshes after the app regains focus", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.removeItem("codex-switch-ui-test-update");
+    window.localStorage.removeItem("codex-switch-dismissed-update");
+  });
+  await waitForApp(page);
+
+  const notice = page.locator(".update-notice");
+  await expect(notice).toHaveCount(0);
+
+  await page.evaluate(() => {
+    window.localStorage.setItem("codex-switch-ui-test-update", "true");
+    window.dispatchEvent(new Event("focus"));
+  });
+
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("v9.9.9");
 });
 
 test("expanded sidebar pages do not clip primary panels", async ({ page }) => {

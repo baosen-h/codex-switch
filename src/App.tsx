@@ -95,28 +95,39 @@ function App() {
     }
   }, []);
 
+  const checkUpdate = useCallback(async () => {
+    try {
+      const update = await appApi.checkAppUpdate(__APP_VERSION__);
+      if (!update) return;
+      if (window.localStorage.getItem(dismissedUpdateKey) === update.latestVersion) return;
+      setAppUpdate(update);
+    } catch {
+      // Update checks should never affect normal startup or offline use.
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    let cancelled = false;
-    const checkUpdate = async () => {
-      try {
-        const update = await appApi.checkAppUpdate(__APP_VERSION__);
-        if (!update || cancelled) return;
-        if (window.localStorage.getItem(dismissedUpdateKey) === update.latestVersion) return;
-        setAppUpdate(update);
-      } catch {
-        // Update checks should never affect normal startup or offline use.
-      }
+    const handleFocus = () => {
+      void checkUpdate();
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkUpdate();
+    };
+    const interval = window.setInterval(() => void checkUpdate(), 15 * 60 * 1000);
 
     void checkUpdate();
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [checkUpdate]);
 
   useEffect(() => {
     if (loading) return;
