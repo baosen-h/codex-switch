@@ -99,6 +99,11 @@ fn build_codex_toml(provider: &Provider) -> String {
         lines.push(format!("base_url = {:?}", base_url));
     }
 
+    lines.push(String::new());
+    lines.push("[features]".to_string());
+    lines.push("responses_websockets = false".to_string());
+    lines.push("responses_websockets_v2 = false".to_string());
+
     if !provider.extra_toml.trim().is_empty() {
         lines.push(String::new());
         lines.push(provider.extra_toml.trim().to_string());

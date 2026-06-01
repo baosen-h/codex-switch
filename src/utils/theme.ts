@@ -74,174 +74,114 @@ const backgroundScenes: Record<BackgroundScene, BackgroundWallpaper> = {
     wallpaperFallback: "none",
     wallpaperVeil: "none",
   },
-  anime: {
-    wallpaper: 'url("https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg")',
-    wallpaperFallback:
-      "radial-gradient(circle at 76% 18%, rgba(255, 117, 181, 0.24) 0 13%, transparent 30%), radial-gradient(circle at 20% 80%, rgba(80, 131, 255, 0.2) 0 14%, transparent 32%), linear-gradient(135deg, #080a15 0%, #10132a 42%, #1a1630 72%, #080a15 100%)",
-    wallpaperVeil:
-      "linear-gradient(90deg, rgba(3, 6, 12, 0.54) 0%, rgba(5, 9, 18, 0.24) 42%, rgba(5, 9, 18, 0.12) 100%), linear-gradient(180deg, rgba(3, 7, 14, 0.14) 0%, rgba(3, 7, 14, 0.34) 100%)",
-  },
-  animeSakura: {
-    wallpaper: 'url("https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg")',
-    wallpaperFallback:
-      "radial-gradient(circle at 76% 18%, rgba(255, 149, 198, 0.28) 0 13%, transparent 30%), radial-gradient(circle at 20% 78%, rgba(255, 214, 230, 0.28) 0 14%, transparent 34%), linear-gradient(135deg, #120a14 0%, #241124 44%, #3a1730 78%, #120a14 100%)",
-    wallpaperVeil:
-      "linear-gradient(90deg, rgba(19, 8, 16, 0.44) 0%, rgba(19, 8, 16, 0.22) 40%, rgba(19, 8, 16, 0.1) 100%), linear-gradient(180deg, rgba(19, 8, 16, 0.12) 0%, rgba(19, 8, 16, 0.34) 100%)",
-  },
-  animeNight: {
-    wallpaper: 'url("https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png")',
-    wallpaperFallback:
-      "radial-gradient(circle at 75% 20%, rgba(110, 126, 255, 0.28) 0 14%, transparent 30%), radial-gradient(circle at 18% 76%, rgba(214, 104, 255, 0.18) 0 14%, transparent 30%), linear-gradient(135deg, #070816 0%, #0d1330 48%, #170f2c 100%)",
-    wallpaperVeil:
-      "linear-gradient(90deg, rgba(3, 7, 15, 0.58) 0%, rgba(3, 7, 15, 0.26) 40%, rgba(3, 7, 15, 0.14) 100%), linear-gradient(180deg, rgba(3, 7, 15, 0.18) 0%, rgba(3, 7, 15, 0.38) 100%)",
-  },
-  mikuStage: animeScene(
-    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
-    "rgba(0, 229, 255, 0.3)",
-    "rgba(31, 236, 197, 0.22)",
-    "#06121d",
-    "#0b2a35",
-    "#17142c",
-  ),
-  raidenShogun: animeScene(
-    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
-    "rgba(167, 139, 250, 0.34)",
-    "rgba(244, 114, 182, 0.2)",
-    "#0b0714",
-    "#211138",
-    "#321b45",
-  ),
-  lumineGold: animeScene(
-    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
-    "rgba(250, 204, 21, 0.28)",
-    "rgba(125, 211, 252, 0.18)",
-    "#10100a",
-    "#2d2411",
-    "#352719",
-  ),
-  hutaoLantern: animeScene(
-    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
-    "rgba(248, 113, 113, 0.32)",
-    "rgba(251, 146, 60, 0.22)",
-    "#160707",
-    "#301417",
-    "#3b1c14",
-  ),
-  ayakaSnow: animeScene(
-    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
-    "rgba(147, 197, 253, 0.3)",
-    "rgba(224, 242, 254, 0.18)",
-    "#07111d",
-    "#13283a",
-    "#1b2440",
-  ),
-  yaeSakura: animeScene(
-    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
-    "rgba(244, 114, 182, 0.34)",
-    "rgba(216, 180, 254, 0.2)",
-    "#150812",
-    "#35162b",
-    "#411d37",
-  ),
-  nahidaDream: animeScene(
-    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
-    "rgba(134, 239, 172, 0.28)",
-    "rgba(250, 204, 21, 0.16)",
-    "#07140d",
-    "#18301d",
-    "#23351a",
-  ),
-  furinaStage: animeScene(
-    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
-    "rgba(56, 189, 248, 0.32)",
-    "rgba(99, 102, 241, 0.22)",
-    "#06101c",
-    "#142747",
-    "#111c36",
-  ),
-  keqingViolet: animeScene(
-    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
-    "rgba(196, 181, 253, 0.34)",
-    "rgba(129, 140, 248, 0.2)",
-    "#0d0818",
-    "#23143b",
-    "#2d1948",
-  ),
-  animeCyberGirl: animeScene(
-    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
-    "rgba(34, 211, 238, 0.3)",
-    "rgba(217, 70, 239, 0.2)",
-    "#050b15",
-    "#0d2534",
-    "#231135",
-  ),
-  animeIdolPink: animeScene(
-    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
-    "rgba(251, 113, 133, 0.34)",
-    "rgba(244, 114, 182, 0.24)",
-    "#170912",
-    "#331528",
-    "#42162d",
-  ),
-  animeMaidCafe: animeScene(
-    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
-    "rgba(192, 132, 252, 0.3)",
-    "rgba(251, 191, 36, 0.16)",
-    "#100b17",
-    "#271d33",
-    "#34213d",
-  ),
-  animeWitchNight: animeScene(
-    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
-    "rgba(168, 85, 247, 0.32)",
-    "rgba(45, 212, 191, 0.16)",
-    "#070815",
-    "#17123a",
-    "#281247",
-  ),
-  animeSchoolRooftop: animeScene(
-    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
-    "rgba(96, 165, 250, 0.28)",
-    "rgba(251, 146, 60, 0.18)",
-    "#07111c",
-    "#1b2a3d",
-    "#32241b",
-  ),
-  animeKimonoFestival: animeScene(
-    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
-    "rgba(248, 113, 113, 0.3)",
-    "rgba(250, 204, 21, 0.18)",
-    "#170909",
-    "#32161c",
-    "#3d2413",
-  ),
-  animeMechaPilot: animeScene(
-    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
-    "rgba(34, 211, 238, 0.28)",
-    "rgba(248, 113, 113, 0.18)",
-    "#060b12",
-    "#132434",
-    "#2d1822",
-  ),
+  anime: animeScene("#7dd3fc", "#f0abfc", "#07111d", "#122342", "#2a1737", 0),
+  animeSakura: animeScene("#f9a8d4", "#fda4af", "#160817", "#35152c", "#4a1830", 1),
+  animeNight: animeScene("#a78bfa", "#60a5fa", "#060816", "#111a3c", "#23133d", 2),
+  mikuStage: animeScene("#22d3ee", "#2dd4bf", "#04131c", "#093343", "#102a38", 3),
+  raidenShogun: animeScene("#c084fc", "#f472b6", "#090713", "#21113a", "#3a1745", 4),
+  lumineGold: animeScene("#fde68a", "#93c5fd", "#111008", "#32240d", "#403214", 5),
+  hutaoLantern: animeScene("#fb7185", "#fb923c", "#170708", "#351214", "#432113", 6),
+  ayakaSnow: animeScene("#bfdbfe", "#93c5fd", "#07121e", "#17304a", "#1b2542", 7),
+  yaeSakura: animeScene("#f0abfc", "#f9a8d4", "#130812", "#34162c", "#451c39", 8),
+  nahidaDream: animeScene("#86efac", "#fde68a", "#07140d", "#1b331d", "#26391a", 9),
+  furinaStage: animeScene("#38bdf8", "#818cf8", "#06111d", "#133052", "#142342", 10),
+  keqingViolet: animeScene("#c4b5fd", "#818cf8", "#0d0818", "#23143b", "#351b52", 11),
+  animeCyberGirl: animeScene("#22d3ee", "#d946ef", "#050b15", "#0d2534", "#251238", 12),
+  animeIdolPink: animeScene("#fb7185", "#f0abfc", "#170912", "#35152d", "#481934", 13),
+  animeMaidCafe: animeScene("#d8b4fe", "#fbbf24", "#100b17", "#271d33", "#3a2544", 14),
+  animeWitchNight: animeScene("#a855f7", "#2dd4bf", "#070815", "#17123a", "#30154f", 15),
+  animeSchoolRooftop: animeScene("#60a5fa", "#fb923c", "#07111c", "#1b2a3d", "#3b2616", 16),
+  animeKimonoFestival: animeScene("#f87171", "#facc15", "#170909", "#35151a", "#42270f", 17),
+  animeMechaPilot: animeScene("#22d3ee", "#f87171", "#060b12", "#132434", "#2d1822", 18),
 };
 
 function animeScene(
-  imageUrl: string,
-  glowA: string,
-  glowB: string,
+  accent: string,
+  secondary: string,
   start: string,
   mid: string,
   end: string,
+  variant: number,
 ): BackgroundWallpaper {
+  const svg = animeGirlSvg(accent, secondary, start, mid, end, variant);
   return {
-    wallpaper: `url("${imageUrl}")`,
+    wallpaper: `url("${svgDataUrl(svg)}")`,
     wallpaperFallback:
-      `radial-gradient(circle at 76% 18%, ${glowA} 0 13%, transparent 30%), ` +
-      `radial-gradient(circle at 20% 80%, ${glowB} 0 14%, transparent 32%), ` +
+      `radial-gradient(circle at 76% 18%, ${hexToRgba(accent, 0.3)} 0 13%, transparent 30%), ` +
+      `radial-gradient(circle at 20% 80%, ${hexToRgba(secondary, 0.22)} 0 14%, transparent 32%), ` +
       `linear-gradient(135deg, ${start} 0%, ${mid} 48%, ${end} 100%)`,
     wallpaperVeil:
       "linear-gradient(90deg, rgba(3, 6, 12, 0.58) 0%, rgba(5, 9, 18, 0.28) 42%, rgba(5, 9, 18, 0.14) 100%), linear-gradient(180deg, rgba(3, 7, 14, 0.16) 0%, rgba(3, 7, 14, 0.38) 100%)",
   };
+}
+
+function animeGirlSvg(
+  accent: string,
+  secondary: string,
+  start: string,
+  mid: string,
+  end: string,
+  variant: number,
+): string {
+  const flip = variant % 2 === 0 ? 1 : -1;
+  const cx = flip === 1 ? 980 : 620;
+  const hairOffset = (variant % 5) * 18;
+  const starOffset = (variant % 7) * 43;
+  const accessory =
+    variant % 3 === 0
+      ? `<path d="M${cx - 132} 156l52-74 52 74z" fill="${accent}" opacity=".72"/><path d="M${cx + 78} 156l52-74 52 74z" fill="${secondary}" opacity=".62"/>`
+      : variant % 3 === 1
+        ? `<circle cx="${cx - 126}" cy="156" r="30" fill="${accent}" opacity=".76"/><circle cx="${cx + 126}" cy="156" r="30" fill="${secondary}" opacity=".66"/>`
+        : `<path d="M${cx - 148} 148c54-52 108-52 160 0" fill="none" stroke="${accent}" stroke-width="18" stroke-linecap="round" opacity=".72"/>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${start}"/><stop offset=".52" stop-color="${mid}"/><stop offset="1" stop-color="${end}"/></linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${accent}"/><stop offset="1" stop-color="${secondary}"/></linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="30"/></filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <circle cx="${360 + starOffset}" cy="170" r="180" fill="${accent}" opacity=".18" filter="url(#soft)"/>
+  <circle cx="${1230 - starOffset}" cy="650" r="230" fill="${secondary}" opacity=".16" filter="url(#soft)"/>
+  <g opacity=".28" stroke="${accent}" stroke-width="2">
+    <path d="M0 ${160 + hairOffset}h1600M0 ${360 + hairOffset}h1600M0 ${560 + hairOffset}h1600"/>
+    <path d="M${140 + starOffset} 0v900M${520 + starOffset} 0v900M${1180 - starOffset} 0v900"/>
+  </g>
+  <g transform="translate(${cx} 474) scale(${flip} 1) translate(${-cx} -474)">
+    <path d="M${cx - 230} 198c-172 154-172 428-78 612 78-124 112-246 88-388 58 112 96 248 82 390h362c-24-152 16-282 82-396-34 138 2 272 94 394 108-238 64-510-118-636-128-88-344-78-482 24z" fill="url(#hair)" opacity=".78"/>
+    <path d="M${cx - 278} 240c-132 84-240 264-248 512 140-78 232-204 268-358z" fill="${accent}" opacity=".52"/>
+    <path d="M${cx + 278} 240c132 84 240 264 248 512-140-78-232-204-268-358z" fill="${secondary}" opacity=".46"/>
+    ${accessory}
+    <ellipse cx="${cx}" cy="280" rx="112" ry="134" fill="#ffd8d0" opacity=".92"/>
+    <path d="M${cx - 118} 238c74-104 188-112 256-20-42-16-96-10-142 18-36 22-74 24-114 2z" fill="url(#hair)" opacity=".94"/>
+    <ellipse cx="${cx - 42}" cy="292" rx="15" ry="25" fill="${start}" opacity=".9"/>
+    <ellipse cx="${cx + 42}" cy="292" rx="15" ry="25" fill="${start}" opacity=".9"/>
+    <circle cx="${cx - 36}" cy="284" r="5" fill="#fff" opacity=".9"/>
+    <circle cx="${cx + 48}" cy="284" r="5" fill="#fff" opacity=".9"/>
+    <path d="M${cx - 26} 342c20 18 54 18 74 0" fill="none" stroke="${end}" stroke-width="6" stroke-linecap="round" opacity=".58"/>
+    <path d="M${cx - 132} 454c-58 56-86 168-112 328h488c-28-160-56-272-112-328-52 46-180 46-264 0z" fill="${mid}" opacity=".9"/>
+    <path d="M${cx - 108} 484c64 44 156 44 216 0l46 298h-308z" fill="${accent}" opacity=".38"/>
+  </g>
+  <g fill="#fff" opacity=".55">
+    <circle cx="${220 + starOffset}" cy="150" r="3"/><circle cx="${440 + starOffset}" cy="250" r="2"/><circle cx="${1320 - starOffset}" cy="230" r="3"/>
+    <circle cx="${1120 - starOffset}" cy="760" r="2"/><circle cx="${680 + starOffset}" cy="110" r="2"/><circle cx="${1480 - starOffset}" cy="520" r="3"/>
+  </g>
+</svg>`;
+}
+
+function svgDataUrl(svg: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(svg)
+    .replace(/'/g, "%27")
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")}`;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "");
+  const red = parseInt(clean.slice(0, 2), 16);
+  const green = parseInt(clean.slice(2, 4), 16);
+  const blue = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 export function applyBackgroundScene(scene: BackgroundScene): void {
