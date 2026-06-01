@@ -41,6 +41,22 @@ const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: Translat
   { value: "anime", labelKey: "backgroundSceneAnime" },
   { value: "animeSakura", labelKey: "backgroundSceneSakura" },
   { value: "animeNight", labelKey: "backgroundSceneNight" },
+  { value: "mikuStage", labelKey: "backgroundSceneMikuStage" },
+  { value: "raidenShogun", labelKey: "backgroundSceneRaidenShogun" },
+  { value: "lumineGold", labelKey: "backgroundSceneLumineGold" },
+  { value: "hutaoLantern", labelKey: "backgroundSceneHutaoLantern" },
+  { value: "ayakaSnow", labelKey: "backgroundSceneAyakaSnow" },
+  { value: "yaeSakura", labelKey: "backgroundSceneYaeSakura" },
+  { value: "nahidaDream", labelKey: "backgroundSceneNahidaDream" },
+  { value: "furinaStage", labelKey: "backgroundSceneFurinaStage" },
+  { value: "keqingViolet", labelKey: "backgroundSceneKeqingViolet" },
+  { value: "animeCyberGirl", labelKey: "backgroundSceneCyberGirl" },
+  { value: "animeIdolPink", labelKey: "backgroundSceneIdolPink" },
+  { value: "animeMaidCafe", labelKey: "backgroundSceneMaidCafe" },
+  { value: "animeWitchNight", labelKey: "backgroundSceneWitchNight" },
+  { value: "animeSchoolRooftop", labelKey: "backgroundSceneSchoolRooftop" },
+  { value: "animeKimonoFestival", labelKey: "backgroundSceneKimonoFestival" },
+  { value: "animeMechaPilot", labelKey: "backgroundSceneMechaPilot" },
 ];
 
 export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {

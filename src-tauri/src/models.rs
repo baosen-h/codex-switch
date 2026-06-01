@@ -190,6 +190,8 @@ pub struct SessionRecord {
     pub id: String,
     pub provider_id: String,
     pub provider_name: String,
+    #[serde(default)]
+    pub provider_model: String,
     pub agent: String,
     pub session_id: String,
     pub workspace_path: String,

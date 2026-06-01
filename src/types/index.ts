@@ -140,6 +140,7 @@ export interface SessionRecord {
   id: string;
   providerId: string;
   providerName: string;
+  providerModel: string;
   agent: AgentKind;
   sessionId: string;
   workspacePath: string;
@@ -171,7 +172,27 @@ export interface HandoffPreview {
 }
 
 export type BackgroundColorMode = "system" | "dark" | "light";
-export type BackgroundScene = "none" | "anime" | "animeSakura" | "animeNight";
+export type BackgroundScene =
+  | "none"
+  | "anime"
+  | "animeSakura"
+  | "animeNight"
+  | "mikuStage"
+  | "raidenShogun"
+  | "lumineGold"
+  | "hutaoLantern"
+  | "ayakaSnow"
+  | "yaeSakura"
+  | "nahidaDream"
+  | "furinaStage"
+  | "keqingViolet"
+  | "animeCyberGirl"
+  | "animeIdolPink"
+  | "animeMaidCafe"
+  | "animeWitchNight"
+  | "animeSchoolRooftop"
+  | "animeKimonoFestival"
+  | "animeMechaPilot";
 export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "slate" | "rose" | "violet";
 
 export interface AppSettings {

@@ -401,12 +401,33 @@ pub fn launch_codex(state: State<'_, AppState>, request: LaunchRequest) -> Resul
 
 #[tauri::command]
 pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Result<bool, String> {
-    let settings = state
+    let db = state
         .db
         .lock()
-        .map_err(|_| "Failed to lock database".to_string())?
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let settings = db
         .settings()
         .map_err(|error| error.to_string())?;
+    if session.agent == AGENT_CODEX {
+        let source_path = PathBuf::from(&session.source_path);
+        let resume_record = session_manager::session_record_for_path(&source_path)
+            .unwrap_or_else(|_| session.clone());
+        if let Some(provider) = provider_for_session(&db, &resume_record) {
+            let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
+            let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
+            let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+            write_provider(
+                &provider,
+                &AgentDirs {
+                    codex: &codex_dir,
+                    claude: &claude_dir,
+                    gemini: &gemini_dir,
+                },
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    drop(db);
 
     launch_terminal_command(
         &settings.terminal_program,
@@ -415,6 +436,40 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
     )
     .map_err(|error| error.to_string())?;
     Ok(true)
+}
+
+fn provider_for_session(db: &Database, session: &SessionRecord) -> Option<Provider> {
+    let providers = db.providers().ok()?;
+    let session_model = session.provider_model.trim();
+    let session_provider = session.provider_name.trim();
+    let session_provider_id = session.provider_id.trim();
+
+    if !session_model.is_empty() {
+        if let Some(provider) = providers.iter().find(|provider| {
+            provider.agent == AGENT_CODEX && provider.model.trim().eq_ignore_ascii_case(session_model)
+        }) {
+            return Some(provider.clone());
+        }
+    }
+
+    let normalized_provider = normalize_lookup(session_provider);
+    let normalized_provider_id = normalize_lookup(session_provider_id);
+    providers
+        .into_iter()
+        .filter(|provider| provider.agent == AGENT_CODEX)
+        .find(|provider| {
+            normalize_lookup(&provider.name) == normalized_provider
+                || normalize_lookup(&provider.id) == normalized_provider_id
+                || normalize_lookup(&provider.api_provider_id) == normalized_provider_id
+        })
+}
+
+fn normalize_lookup(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[tauri::command]
@@ -759,6 +814,15 @@ fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
         .to_string_lossy()
         .to_string();
     let app_exe = ps_single_quote(&app_exe);
+    let local_app_exe = ps_single_quote(
+        r"%LOCALAPPDATA%\Programs\Codex Switch\Codex Switch.exe",
+    );
+    let program_files_exe = ps_single_quote(
+        r"%ProgramFiles%\Codex Switch\Codex Switch.exe",
+    );
+    let program_files_x86_exe = ps_single_quote(
+        r"%ProgramFiles(x86)%\Codex Switch\Codex Switch.exe",
+    );
     let pid = std::process::id();
     let lower = path
         .file_name()
@@ -779,9 +843,14 @@ fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
     let command = format!(
         "$ErrorActionPreference='Stop'; \
          Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
+         Get-Process | Where-Object {{ $_.Id -ne $PID -and ($_.ProcessName -eq 'codex-switch' -or $_.ProcessName -eq 'Codex Switch') }} | Stop-Process -Force -ErrorAction SilentlyContinue; \
          {install_command}; \
-         Start-Sleep -Milliseconds 600; \
-         if (Test-Path '{app_exe}') {{ Start-Process -FilePath '{app_exe}' }}"
+         Start-Sleep -Milliseconds 900; \
+         $candidates = @('{local_app_exe}', '{program_files_exe}', '{program_files_x86_exe}', '{app_exe}'); \
+         foreach ($candidate in $candidates) {{ \
+           $expanded = [Environment]::ExpandEnvironmentVariables($candidate); \
+           if (Test-Path $expanded) {{ Start-Process -FilePath $expanded; break }} \
+         }}"
     );
 
     Command::new("powershell")

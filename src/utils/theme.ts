@@ -21,6 +21,22 @@ export function normalizeBackgroundScene(scene: BackgroundScene | string | undef
     case "anime":
     case "animeSakura":
     case "animeNight":
+    case "mikuStage":
+    case "raidenShogun":
+    case "lumineGold":
+    case "hutaoLantern":
+    case "ayakaSnow":
+    case "yaeSakura":
+    case "nahidaDream":
+    case "furinaStage":
+    case "keqingViolet":
+    case "animeCyberGirl":
+    case "animeIdolPink":
+    case "animeMaidCafe":
+    case "animeWitchNight":
+    case "animeSchoolRooftop":
+    case "animeKimonoFestival":
+    case "animeMechaPilot":
     case "none":
       return scene;
     case "tech":
@@ -79,7 +95,154 @@ const backgroundScenes: Record<BackgroundScene, BackgroundWallpaper> = {
     wallpaperVeil:
       "linear-gradient(90deg, rgba(3, 7, 15, 0.58) 0%, rgba(3, 7, 15, 0.26) 40%, rgba(3, 7, 15, 0.14) 100%), linear-gradient(180deg, rgba(3, 7, 15, 0.18) 0%, rgba(3, 7, 15, 0.38) 100%)",
   },
+  mikuStage: animeScene(
+    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
+    "rgba(0, 229, 255, 0.3)",
+    "rgba(31, 236, 197, 0.22)",
+    "#06121d",
+    "#0b2a35",
+    "#17142c",
+  ),
+  raidenShogun: animeScene(
+    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
+    "rgba(167, 139, 250, 0.34)",
+    "rgba(244, 114, 182, 0.2)",
+    "#0b0714",
+    "#211138",
+    "#321b45",
+  ),
+  lumineGold: animeScene(
+    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
+    "rgba(250, 204, 21, 0.28)",
+    "rgba(125, 211, 252, 0.18)",
+    "#10100a",
+    "#2d2411",
+    "#352719",
+  ),
+  hutaoLantern: animeScene(
+    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
+    "rgba(248, 113, 113, 0.32)",
+    "rgba(251, 146, 60, 0.22)",
+    "#160707",
+    "#301417",
+    "#3b1c14",
+  ),
+  ayakaSnow: animeScene(
+    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
+    "rgba(147, 197, 253, 0.3)",
+    "rgba(224, 242, 254, 0.18)",
+    "#07111d",
+    "#13283a",
+    "#1b2440",
+  ),
+  yaeSakura: animeScene(
+    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
+    "rgba(244, 114, 182, 0.34)",
+    "rgba(216, 180, 254, 0.2)",
+    "#150812",
+    "#35162b",
+    "#411d37",
+  ),
+  nahidaDream: animeScene(
+    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
+    "rgba(134, 239, 172, 0.28)",
+    "rgba(250, 204, 21, 0.16)",
+    "#07140d",
+    "#18301d",
+    "#23351a",
+  ),
+  furinaStage: animeScene(
+    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
+    "rgba(56, 189, 248, 0.32)",
+    "rgba(99, 102, 241, 0.22)",
+    "#06101c",
+    "#142747",
+    "#111c36",
+  ),
+  keqingViolet: animeScene(
+    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
+    "rgba(196, 181, 253, 0.34)",
+    "rgba(129, 140, 248, 0.2)",
+    "#0d0818",
+    "#23143b",
+    "#2d1948",
+  ),
+  animeCyberGirl: animeScene(
+    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
+    "rgba(34, 211, 238, 0.3)",
+    "rgba(217, 70, 239, 0.2)",
+    "#050b15",
+    "#0d2534",
+    "#231135",
+  ),
+  animeIdolPink: animeScene(
+    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
+    "rgba(251, 113, 133, 0.34)",
+    "rgba(244, 114, 182, 0.24)",
+    "#170912",
+    "#331528",
+    "#42162d",
+  ),
+  animeMaidCafe: animeScene(
+    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
+    "rgba(192, 132, 252, 0.3)",
+    "rgba(251, 191, 36, 0.16)",
+    "#100b17",
+    "#271d33",
+    "#34213d",
+  ),
+  animeWitchNight: animeScene(
+    "https://w.wallhaven.cc/full/pk/wallhaven-pkgkkp.png",
+    "rgba(168, 85, 247, 0.32)",
+    "rgba(45, 212, 191, 0.16)",
+    "#070815",
+    "#17123a",
+    "#281247",
+  ),
+  animeSchoolRooftop: animeScene(
+    "https://w.wallhaven.cc/full/4v/wallhaven-4v9ml0.jpg",
+    "rgba(96, 165, 250, 0.28)",
+    "rgba(251, 146, 60, 0.18)",
+    "#07111c",
+    "#1b2a3d",
+    "#32241b",
+  ),
+  animeKimonoFestival: animeScene(
+    "https://w.wallhaven.cc/full/y8/wallhaven-y8622k.jpg",
+    "rgba(248, 113, 113, 0.3)",
+    "rgba(250, 204, 21, 0.18)",
+    "#170909",
+    "#32161c",
+    "#3d2413",
+  ),
+  animeMechaPilot: animeScene(
+    "https://w.wallhaven.cc/full/od/wallhaven-od87p9.jpg",
+    "rgba(34, 211, 238, 0.28)",
+    "rgba(248, 113, 113, 0.18)",
+    "#060b12",
+    "#132434",
+    "#2d1822",
+  ),
 };
+
+function animeScene(
+  imageUrl: string,
+  glowA: string,
+  glowB: string,
+  start: string,
+  mid: string,
+  end: string,
+): BackgroundWallpaper {
+  return {
+    wallpaper: `url("${imageUrl}")`,
+    wallpaperFallback:
+      `radial-gradient(circle at 76% 18%, ${glowA} 0 13%, transparent 30%), ` +
+      `radial-gradient(circle at 20% 80%, ${glowB} 0 14%, transparent 32%), ` +
+      `linear-gradient(135deg, ${start} 0%, ${mid} 48%, ${end} 100%)`,
+    wallpaperVeil:
+      "linear-gradient(90deg, rgba(3, 6, 12, 0.58) 0%, rgba(5, 9, 18, 0.28) 42%, rgba(5, 9, 18, 0.14) 100%), linear-gradient(180deg, rgba(3, 7, 14, 0.16) 0%, rgba(3, 7, 14, 0.38) 100%)",
+  };
+}
 
 export function applyBackgroundScene(scene: BackgroundScene): void {
   const root = document.documentElement;

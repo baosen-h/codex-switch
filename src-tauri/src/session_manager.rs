@@ -141,6 +141,8 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
     let mut project_dir: Option<String> = None;
     let mut created_at: Option<String> = None;
     let mut first_user_text: Option<String> = None;
+    let mut model_provider: Option<String> = None;
+    let mut model: Option<String> = None;
 
     for line in &head {
         let value: Value = serde_json::from_str(line).ok()?;
@@ -168,6 +170,29 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
                 }
                 if let Some(timestamp) = payload.get("timestamp").and_then(Value::as_str) {
                     created_at.get_or_insert_with(|| timestamp.to_string());
+                }
+                if model_provider.is_none() {
+                    model_provider = payload
+                        .get("model_provider")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+            }
+        }
+
+        if value.get("type").and_then(Value::as_str) == Some("turn_context") {
+            if let Some(payload) = value.get("payload") {
+                if model.is_none() {
+                    model = payload
+                        .get("model")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+                if model_provider.is_none() {
+                    model_provider = payload
+                        .get("model_provider")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
                 }
             }
         }
@@ -246,8 +271,9 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
 
     Some(SessionRecord {
         id: path.to_string_lossy().to_string(),
-        provider_id: "codex".to_string(),
-        provider_name: "Codex".to_string(),
+        provider_id: model_provider.clone().unwrap_or_else(|| "codex".to_string()),
+        provider_name: model_provider.unwrap_or_else(|| "Codex".to_string()),
+        provider_model: model.unwrap_or_default(),
         agent: "codex".to_string(),
         session_id: session_id.clone(),
         workspace_path,
@@ -670,6 +696,7 @@ fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
         id: path.to_string_lossy().to_string(),
         provider_id: "claude".to_string(),
         provider_name: "Claude Code".to_string(),
+        provider_model: String::new(),
         agent: "claude".to_string(),
         session_id: session_id.clone(),
         workspace_path,
@@ -805,6 +832,7 @@ fn parse_gemini_session(path: &Path) -> Option<SessionRecord> {
         id: path.to_string_lossy().to_string(),
         provider_id: "gemini".to_string(),
         provider_name: "Gemini".to_string(),
+        provider_model: String::new(),
         agent: "gemini".to_string(),
         session_id: session_id.clone(),
         workspace_path: String::new(),
