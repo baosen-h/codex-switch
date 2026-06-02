@@ -38,12 +38,20 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
     <td><img src="docs/images/agents.png" alt="Agents" width="100%" /></td>
   </tr>
   <tr>
+    <td align="center"><sub>Manage OpenAI, OpenAI-compatible, Anthropic-compatible, Gemini, and other provider records.</sub></td>
+    <td align="center"><sub>Generate and switch Codex, Claude Code, and Gemini configs from saved providers.</sub></td>
+  </tr>
+  <tr>
     <th align="center">Talking</th>
     <th align="center">Drawing</th>
   </tr>
   <tr>
     <td><img src="docs/images/talking.png" alt="Talking" width="100%" /></td>
     <td><img src="docs/images/drawing.png" alt="Drawing" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Chat with models that support text, files, and image input.</sub></td>
+    <td align="center"><sub>Generate and edit images with supported image models.</sub></td>
   </tr>
 </table>
 
@@ -53,6 +61,9 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
   </tr>
   <tr>
     <td><img src="docs/images/light-mode.png" alt="Settings in light mode" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Configure directories, language, theme, background, updates, and session recording.</sub></td>
   </tr>
 </table>
 
