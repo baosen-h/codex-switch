@@ -761,7 +761,14 @@ fn prepare_payload(data: &Value, model: &str) -> Value {
         "stream".to_string(),
         Value::Bool(data.get("stream").and_then(Value::as_bool).unwrap_or(false)),
     );
-    for k in ["tools", "tool_choice", "temperature", "top_p", "max_tokens"] {
+    for k in [
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "temperature",
+        "top_p",
+        "max_tokens",
+    ] {
         if let Some(v) = data.get(k).cloned() {
             payload.insert(k.to_string(), v);
         }
@@ -784,10 +791,6 @@ fn transform_payload(payload: &mut Value, model_after_rewrite: &str) {
             if let Some(mo) = m.as_object_mut() {
                 if mo.get("role").and_then(Value::as_str) == Some("developer") {
                     mo.insert("role".to_string(), Value::String("system".into()));
-                }
-                if is_mimo && mo.get("role").and_then(Value::as_str) == Some("assistant") {
-                    mo.entry("reasoning_content".to_string())
-                        .or_insert_with(|| Value::String(String::new()));
                 }
             }
         }
@@ -818,6 +821,45 @@ fn transform_payload(payload: &mut Value, model_after_rewrite: &str) {
     }
     if is_deepseek {
         apply_deepseek_quirks(obj);
+    }
+    if is_mimo || is_deepseek {
+        backfill_missing_reasoning_content(obj);
+    }
+}
+
+const MIXED_MODE_REASONING_PLACEHOLDER: &str = "(this turn ran without thinking mode)";
+
+fn backfill_missing_reasoning_content(obj: &mut Map<String, Value>) {
+    let thinking_enabled = obj
+        .get("thinking")
+        .and_then(|value| value.get("type"))
+        .and_then(Value::as_str)
+        .map(|value| value != "disabled")
+        .unwrap_or(false);
+    if !thinking_enabled {
+        return;
+    }
+
+    let Some(messages) = obj.get_mut("messages").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for message in messages {
+        let Some(message_obj) = message.as_object_mut() else {
+            continue;
+        };
+        if message_obj.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let has_reasoning = message_obj
+            .get("reasoning_content")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty());
+        if !has_reasoning {
+            message_obj.insert(
+                "reasoning_content".to_string(),
+                Value::String(MIXED_MODE_REASONING_PLACEHOLDER.to_string()),
+            );
+        }
     }
 }
 
@@ -854,6 +896,9 @@ fn apply_mimo_quirks(obj: &mut Map<String, Value>, model: &str) {
                 "type": "enabled"
             }),
         );
+    }
+    if model != "mimo-v2-flash" {
+        obj.insert("parallel_tool_calls".to_string(), Value::Bool(true));
     }
     if matches!(model.as_str(), "mimo-v2.5-pro" | "mimo-v2.5")
         && obj
@@ -896,9 +941,8 @@ fn is_server_side_only_tool(t: &str) -> bool {
 }
 
 /// Codex 的 `local_shell` builtin 映射成普通 function tool。
-/// codex 客户端能识别 `shell` 和 `local_shell_call` 两种工具名 callid，
-/// 所以发回去 `shell` function 的 tool_calls 后再由 emit_completed 把
-/// type 改成 local_shell_call 即可。
+/// codex 客户端能识别 `shell` function_call；返回侧保持 function_call，
+/// 避免把真实函数工具（例如 `shell_command`）误转成 builtin 形态。
 fn local_shell_as_function() -> Value {
     json!({
         "type": "function",
@@ -989,6 +1033,28 @@ fn transform_tool(tool: Value, is_glm: bool, model: &str, out: &mut Vec<Value>) 
                         "additionalProperties": true,
                     }
                 }
+            }));
+        }
+        "tool_search" => {
+            let description = tool
+                .get("description")
+                .cloned()
+                .filter(|value| !value.is_null());
+            let parameters = tool
+                .get("parameters")
+                .cloned()
+                .filter(|value| !value.is_null());
+            let mut function = Map::new();
+            function.insert("name".to_string(), Value::String("tool_search".to_string()));
+            if let Some(description) = description {
+                function.insert("description".to_string(), description);
+            }
+            if let Some(parameters) = parameters {
+                function.insert("parameters".to_string(), parameters);
+            }
+            out.push(json!({
+                "type": "function",
+                "function": Value::Object(function),
             }));
         }
         "namespace" => {
@@ -1515,25 +1581,6 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
             "call_id": tc.call_id,
         });
         attach_namespace(&mut item, state, &tc.name);
-        // Codex-side coercion: shell tools map onto local_shell_call.
-        if matches!(
-            tc.name.as_str(),
-            "shell" | "container.exec" | "shell_command"
-        ) {
-            if let Some(o) = item.as_object_mut() {
-                o.insert("type".to_string(), Value::String("local_shell_call".into()));
-                if let Ok(args_json) = serde_json::from_str::<Value>(&safe_arguments) {
-                    let command = args_json
-                        .get("command")
-                        .cloned()
-                        .unwrap_or(Value::Array(vec![]));
-                    o.insert(
-                        "action".to_string(),
-                        json!({"type": "exec", "command": command}),
-                    );
-                }
-            }
-        }
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
@@ -1645,24 +1692,6 @@ fn collect_final_output(state: &TranslatorState) -> Value {
             "call_id": tc.call_id,
         });
         attach_namespace(&mut item, state, &tc.name);
-        if matches!(
-            tc.name.as_str(),
-            "shell" | "container.exec" | "shell_command"
-        ) {
-            if let Some(o) = item.as_object_mut() {
-                o.insert("type".to_string(), Value::String("local_shell_call".into()));
-                if let Ok(args_json) = serde_json::from_str::<Value>(&safe_arguments) {
-                    let command = args_json
-                        .get("command")
-                        .cloned()
-                        .unwrap_or(Value::Array(vec![]));
-                    o.insert(
-                        "action".to_string(),
-                        json!({"type": "exec", "command": command}),
-                    );
-                }
-            }
-        }
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
@@ -1736,24 +1765,6 @@ pub fn translate_sync_response(
                 .unwrap_or("")
                 .to_string();
             attach_namespace(&mut item, state, &name_str);
-            if matches!(
-                name_str.as_str(),
-                "shell" | "container.exec" | "shell_command"
-            ) {
-                if let Some(o) = item.as_object_mut() {
-                    o.insert("type".to_string(), Value::String("local_shell_call".into()));
-                    if let Ok(args_val) = serde_json::from_str::<Value>(&args_string) {
-                        let command = args_val
-                            .get("command")
-                            .cloned()
-                            .unwrap_or(Value::Array(vec![]));
-                        o.insert(
-                            "action".to_string(),
-                            json!({"type": "exec", "command": command}),
-                        );
-                    }
-                }
-            }
             output_items.push(item);
         }
     }
@@ -2300,6 +2311,7 @@ mod tests {
         assert!(v.get("max_tokens").is_none());
         assert_eq!(v["max_completion_tokens"], 2048);
         assert_eq!(v["thinking"]["type"], "enabled");
+        assert_eq!(v["parallel_tool_calls"], true);
     }
 
     #[test]
@@ -2449,7 +2461,10 @@ mod tests {
             translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5-pro").unwrap();
         let v = parse(&body);
         assert_eq!(v["messages"][0]["role"], "assistant");
-        assert_eq!(v["messages"][0]["reasoning_content"], "");
+        assert_eq!(
+            v["messages"][0]["reasoning_content"],
+            MIXED_MODE_REASONING_PLACEHOLDER
+        );
     }
 
     #[test]
@@ -2657,6 +2672,97 @@ mod tests {
         let f = &tools[0]["function"];
         assert_eq!(f["name"], "shell");
         assert!(f["parameters"]["properties"]["command"].is_object());
+    }
+
+    #[test]
+    fn tool_search_mapped_to_function() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "find tools",
+            "tools": [{
+                "type": "tool_search",
+                "description": "Search deferred tools.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"]
+                }
+            }],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5-pro").unwrap();
+        let v = parse(&body);
+        let tools = v["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "tool_search");
+        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "query");
+    }
+
+    #[test]
+    fn sync_function_tool_call_name_is_preserved() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "hi",
+            "tools": [{"type": "function", "function": {"name": "shell_command", "parameters": {"type": "object"}}}],
+        });
+        let (_body, state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5-pro").unwrap();
+        let chat = json!({
+            "id": "chatcmpl-tool",
+            "created": 1700000000,
+            "model": "mimo-v2.5-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_shell_command",
+                        "type": "function",
+                        "function": {"name": "shell_command", "arguments": "{\"command\":\"Get-ChildItem\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = translate_sync_response(&state, &serde_json::to_vec(&chat).unwrap()).unwrap();
+        let v = parse(&body);
+        let output = v["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "function_call");
+        assert_eq!(output[0]["name"], "shell_command");
+        assert_eq!(output[0]["call_id"], "call_shell_command");
+    }
+
+    #[test]
+    fn stream_function_tool_call_name_is_preserved() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "hi",
+            "stream": true,
+            "tools": [{"type": "function", "function": {"name": "shell_command", "parameters": {"type": "object"}}}],
+        });
+        let (_body, mut state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5-pro").unwrap();
+        let chunk = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_shell_command",
+                        "function": {
+                            "name": "shell_command",
+                            "arguments": "{\"command\":\"Get-ChildItem\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+        let mut all: Vec<u8> = Vec::new();
+        for event in handle_chunk(&mut state, &serde_json::to_vec(&chunk).unwrap()) {
+            all.extend(event);
+        }
+        all.extend(emit_completed(&mut state));
+        assert!(contains_bytes(&all, b"\"type\":\"function_call\""));
+        assert!(contains_bytes(&all, b"\"name\":\"shell_command\""));
+        assert!(!contains_bytes(&all, b"\"type\":\"local_shell_call\""));
     }
 
     #[test]

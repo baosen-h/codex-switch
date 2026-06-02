@@ -198,7 +198,7 @@ pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppErro
     let auth_path = config_dir.join("auth.json");
     let config_path = config_dir.join("config.toml");
 
-    let text = if uses_codex_proxy(provider) {
+    let text = if uses_codex_proxy(provider) || saved_codex_text_uses_proxy(&provider.config_text) {
         render_codex(provider)
     } else {
         effective_text(provider, || render_codex(provider))
@@ -228,6 +228,10 @@ pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppErro
 
 fn uses_codex_proxy(provider: &Provider) -> bool {
     provider.wire_api.trim() == "chat"
+}
+
+fn saved_codex_text_uses_proxy(text: &str) -> bool {
+    text.contains(&proxy_base_url()) || text.contains("http://127.0.0.1:47632")
 }
 
 pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
@@ -274,4 +278,47 @@ pub fn write_gemini(provider: &Provider, config_dir: &Path) -> Result<(), AppErr
     fs::write(config_path, config_body)?;
     fs::write(env_path, env_body)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn codex_provider(wire_api: &str, config_text: &str) -> Provider {
+        Provider {
+            id: "provider-test".to_string(),
+            name: "PackyCode".to_string(),
+            agent: AGENT_CODEX.to_string(),
+            api_provider_id: String::new(),
+            base_url: "https://www.packyapi.com/v1".to_string(),
+            api_key: "sk-test".to_string(),
+            website_url: String::new(),
+            model: "gpt-5.5".to_string(),
+            wire_api: wire_api.to_string(),
+            reasoning_effort: String::new(),
+            extra_toml: String::new(),
+            config_text: config_text.to_string(),
+            is_current: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn render_codex_uses_proxy_only_for_chat_wire_api() {
+        let chat = codex_provider("chat", "");
+        let responses = codex_provider("responses", "");
+
+        assert!(render_codex(&chat).contains("http://127.0.0.1:47632/v1"));
+        assert!(render_codex(&responses).contains("https://www.packyapi.com/v1"));
+    }
+
+    #[test]
+    fn stale_proxy_preview_is_detected() {
+        let text = r#"# -- ~/.codex/config.toml --
+base_url = "http://127.0.0.1:47632/v1"
+"#;
+
+        assert!(saved_codex_text_uses_proxy(text));
+    }
 }

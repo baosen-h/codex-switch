@@ -65,24 +65,45 @@ fn select_provider_for_request(
         return Ok(current);
     }
 
-    let Some(model) = extract_model(&request.body).map(|model| model.to_ascii_lowercase()) else {
-        return Ok(current);
-    };
+    let model = extract_model(&request.body);
     let providers = db.providers().map_err(|error| error.to_string())?;
-    Ok(providers
-        .iter()
-        .filter(|provider| provider.agent == AGENT_CODEX)
-        .filter(|provider| provider.model.trim().eq_ignore_ascii_case(&model))
-        .find(|provider| uses_chat_completions(provider))
+    Ok(select_responses_provider_for_model(
+        &current,
+        &providers,
+        model.as_deref(),
+    ))
+}
+
+fn select_responses_provider_for_model(
+    current: &Provider,
+    providers: &[Provider],
+    model: Option<&str>,
+) -> Provider {
+    let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
+        return current.clone();
+    };
+
+    if current.agent == AGENT_CODEX && current.model.trim().eq_ignore_ascii_case(model) {
+        return current.clone();
+    }
+
+    let mut first_match: Option<&Provider> = None;
+    let mut first_chat_match: Option<&Provider> = None;
+    for provider in providers {
+        if provider.agent != AGENT_CODEX || !provider.model.trim().eq_ignore_ascii_case(model) {
+            continue;
+        }
+        first_match.get_or_insert(provider);
+        if uses_chat_completions(provider) {
+            first_chat_match = Some(provider);
+            break;
+        }
+    }
+
+    first_chat_match
+        .or(first_match)
         .cloned()
-        .or_else(|| {
-            providers
-                .iter()
-                .filter(|provider| provider.agent == AGENT_CODEX)
-                .find(|provider| provider.model.trim().eq_ignore_ascii_case(&model))
-                .cloned()
-        })
-        .unwrap_or(current))
+        .unwrap_or_else(|| current.clone())
 }
 
 struct HttpRequest {
@@ -653,4 +674,72 @@ fn parse_debug_json(bytes: &[u8]) -> Option<Value> {
 
 fn uses_chat_completions(provider: &Provider) -> bool {
     provider.wire_api.trim() == "chat"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider(id: &str, model: &str, wire_api: &str, is_current: bool) -> Provider {
+        Provider {
+            id: id.to_string(),
+            name: id.to_string(),
+            agent: AGENT_CODEX.to_string(),
+            api_provider_id: String::new(),
+            base_url: format!("https://{id}.example/v1"),
+            api_key: String::new(),
+            website_url: String::new(),
+            model: model.to_string(),
+            wire_api: wire_api.to_string(),
+            reasoning_effort: String::new(),
+            extra_toml: String::new(),
+            config_text: String::new(),
+            is_current,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn current_responses_provider_wins_for_same_model() {
+        let current = provider("packy", "gpt-5.5", "responses", true);
+        let providers = vec![
+            provider("deepseek-compatible", "gpt-5.5", "chat", false),
+            current.clone(),
+        ];
+
+        let selected = select_responses_provider_for_model(&current, &providers, Some("gpt-5.5"));
+
+        assert_eq!(selected.id, "packy");
+        assert_eq!(selected.wire_api, "responses");
+    }
+
+    #[test]
+    fn model_lookup_still_supports_chat_session_launches() {
+        let current = provider("packy", "gpt-5.5", "responses", true);
+        let providers = vec![
+            current.clone(),
+            provider("deepseek", "deepseek-v4-pro", "chat", false),
+        ];
+
+        let selected =
+            select_responses_provider_for_model(&current, &providers, Some("deepseek-v4-pro"));
+
+        assert_eq!(selected.id, "deepseek");
+        assert_eq!(selected.wire_api, "chat");
+    }
+
+    #[test]
+    fn responses_model_lookup_passes_through_responses_provider() {
+        let current = provider("deepseek", "deepseek-v4-pro", "chat", true);
+        let providers = vec![
+            current.clone(),
+            provider("packy", "gpt-5.5", "responses", false),
+        ];
+
+        let selected = select_responses_provider_for_model(&current, &providers, Some("gpt-5.5"));
+
+        assert_eq!(selected.id, "packy");
+        assert_eq!(selected.wire_api, "responses");
+    }
 }
