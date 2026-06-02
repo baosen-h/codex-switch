@@ -5,17 +5,12 @@ use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 pub fn scan_codex_sessions(config_dir: &Path) -> Vec<SessionRecord> {
-    let root = config_dir.join("sessions");
-    let mut files = Vec::new();
-    collect_jsonl_files(&root, &mut files);
-
-    let mut sessions = files
-        .into_iter()
-        .filter_map(|path| parse_session(&path))
-        .collect::<Vec<_>>();
-
-    sessions.sort_by(|left, right| right.last_active_at.cmp(&left.last_active_at));
-    sessions
+    scan_files(
+        &config_dir.join("sessions"),
+        "jsonl",
+        |_| true,
+        parse_codex_session,
+    )
 }
 
 pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -95,46 +90,45 @@ pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
 }
 
 pub fn session_messages_for_path(path: &Path) -> Result<Vec<SessionMessage>, String> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let in_claude = path
-        .components()
-        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
-
-    if ext == "json" {
-        return load_gemini_messages(path);
+    match session_kind(path) {
+        SessionKind::Gemini => load_gemini_messages(path),
+        SessionKind::Claude => load_claude_messages(path),
+        SessionKind::Codex => load_codex_messages(path),
     }
-    if in_claude {
-        return load_claude_messages(path);
-    }
-    load_codex_messages(path)
 }
 
 pub fn session_record_for_path(path: &Path) -> Result<SessionRecord, String> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let in_claude = path
-        .components()
-        .any(|c| c.as_os_str().to_string_lossy() == ".claude");
-
-    if ext == "json" {
-        return parse_gemini_session(path)
-            .ok_or_else(|| "Failed to parse Gemini session".to_string());
+    match session_kind(path) {
+        SessionKind::Gemini => {
+            parse_gemini_session(path).ok_or_else(|| "Failed to parse Gemini session".to_string())
+        }
+        SessionKind::Claude => {
+            parse_claude_session(path).ok_or_else(|| "Failed to parse Claude session".to_string())
+        }
+        SessionKind::Codex => {
+            parse_codex_session(path).ok_or_else(|| "Failed to parse Codex session".to_string())
+        }
     }
-    if in_claude {
-        return parse_claude_session(path)
-            .ok_or_else(|| "Failed to parse Claude session".to_string());
-    }
-    parse_session(path).ok_or_else(|| "Failed to parse Codex session".to_string())
 }
 
-fn parse_session(path: &Path) -> Option<SessionRecord> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionKind {
+    Codex,
+    Claude,
+    Gemini,
+}
+
+fn session_kind(path: &Path) -> SessionKind {
+    if ext_is(path, "json") {
+        SessionKind::Gemini
+    } else if path_has_component(path, ".claude") {
+        SessionKind::Claude
+    } else {
+        SessionKind::Codex
+    }
+}
+
+fn parse_codex_session(path: &Path) -> Option<SessionRecord> {
     let (head, tail) = read_head_tail_lines(path, 80, 30).ok()?;
 
     let mut session_id: Option<String> = None;
@@ -271,7 +265,9 @@ fn parse_session(path: &Path) -> Option<SessionRecord> {
 
     Some(SessionRecord {
         id: path.to_string_lossy().to_string(),
-        provider_id: model_provider.clone().unwrap_or_else(|| "codex".to_string()),
+        provider_id: model_provider
+            .clone()
+            .unwrap_or_else(|| "codex".to_string()),
         provider_name: model_provider.unwrap_or_else(|| "Codex".to_string()),
         provider_model: model.unwrap_or_default(),
         agent: "codex".to_string(),
@@ -306,7 +302,38 @@ fn count_lines(path: &Path) -> i64 {
     count
 }
 
-fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) {
+fn scan_files(
+    root: &Path,
+    ext: &str,
+    keep: impl Fn(&Path) -> bool,
+    parse: fn(&Path) -> Option<SessionRecord>,
+) -> Vec<SessionRecord> {
+    sessions_from(
+        collect_files(root, ext)
+            .into_iter()
+            .filter(|path| keep(path))
+            .collect(),
+        parse,
+    )
+}
+
+fn sessions_from(
+    files: Vec<PathBuf>,
+    parse: fn(&Path) -> Option<SessionRecord>,
+) -> Vec<SessionRecord> {
+    let mut sessions: Vec<SessionRecord> =
+        files.into_iter().filter_map(|path| parse(&path)).collect();
+    sessions.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
+    sessions
+}
+
+fn collect_files(root: &Path, ext: &str) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    collect_files_into(root, ext, &mut files);
+    files
+}
+
+fn collect_files_into(root: &Path, ext: &str, files: &mut Vec<PathBuf>) {
     if !root.exists() {
         return;
     }
@@ -319,11 +346,22 @@ fn collect_jsonl_files(root: &Path, files: &mut Vec<PathBuf>) {
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect_jsonl_files(&path, files);
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl") {
+            collect_files_into(&path, ext, files);
+        } else if ext_is(&path, ext) {
             files.push(path);
         }
     }
+}
+
+fn ext_is(path: &Path, ext: &str) -> bool {
+    path.extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(ext))
+}
+
+fn path_has_component(path: &Path, needle: &str) -> bool {
+    path.components()
+        .any(|component| component.as_os_str().to_string_lossy() == needle)
 }
 
 fn read_head_tail_lines(
@@ -512,21 +550,32 @@ pub fn scan_claude_sessions() -> Vec<SessionRecord> {
         None => return Vec::new(),
     };
     let root = home.join(".claude").join("projects");
-    let mut files = Vec::new();
-    collect_jsonl_files(&root, &mut files);
-    files.retain(|p| {
-        p.file_name()
-            .and_then(|n| n.to_str())
-            .map(|s| !s.starts_with("agent-"))
-            .unwrap_or(true)
-    });
+    scan_files(&root, "jsonl", not_agent_file, parse_claude_session)
+}
 
-    let mut sessions: Vec<SessionRecord> = files
+fn gemini_chat_dirs(tmp: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(tmp)
+        .ok()
         .into_iter()
-        .filter_map(|path| parse_claude_session(&path))
-        .collect();
-    sessions.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
-    sessions
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path().join("chats"))
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
+fn collect_gemini_files(tmp: &Path) -> Vec<PathBuf> {
+    gemini_chat_dirs(tmp)
+        .into_iter()
+        .flat_map(|dir| collect_files(&dir, "json"))
+        .collect()
+}
+
+fn not_agent_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| !s.starts_with("agent-"))
+        .unwrap_or(true)
 }
 
 pub fn load_claude_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -720,31 +769,7 @@ pub fn scan_gemini_sessions() -> Vec<SessionRecord> {
         None => return Vec::new(),
     };
     let tmp = home.join(".gemini").join("tmp");
-    if !tmp.exists() {
-        return Vec::new();
-    }
-
-    let mut files = Vec::new();
-    if let Ok(project_dirs) = std::fs::read_dir(&tmp) {
-        for entry in project_dirs.flatten() {
-            let chats = entry.path().join("chats");
-            if let Ok(chat_files) = std::fs::read_dir(&chats) {
-                for f in chat_files.flatten() {
-                    let p = f.path();
-                    if p.extension().and_then(|e| e.to_str()) == Some("json") {
-                        files.push(p);
-                    }
-                }
-            }
-        }
-    }
-
-    let mut sessions: Vec<SessionRecord> = files
-        .into_iter()
-        .filter_map(|path| parse_gemini_session(&path))
-        .collect();
-    sessions.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
-    sessions
+    sessions_from(collect_gemini_files(&tmp), parse_gemini_session)
 }
 
 pub fn load_gemini_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -850,4 +875,107 @@ fn parse_gemini_session(path: &Path) -> Option<SessionRecord> {
             last_active_at
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn tmp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("codex-switch-{name}-{stamp}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn touch(path: &Path) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, "{}\n").unwrap();
+    }
+
+    fn fake_session(path: &Path) -> Option<SessionRecord> {
+        let ts = path.file_stem()?.to_string_lossy().to_string();
+        Some(SessionRecord {
+            id: path.to_string_lossy().to_string(),
+            provider_id: "test".to_string(),
+            provider_name: "Test".to_string(),
+            provider_model: String::new(),
+            agent: "test".to_string(),
+            session_id: ts.clone(),
+            workspace_path: String::new(),
+            title: ts.clone(),
+            summary: None,
+            source_path: path.to_string_lossy().to_string(),
+            resume_command: String::new(),
+            status: "active".to_string(),
+            notes: String::new(),
+            message_count: 0,
+            started_at: ts.clone(),
+            last_active_at: ts,
+        })
+    }
+
+    #[test]
+    fn collect_files_recurses_and_filters_extension() {
+        let root = tmp_dir("collect");
+        touch(&root.join("a.jsonl"));
+        touch(&root.join("nested").join("b.JSONL"));
+        touch(&root.join("nested").join("c.json"));
+
+        let mut names = collect_files(&root, "jsonl")
+            .into_iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+
+        assert_eq!(names, vec!["a.jsonl", "b.JSONL"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scan_files_applies_filter_and_sorts_newest_first() {
+        let root = tmp_dir("scan");
+        touch(&root.join("2024.jsonl"));
+        touch(&root.join("2026.jsonl"));
+        touch(&root.join("agent-2027.jsonl"));
+
+        let sessions = scan_files(&root, "jsonl", not_agent_file, fake_session);
+        let ids = sessions
+            .iter()
+            .map(|session| session.session_id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["2026", "2024"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn gemini_chat_files_only_come_from_project_chat_dirs() {
+        let root = tmp_dir("gemini");
+        touch(&root.join("project-a").join("chats").join("one.json"));
+        touch(&root.join("project-a").join("chats").join("skip.txt"));
+        touch(&root.join("project-b").join("other").join("two.json"));
+
+        let files = collect_gemini_files(&root);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].file_name().unwrap().to_string_lossy(), "one.json");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_kind_is_shared_by_record_and_message_routing() {
+        assert_eq!(session_kind(Path::new("chat.JSON")), SessionKind::Gemini);
+        assert_eq!(
+            session_kind(&PathBuf::from("home").join(".claude").join("x.jsonl")),
+            SessionKind::Claude
+        );
+        assert_eq!(session_kind(Path::new("x.jsonl")), SessionKind::Codex);
+    }
 }

@@ -1,14 +1,18 @@
 {
   "name": "codex-switch",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": false,
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "ui:shot": "playwright test tests/ui-visual.spec.ts",
+    "dev": "vite --config config/vite.config.ts",
+    "predev": "npm run sync-version",
+    "sync-version": "node scripts/sync-version.mjs",
+    "prebuild": "npm run sync-version",
+    "build": "tsc && vite build --config config/vite.config.ts",
+    "preview": "vite preview --config config/vite.config.ts",
+    "ui:shot": "playwright test --config config/playwright.config.ts tests/ui-visual.spec.ts",
+    "pretauri": "npm run sync-version",
     "tauri": "tauri"
   },
   "dependencies": {

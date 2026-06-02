@@ -80,7 +80,6 @@ const VISION_ALLOWED = [
   "mistral-medium-(2508|latest)",
   "mistral-small-(2506|latest)",
   "mimo-v2-omni(?:-[\\w-]+)?",
-  "mimo-v2\\.5(?:[-.\\w]+)?",
   "glm-5v-turbo",
 ];
 const VISION_REGEX = new RegExp(`\\b(${VISION_ALLOWED.join("|")})\\b`, "i");
@@ -98,7 +97,23 @@ function capabilityList(model: RemoteModel): string[] {
     .map((value) => value.toLowerCase());
 }
 
+function normalizeModalities(values: string[] | undefined): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values ?? []) {
+    for (const part of value.toLowerCase().split(/[,+\s]+/)) {
+      const entry = part.trim();
+      if (!entry || seen.has(entry)) continue;
+      seen.add(entry);
+      normalized.push(entry);
+    }
+  }
+  return normalized;
+}
+
 export function modelSupportsVision(model: RemoteModel): boolean {
+  const modalityFlow = getModelModalityFlow(model);
+  if (modalityFlow) return modalityFlow.input.includes("image");
   const caps = capabilityList(model);
   if (caps.includes("image_recognition") || caps.includes("image")) return true;
   const id = lowerId(model);
@@ -106,6 +121,8 @@ export function modelSupportsVision(model: RemoteModel): boolean {
 }
 
 export function modelSupportsImageGeneration(model: RemoteModel): boolean {
+  const modalityFlow = getModelModalityFlow(model);
+  if (modalityFlow) return modalityFlow.output.includes("image");
   const caps = capabilityList(model);
   if (caps.includes("image_generation")) return true;
   const id = lowerId(model);
@@ -113,6 +130,8 @@ export function modelSupportsImageGeneration(model: RemoteModel): boolean {
 }
 
 export function modelSupportsChat(model: RemoteModel): boolean {
+  const modalityFlow = getModelModalityFlow(model);
+  if (modalityFlow) return modalityFlow.output.includes("text");
   const caps = capabilityList(model);
   if (caps.some((cap) => cap.includes("embedding") || cap.includes("rerank"))) return false;
   if (caps.includes("image_generation")) return false;
@@ -123,7 +142,41 @@ export function modelSupportsChat(model: RemoteModel): boolean {
 
 export type ModelCapabilityTag = "vision" | "reasoning" | "function" | "web" | "image";
 
+export interface ModelModalityFlow {
+  input: string[];
+  output: string[];
+}
+
+export function getModelModalityFlow(model: RemoteModel): ModelModalityFlow | null {
+  const input = normalizeModalities(model.inputModalities);
+  const output = normalizeModalities(model.outputModalities);
+  if (!input.length && !output.length) return null;
+  return {
+    input: input.length ? input : ["text"],
+    output: output.length ? output : ["text"],
+  };
+}
+
+export function getModelDisplayModalityFlow(model: RemoteModel): ModelModalityFlow | null {
+  const explicitFlow = getModelModalityFlow(model);
+  if (explicitFlow) return explicitFlow;
+  if (modelSupportsChat(model)) {
+    return { input: ["text"], output: ["text"] };
+  }
+  return null;
+}
+
 export function getModelCapabilityTags(model: RemoteModel): ModelCapabilityTag[] {
+  const modalityFlow = getModelModalityFlow(model);
+  if (modalityFlow) {
+    const tags: ModelCapabilityTag[] = [];
+    const inputs = new Set(modalityFlow.input);
+    const outputs = new Set(modalityFlow.output);
+    if (inputs.has("image")) tags.push("vision");
+    if (outputs.has("image")) tags.push("image");
+    return tags;
+  }
+
   const caps = capabilityList(model);
   const id = lowerId(model);
   const tags: ModelCapabilityTag[] = [];

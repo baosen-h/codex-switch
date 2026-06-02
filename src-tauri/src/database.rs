@@ -1,6 +1,7 @@
 use crate::agent_writer::{
     default_claude_config_dir, default_codex_config_dir, default_gemini_config_dir,
 };
+use crate::app_config::{APP_HOME_DIR, DB_FILE, LEGACY_APP_HOME_DIR, LEGACY_DB_FILE};
 use crate::error::AppError;
 use crate::models::{
     ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord,
@@ -21,7 +22,7 @@ impl Database {
         let app_dir = Self::app_data_dir()?;
         fs::create_dir_all(&app_dir)?;
         Self::migrate_legacy_database_files(&app_dir)?;
-        let connection = Connection::open(app_dir.join("codex-switch.db"))?;
+        let connection = Connection::open(app_dir.join(DB_FILE))?;
 
         let database = Self { connection };
         database.initialize()?;
@@ -340,32 +341,32 @@ impl Database {
     fn app_data_dir() -> Result<PathBuf, AppError> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::message("Unable to determine home directory"))?;
-        Ok(home.join(".codex-switch"))
+        Ok(home.join(APP_HOME_DIR))
     }
 
     fn migrate_legacy_database_files(app_dir: &PathBuf) -> Result<(), AppError> {
         let home = dirs::home_dir()
             .ok_or_else(|| AppError::message("Unable to determine home directory"))?;
-        let legacy_dir = home.join(".codex-switch-mini");
-        let target_db = app_dir.join("codex-switch.db");
-        let target_wal = app_dir.join("codex-switch.db-wal");
-        let target_shm = app_dir.join("codex-switch.db-shm");
+        let legacy_dir = home.join(LEGACY_APP_HOME_DIR);
+        let target_db = app_dir.join(DB_FILE);
+        let target_wal = app_dir.join(format!("{DB_FILE}-wal"));
+        let target_shm = app_dir.join(format!("{DB_FILE}-shm"));
 
         if !target_db.exists() {
-            let legacy_db = legacy_dir.join("codex-switch-mini.db");
+            let legacy_db = legacy_dir.join(LEGACY_DB_FILE);
             if legacy_db.exists() {
                 fs::create_dir_all(app_dir)?;
                 fs::copy(&legacy_db, &target_db)?;
             }
         }
         if !target_wal.exists() {
-            let legacy_wal = legacy_dir.join("codex-switch-mini.db-wal");
+            let legacy_wal = legacy_dir.join(format!("{LEGACY_DB_FILE}-wal"));
             if legacy_wal.exists() {
                 fs::copy(&legacy_wal, &target_wal)?;
             }
         }
         if !target_shm.exists() {
-            let legacy_shm = legacy_dir.join("codex-switch-mini.db-shm");
+            let legacy_shm = legacy_dir.join(format!("{LEGACY_DB_FILE}-shm"));
             if legacy_shm.exists() {
                 fs::copy(&legacy_shm, &target_shm)?;
             }
@@ -664,6 +665,11 @@ fn normalized_api_provider_type(provider_type: &str) -> String {
     if trimmed.is_empty() {
         "openai-compatible".to_string()
     } else if trimmed.eq_ignore_ascii_case("new-api") {
+        "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("glm")
+        || trimmed.eq_ignore_ascii_case("deepseek")
+        || trimmed.eq_ignore_ascii_case("mimo")
+    {
         "openai-compatible".to_string()
     } else {
         trimmed.to_string()

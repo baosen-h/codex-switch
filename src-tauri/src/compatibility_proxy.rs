@@ -1,4 +1,5 @@
 use crate::agent_writer::AGENT_CODEX;
+use crate::app_config::{APP_HOME_DIR, PROXY_USER_AGENT};
 use crate::database::Database;
 use crate::models::Provider;
 use crate::relay_translate::{self, ChatSseBuffer, ChatSseEvent};
@@ -447,10 +448,7 @@ fn post_json_stream_once(
         "Accept",
         HeaderValue::from_static("application/json, text/event-stream"),
     );
-    headers.insert(
-        "User-Agent",
-        HeaderValue::from_static("codex-switch-proxy/0.1.7"),
-    );
+    headers.insert("User-Agent", HeaderValue::from_static(PROXY_USER_AGENT));
     if !api_key.trim().is_empty() {
         let bearer = HeaderValue::from_str(&format!("Bearer {}", api_key.trim()))
             .map_err(|error| error.to_string())?;
@@ -551,11 +549,17 @@ fn chat_completions_url(base_url: &str) -> Result<String, String> {
     let lower = base.to_ascii_lowercase();
     if lower == "https://api.deepseek.com" || lower == "https://api.deepseek.com/v1" {
         Ok("https://api.deepseek.com/chat/completions".to_string())
+    } else if is_glm_api_base(&lower) {
+        Ok(format!("{base}/chat/completions"))
     } else if lower.ends_with("/v1") {
         Ok(format!("{base}/chat/completions"))
     } else {
         Ok(format!("{base}/v1/chat/completions"))
     }
+}
+
+fn is_glm_api_base(lower_base: &str) -> bool {
+    lower_base.ends_with("/api/paas/v4") || lower_base.ends_with("/api/coding/paas/v4")
 }
 
 fn responses_url(base_url: &str) -> Result<String, String> {
@@ -645,7 +649,7 @@ fn write_debug_snapshot(
     upstream_error: Option<(u16, &[u8])>,
 ) {
     let Some(home) = dirs::home_dir() else { return };
-    let dir = home.join(".codex-switch");
+    let dir = home.join(APP_HOME_DIR);
     let _ = fs::create_dir_all(&dir);
     let snapshot = serde_json::json!({
         "stage": stage,
@@ -741,5 +745,17 @@ mod tests {
 
         assert_eq!(selected.id, "packy");
         assert_eq!(selected.wire_api, "responses");
+    }
+
+    #[test]
+    fn glm_chat_completions_url_uses_bigmodel_v4_path() {
+        assert_eq!(
+            chat_completions_url("https://open.bigmodel.cn/api/paas/v4").unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url("https://open.bigmodel.cn/api/paas/v4/chat/completions").unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
     }
 }

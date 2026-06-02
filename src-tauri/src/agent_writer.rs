@@ -304,6 +304,37 @@ mod tests {
         }
     }
 
+    fn claude_provider(name: &str, base_url: &str, model: &str) -> Provider {
+        Provider {
+            id: format!("provider-{name}"),
+            name: name.to_string(),
+            agent: AGENT_CLAUDE.to_string(),
+            api_provider_id: String::new(),
+            base_url: base_url.to_string(),
+            api_key: "sk-test".to_string(),
+            website_url: String::new(),
+            model: model.to_string(),
+            wire_api: "messages".to_string(),
+            reasoning_effort: String::new(),
+            extra_toml: String::new(),
+            config_text: String::new(),
+            is_current: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn rendered_claude_env(provider: &Provider) -> serde_json::Value {
+        let text = render_claude(provider);
+        let body = split_sections(&text)
+            .into_iter()
+            .find(|(name, _)| name.contains("settings.json"))
+            .map(|(_, body)| body)
+            .expect("settings.json section");
+        serde_json::from_str::<serde_json::Value>(&body).expect("valid claude settings json")["env"]
+            .clone()
+    }
+
     #[test]
     fn render_codex_uses_proxy_only_for_chat_wire_api() {
         let chat = codex_provider("chat", "");
@@ -320,5 +351,80 @@ base_url = "http://127.0.0.1:47632/v1"
 "#;
 
         assert!(saved_codex_text_uses_proxy(text));
+    }
+
+    #[test]
+    fn claude_code_settings_support_deepseek_anthropic_endpoint() {
+        let provider = claude_provider(
+            "DeepSeek",
+            "https://api.deepseek.com/anthropic",
+            "deepseek-chat",
+        );
+        let env = rendered_claude_env(&provider);
+
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "sk-test");
+        assert_eq!(
+            env["ANTHROPIC_BASE_URL"],
+            "https://api.deepseek.com/anthropic"
+        );
+        assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-chat");
+    }
+
+    #[test]
+    fn claude_code_settings_support_mimo_anthropic_endpoint() {
+        let provider = claude_provider("MiMo", "https://api.xiaomimimo.com/anthropic", "mimo-v2.5");
+        let env = rendered_claude_env(&provider);
+
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "sk-test");
+        assert_eq!(
+            env["ANTHROPIC_BASE_URL"],
+            "https://api.xiaomimimo.com/anthropic"
+        );
+        assert_eq!(env["ANTHROPIC_MODEL"], "mimo-v2.5");
+    }
+
+    #[test]
+    fn claude_code_settings_support_zhipu_glm_anthropic_endpoint() {
+        let provider = claude_provider(
+            "Zhipu GLM",
+            "https://open.bigmodel.cn/api/anthropic",
+            "glm-5.1",
+        );
+        let env = rendered_claude_env(&provider);
+
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "sk-test");
+        assert_eq!(
+            env["ANTHROPIC_BASE_URL"],
+            "https://open.bigmodel.cn/api/anthropic"
+        );
+        assert_eq!(env["ANTHROPIC_MODEL"], "glm-5.1");
+    }
+
+    #[test]
+    fn write_claude_writes_settings_json_body() {
+        let provider = claude_provider(
+            "DeepSeek",
+            "https://api.deepseek.com/anthropic",
+            "deepseek-chat",
+        );
+        let dir =
+            std::env::temp_dir().join(format!("codex-switch-claude-test-{}", std::process::id()));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale temp claude test dir");
+        }
+
+        write_claude(&provider, &dir).expect("write claude settings");
+        let settings_path = dir.join("settings.json");
+        let text = std::fs::read_to_string(&settings_path).expect("read settings.json");
+        let value = serde_json::from_str::<serde_json::Value>(&text).expect("valid settings json");
+
+        assert_eq!(value["env"]["ANTHROPIC_AUTH_TOKEN"], "sk-test");
+        assert_eq!(
+            value["env"]["ANTHROPIC_BASE_URL"],
+            "https://api.deepseek.com/anthropic"
+        );
+        assert_eq!(value["env"]["ANTHROPIC_MODEL"], "deepseek-chat");
+
+        std::fs::remove_dir_all(&dir).expect("remove temp claude test dir");
     }
 }

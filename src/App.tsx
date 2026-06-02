@@ -14,6 +14,7 @@ import { SessionsPage } from "./pages/SessionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TalkingPage } from "./pages/TalkingPage";
 import type { ApiProvider, AppSettings, AppUpdateInfo, DashboardState, PageKey, Provider, SessionRecord } from "./types";
+import { DISMISSED_UPDATE_KEY, GUIDE_SEEN_KEY } from "./utils/appConstants";
 import { applyBackgroundColor, applyBackgroundScene, applyTheme, normalizeAppTheme, normalizeBackgroundScene } from "./utils/theme";
 
 const emptyState: DashboardState = {
@@ -33,8 +34,6 @@ const emptyState: DashboardState = {
     theme: "professional",
   },
 };
-
-const dismissedUpdateKey = "codex-switch-dismissed-update";
 
 let toastSeq = 0;
 
@@ -99,7 +98,7 @@ function App() {
     try {
       const update = await appApi.checkAppUpdate(__APP_VERSION__);
       if (!update) return;
-      if (window.localStorage.getItem(dismissedUpdateKey) === update.latestVersion) return;
+      if (window.localStorage.getItem(DISMISSED_UPDATE_KEY) === update.latestVersion) return;
       setAppUpdate(update);
     } catch {
       // Update checks should never affect normal startup or offline use.
@@ -132,8 +131,8 @@ function App() {
   useEffect(() => {
     if (loading) return;
     try {
-      if (!window.localStorage.getItem("codex-switch-guide-seen")) {
-        window.localStorage.setItem("codex-switch-guide-seen", "true");
+      if (!window.localStorage.getItem(GUIDE_SEEN_KEY)) {
+        window.localStorage.setItem(GUIDE_SEEN_KEY, "true");
         setGuideOpen(true);
       }
     } catch {
@@ -277,7 +276,7 @@ function App() {
   const dismissUpdate = useCallback(() => {
     if (appUpdate) {
       try {
-        window.localStorage.setItem(dismissedUpdateKey, appUpdate.latestVersion);
+        window.localStorage.setItem(DISMISSED_UPDATE_KEY, appUpdate.latestVersion);
       } catch {
         // localStorage can be unavailable in restricted WebViews; dismissal still works for this run.
       }

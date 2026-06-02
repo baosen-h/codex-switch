@@ -16,6 +16,7 @@ interface ProvidersPageProps {
 
 const providerTypes: Array<{ value: ApiProviderType; label: string; baseUrl: string; websiteUrl: string }> = [
   { value: "openai-compatible", label: "OpenAI Compatible / New API", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
+  { value: "anthropic-compatible", label: "Anthropic Compatible", baseUrl: "https://api.example.com", websiteUrl: "" },
   { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", websiteUrl: "https://platform.openai.com" },
   { value: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", websiteUrl: "https://console.anthropic.com" },
   { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", websiteUrl: "https://aistudio.google.com" },
@@ -25,10 +26,16 @@ const providerTypes: Array<{ value: ApiProviderType; label: string; baseUrl: str
 ];
 
 const normalizeProviderType = (providerType: ApiProviderType): ApiProviderType =>
-  providerType === "new-api" ? "openai-compatible" : providerType;
+  providerType === "new-api" || providerType === "glm" || providerType === "deepseek" || providerType === "mimo"
+    ? "openai-compatible"
+    : providerType;
 
 const providerTypeLabel = (providerType: ApiProviderType): string =>
   providerTypes.find((item) => item.value === normalizeProviderType(providerType))?.label ?? providerType;
+
+function inferProviderType(provider: Pick<ApiProvider, "name" | "providerType" | "baseUrl" | "websiteUrl">): ApiProviderType {
+  return normalizeProviderType(provider.providerType);
+}
 
 const emptyApiProvider: ApiProvider = {
   id: "",
@@ -127,7 +134,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   }, [balanceMap]);
 
   const openForm = (provider?: ApiProvider) => {
-    setDraft(provider ? { ...provider, providerType: normalizeProviderType(provider.providerType) } : emptyApiProvider);
+    setDraft(provider ? { ...provider, providerType: inferProviderType(provider) } : emptyApiProvider);
     setModelListError(null);
     setOauthStatus("");
     setOauthCallbackInput("");
@@ -583,7 +590,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                       <ProviderAvatar provider={provider} size={56} />
                       <div className="provider-title-text">
                         <strong>{provider.name}</strong>
-                        <small>{providerTypeLabel(provider.providerType)}</small>
+                        <small>{providerTypeLabel(inferProviderType(provider))}</small>
                       </div>
                     </div>
                     {provider.websiteUrl.trim() ? (

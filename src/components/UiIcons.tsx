@@ -69,6 +69,26 @@ export function ImageIcon({ size = 16, style, ...props }: IconProps = {}) {
   return <IconImageStroked {...props} style={semiIconStyle(size, style)} />;
 }
 
+export function TextIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return (
+    <span
+      {...props}
+      style={{
+        ...semiIconStyle(size, style),
+        fontWeight: 800,
+        fontSize: Math.max(10, size - 3),
+        lineHeight: 1,
+      }}
+    >
+      T
+    </span>
+  );
+}
+
+export function FileIcon({ size = 16, style, ...props }: IconProps = {}) {
+  return <IconPaperclip {...props} style={semiIconStyle(size, style)} />;
+}
+
 export function SessionsIcon({ size, style, ...props }: IconProps = {}) {
   return <IconHistory {...props} style={semiIconStyle(size, style)} />;
 }

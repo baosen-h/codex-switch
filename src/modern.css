@@ -1374,6 +1374,53 @@ select:focus {
 .model-capability-web { color: #38bdf8; }
 .model-capability-image { color: #fb7185; }
 
+.model-modality-row {
+  align-items: center;
+  gap: 0.24rem;
+}
+
+.model-modality-chip {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  color: var(--a);
+}
+
+.model-modality-chip svg,
+.model-modality-chip > span {
+  width: 14px;
+  height: 14px;
+}
+
+.model-modality-text { color: #38bdf8; }
+.model-modality-image { color: var(--g); }
+.model-modality-audio { color: #f59e0b; }
+.model-modality-video { color: #a78bfa; }
+.model-modality-file { color: #60a5fa; }
+
+.model-modality-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  color: var(--t3);
+  font-weight: 800;
+}
+
+.model-capability-glyph {
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .provider-quota-grid .quota-mini-card {
   min-height: 28px;
   border-radius: 7px;

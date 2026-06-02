@@ -3,6 +3,7 @@ import { appApi } from "../api/tauri";
 import type { AppSettings, AppTheme, BackgroundColorMode, BackgroundScene } from "../types";
 import type { TranslationKey } from "../i18n/translations";
 import { useI18n } from "../i18n/context";
+import { RELEASES_URL } from "../utils/appConstants";
 import { applyTheme, normalizeAppTheme, normalizeBackgroundScene, switchBackgroundColorWithReveal } from "../utils/theme";
 
 interface SettingsPageProps {
@@ -189,7 +190,7 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
           <label className="field field-full">
             <span>{t("appVersion")}</span>
             <div className="update-row">
-              <button className="secondary-button" onClick={() => void appApi.openExternalUrl("https://github.com/baosen-h/codex-switch/releases")} type="button">
+              <button className="secondary-button" onClick={() => void appApi.openExternalUrl(RELEASES_URL)} type="button">
                 {t("openReleases")} v{__APP_VERSION__}
               </button>
             </div>

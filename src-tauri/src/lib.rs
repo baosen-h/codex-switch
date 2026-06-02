@@ -1,4 +1,5 @@
 mod agent_writer;
+mod app_config;
 mod commands;
 mod compatibility_proxy;
 mod database;

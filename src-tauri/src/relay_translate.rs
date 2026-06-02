@@ -335,6 +335,8 @@ fn process_message_item(item: &Value, messages: &mut Vec<Value>) {
     }
     let content_raw = item.get("content");
     let mut content = String::new();
+    let mut content_parts: Vec<Value> = Vec::new();
+    let mut has_image_part = false;
     let mut reasoning_content = item
         .get("reasoning_content")
         .and_then(Value::as_str)
@@ -353,6 +355,18 @@ fn process_message_item(item: &Value, messages: &mut Vec<Value>) {
                                 Some("input_text") | Some("text") | Some("output_text") => {
                                     if let Some(Value::String(t)) = obj.get("text") {
                                         content.push_str(t);
+                                        if !t.is_empty() {
+                                            content_parts.push(json!({
+                                                "type": "text",
+                                                "text": t,
+                                            }));
+                                        }
+                                    }
+                                }
+                                Some("input_image") => {
+                                    if let Some(image_part) = chat_image_part(obj) {
+                                        has_image_part = true;
+                                        content_parts.push(image_part);
                                     }
                                 }
                                 Some("reasoning_text") => {
@@ -370,6 +384,23 @@ fn process_message_item(item: &Value, messages: &mut Vec<Value>) {
             _ => {}
         }
     }
+    let chat_content = if has_image_part {
+        if !content_parts
+            .iter()
+            .any(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+        {
+            content_parts.insert(
+                0,
+                json!({
+                    "type": "text",
+                    "text": " ",
+                }),
+            );
+        }
+        Value::Array(content_parts)
+    } else {
+        Value::String(content.clone())
+    };
     if role == "assistant" || role == "model" {
         let amsg = ensure_last_assistant(messages);
         let amsg_obj = amsg.as_object_mut().expect("assistant is object");
@@ -399,8 +430,21 @@ fn process_message_item(item: &Value, messages: &mut Vec<Value>) {
             amsg_obj.insert("thought_signature".to_string(), sig);
         }
     } else {
-        messages.push(json!({"role": role, "content": content}));
+        messages.push(json!({"role": role, "content": chat_content}));
     }
+}
+
+fn chat_image_part(obj: &Map<String, Value>) -> Option<Value> {
+    let image_url = obj.get("image_url").and_then(Value::as_str)?;
+    let mut image_url_obj = Map::new();
+    image_url_obj.insert("url".to_string(), Value::String(image_url.to_string()));
+    if let Some(detail) = obj.get("detail").cloned() {
+        image_url_obj.insert("detail".to_string(), detail);
+    }
+    Some(json!({
+        "type": "image_url",
+        "image_url": Value::Object(image_url_obj),
+    }))
 }
 
 fn process_reasoning_item(item: &Value, messages: &mut Vec<Value>) {
@@ -2001,6 +2045,59 @@ mod tests {
         assert_eq!(messages[0]["content"], "sys");
         assert_eq!(messages[1]["role"], "user");
         assert_eq!(messages[1]["content"], "hi");
+    }
+
+    #[test]
+    fn input_image_request_translation_preserves_image_url_parts() {
+        let image_url = "data:image/png;base64,iVBORw0KGgo=";
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "describe this image"},
+                        {"type": "input_image", "image_url": image_url, "detail": "high"}
+                    ]
+                }
+            ],
+            "stream": false,
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5").unwrap();
+        let v = parse(&body);
+        let content = v["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "describe this image");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[1]["image_url"]["url"], image_url);
+        assert_eq!(content[1]["image_url"]["detail"], "high");
+    }
+
+    #[test]
+    fn image_only_message_gets_text_part_for_chat_compatibility() {
+        let image_url = "data:image/png;base64,iVBORw0KGgo=";
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [
+                        {"type": "input_image", "image_url": image_url}
+                    ]
+                }
+            ],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "mimo-v2.5").unwrap();
+        let v = parse(&body);
+        let content = v["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], " ");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[1]["image_url"]["url"], image_url);
     }
 
     #[test]

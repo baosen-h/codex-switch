@@ -2,6 +2,10 @@ use crate::agent_writer::{
     resolve_claude_dir, resolve_codex_dir, resolve_gemini_dir, write_provider, AgentDirs,
     AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI,
 };
+use crate::app_config::{
+    APP_HOME_DIR, APP_ID, APP_NAME, LATEST_RELEASE_API_URL, RELEASES_URL, RELEASE_DOWNLOAD_PREFIX,
+    USER_AGENT, WINDOWS_EXE_NAME,
+};
 use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
@@ -18,7 +22,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -45,12 +49,15 @@ fn notify_tray(app: &AppHandle) {
 
 #[tauri::command]
 pub fn get_dashboard(state: State<'_, AppState>) -> Result<DashboardState, String> {
-    state
+    let mut dashboard = state
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?
         .dashboard()
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    enrich_dashboard_models(&mut dashboard);
+    Ok(dashboard)
 }
 
 #[tauri::command]
@@ -169,26 +176,18 @@ pub async fn list_provider_models(request: ModelListRequest) -> Result<Vec<Remot
 
 fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
     let provider_type = normalized_provider_type(&request.provider_type);
-    let url = model_list_url(&provider_type, &request.base_url)?;
+    let endpoint = model_list_endpoint(&provider_type, &request.base_url)?;
     let api_key = request.api_key.trim();
 
     let mut headers = HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_static("application/json"));
-    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
+    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
 
     if !api_key.is_empty() {
-        let x_api_key = HeaderValue::from_str(api_key)
-            .map_err(|error| format!("Invalid API key header: {error}"))?;
-        if provider_type == "anthropic" {
-            headers.insert("x-api-key", x_api_key);
-            headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        } else if provider_type == "gemini" {
-            headers.insert("x-goog-api-key", x_api_key);
-        } else {
-            let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
-                .map_err(|error| format!("Invalid API key header: {error}"))?;
-            headers.insert(AUTHORIZATION, bearer);
-            headers.insert("X-Api-Key", x_api_key);
+        match endpoint.auth {
+            ModelListAuthStyle::Anthropic => add_anthropic_auth_headers(&mut headers, api_key)?,
+            ModelListAuthStyle::Gemini => add_gemini_auth_headers(&mut headers, api_key)?,
+            ModelListAuthStyle::OpenAi => add_openai_auth_headers(&mut headers, api_key)?,
         }
     }
 
@@ -198,7 +197,7 @@ fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<Remote
         .map_err(|error| error.to_string())?;
 
     let response = client
-        .get(&url)
+        .get(&endpoint.url)
         .headers(headers)
         .send()
         .map_err(|error| format!("Failed to fetch model list: {error}"))?;
@@ -213,7 +212,10 @@ fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<Remote
             .unwrap_or_else(|| format!("Model list request failed with HTTP status {status}")));
     }
 
-    Ok(extract_models(&body))
+    Ok(enrich_models_with_openrouter_metadata(
+        &client,
+        extract_models(&body),
+    ))
 }
 
 #[tauri::command]
@@ -231,10 +233,10 @@ fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, Stri
         .build()
         .map_err(|error| error.to_string())?;
 
-    let response = if provider_type == "anthropic" {
+    let response = if is_anthropic_protocol(&provider_type) {
         let url = anthropic_messages_url(&request.provider.base_url)?;
         let mut headers = json_headers();
-        add_anthropic_auth_headers(&mut headers, api_key)?;
+        add_anthropic_auth_headers_for_base(&mut headers, api_key, &request.provider.base_url)?;
         client
             .post(url)
             .headers(headers)
@@ -256,7 +258,7 @@ fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, Stri
             }))
             .send()
     } else {
-        let url = chat_completions_url(&request.provider.base_url)?;
+        let url = chat_completions_url(&provider_type, &request.provider.base_url)?;
         let mut headers = json_headers();
         add_openai_auth_headers(&mut headers, api_key)?;
         client
@@ -297,7 +299,7 @@ fn generate_image_blocking(
     request: ImageGenerationRequest,
 ) -> Result<ImageGenerationResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
-    if provider_type == "anthropic" {
+    if is_anthropic_protocol(&provider_type) {
         return Err("This provider does not expose an image generation endpoint here.".to_string());
     }
     if provider_type == "gemini" {
@@ -405,9 +407,7 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
-    let settings = db
-        .settings()
-        .map_err(|error| error.to_string())?;
+    let settings = db.settings().map_err(|error| error.to_string())?;
     if session.agent == AGENT_CODEX {
         let source_path = PathBuf::from(&session.source_path);
         let resume_record = session_manager::session_record_for_path(&source_path)
@@ -446,7 +446,8 @@ fn provider_for_session(db: &Database, session: &SessionRecord) -> Option<Provid
 
     if !session_model.is_empty() {
         if let Some(provider) = providers.iter().find(|provider| {
-            provider.agent == AGENT_CODEX && provider.model.trim().eq_ignore_ascii_case(session_model)
+            provider.agent == AGENT_CODEX
+                && provider.model.trim().eq_ignore_ascii_case(session_model)
         }) {
             return Some(provider.clone());
         }
@@ -581,8 +582,8 @@ fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateIn
         .map_err(|error| error.to_string())?;
 
     let response: Value = client
-        .get("https://api.github.com/repos/baosen-h/codex-switch/releases/latest")
-        .header("User-Agent", "codex-switch")
+        .get(LATEST_RELEASE_API_URL)
+        .header("User-Agent", USER_AGENT)
         .send()
         .map_err(|error| error.to_string())?
         .error_for_status()
@@ -604,7 +605,7 @@ fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateIn
     let release_url = response
         .get("html_url")
         .and_then(Value::as_str)
-        .unwrap_or("https://github.com/baosen-h/codex-switch/releases")
+        .unwrap_or(RELEASES_URL)
         .to_string();
     let asset = select_update_asset(response.get("assets").and_then(Value::as_array));
 
@@ -694,14 +695,14 @@ fn download_and_install_update_blocking(
         .as_deref()
         .ok_or_else(|| "Installer asset name is missing.".to_string())?;
 
-    if !installer_url.starts_with("https://github.com/baosen-h/codex-switch/releases/download/") {
+    if !installer_url.starts_with(RELEASE_DOWNLOAD_PREFIX) {
         return Err("Refusing to download update from an unexpected URL.".to_string());
     }
 
     let file_name = sanitize_asset_name(installer_name);
     let update_dir = dirs::home_dir()
         .ok_or_else(|| "Unable to determine home directory".to_string())?
-        .join(".codex-switch")
+        .join(APP_HOME_DIR)
         .join("updates")
         .join(format!(
             "v{}",
@@ -748,7 +749,7 @@ fn download_update_file(
         .map_err(|error| error.to_string())?;
     let mut response = client
         .get(url)
-        .header("User-Agent", "codex-switch")
+        .header("User-Agent", USER_AGENT)
         .send()
         .map_err(|error| error.to_string())?
         .error_for_status()
@@ -814,15 +815,14 @@ fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
         .to_string_lossy()
         .to_string();
     let app_exe = ps_single_quote(&app_exe);
-    let local_app_exe = ps_single_quote(
-        r"%LOCALAPPDATA%\Programs\Codex Switch\Codex Switch.exe",
-    );
-    let program_files_exe = ps_single_quote(
-        r"%ProgramFiles%\Codex Switch\Codex Switch.exe",
-    );
-    let program_files_x86_exe = ps_single_quote(
-        r"%ProgramFiles(x86)%\Codex Switch\Codex Switch.exe",
-    );
+    let local_app_exe = ps_single_quote(&format!(
+        r"%LOCALAPPDATA%\Programs\{APP_NAME}\{WINDOWS_EXE_NAME}"
+    ));
+    let program_files_exe =
+        ps_single_quote(&format!(r"%ProgramFiles%\{APP_NAME}\{WINDOWS_EXE_NAME}"));
+    let program_files_x86_exe = ps_single_quote(&format!(
+        r"%ProgramFiles(x86)%\{APP_NAME}\{WINDOWS_EXE_NAME}"
+    ));
     let pid = std::process::id();
     let lower = path
         .file_name()
@@ -843,7 +843,7 @@ fn launch_update_installer(path: &PathBuf) -> Result<(), String> {
     let command = format!(
         "$ErrorActionPreference='Stop'; \
          Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
-         Get-Process | Where-Object {{ $_.Id -ne $PID -and ($_.ProcessName -eq 'codex-switch' -or $_.ProcessName -eq 'Codex Switch') }} | Stop-Process -Force -ErrorAction SilentlyContinue; \
+         Get-Process | Where-Object {{ $_.Id -ne $PID -and ($_.ProcessName -eq '{APP_ID}' -or $_.ProcessName -eq '{APP_NAME}') }} | Stop-Process -Force -ErrorAction SilentlyContinue; \
          {install_command}; \
          Start-Sleep -Milliseconds 900; \
          $candidates = @('{local_app_exe}', '{program_files_exe}', '{program_files_x86_exe}', '{app_exe}'); \
@@ -994,23 +994,32 @@ fn normalized_provider_type(provider_type: &str) -> String {
         "openai-compatible".to_string()
     } else if trimmed.eq_ignore_ascii_case("new-api") {
         "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("glm")
+        || trimmed.eq_ignore_ascii_case("deepseek")
+        || trimmed.eq_ignore_ascii_case("mimo")
+    {
+        "openai-compatible".to_string()
     } else {
         trimmed.to_ascii_lowercase()
     }
+}
+
+fn is_anthropic_protocol(provider_type: &str) -> bool {
+    provider_type == "anthropic" || provider_type == "anthropic-compatible"
 }
 
 fn json_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_static("application/json"));
     headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
+    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
     headers
 }
 
 fn api_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("Accept", HeaderValue::from_static("application/json"));
-    headers.insert("User-Agent", HeaderValue::from_static("codex-switch/0.1.3"));
+    headers.insert("User-Agent", HeaderValue::from_static(USER_AGENT));
     headers
 }
 
@@ -1035,6 +1044,30 @@ fn add_anthropic_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<
         .map_err(|error| format!("Invalid API key header: {error}"))?;
     headers.insert("x-api-key", x_api_key);
     headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+    Ok(())
+}
+
+fn add_anthropic_auth_headers_for_base(
+    headers: &mut HeaderMap,
+    api_key: &str,
+    base_url: &str,
+) -> Result<(), String> {
+    if is_mimo_api_base(&base_url.to_ascii_lowercase()) {
+        return add_mimo_auth_headers(headers, api_key);
+    }
+    add_anthropic_auth_headers(headers, api_key)
+}
+
+fn add_mimo_auth_headers(headers: &mut HeaderMap, api_key: &str) -> Result<(), String> {
+    if api_key.is_empty() {
+        return Ok(());
+    }
+    let api_key_header = HeaderValue::from_str(api_key)
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
+    let bearer = HeaderValue::from_str(&format!("Bearer {api_key}"))
+        .map_err(|error| format!("Invalid API key header: {error}"))?;
+    headers.insert("api-key", api_key_header);
+    headers.insert(AUTHORIZATION, bearer);
     Ok(())
 }
 
@@ -1070,10 +1103,28 @@ fn api_base_url(base_url: &str) -> Result<String, String> {
     Ok(base.trim_end_matches('/').to_string())
 }
 
-fn chat_completions_url(base_url: &str) -> Result<String, String> {
+fn is_glm_api_base(lower_base: &str) -> bool {
+    lower_base.ends_with("/api/paas/v4") || lower_base.ends_with("/api/coding/paas/v4")
+}
+
+fn is_zhipu_api_base(lower_base: &str) -> bool {
+    lower_base.contains("bigmodel.cn") || lower_base.contains("zhipuai.cn")
+}
+
+fn is_deepseek_api_base(lower_base: &str) -> bool {
+    lower_base.contains("deepseek.com")
+}
+
+fn is_mimo_api_base(lower_base: &str) -> bool {
+    lower_base.contains("xiaomimimo.com")
+}
+
+fn chat_completions_url(provider_type: &str, base_url: &str) -> Result<String, String> {
     let base = api_base_url(base_url)?;
     let lower = base.to_ascii_lowercase();
-    if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
+    if provider_type == "glm" || is_glm_api_base(&lower) {
+        Ok(format!("{base}/chat/completions"))
+    } else if lower.ends_with("/v1") || lower.ends_with("/v1beta") {
         Ok(format!("{base}/chat/completions"))
     } else {
         Ok(format!("{base}/v1/chat/completions"))
@@ -1313,36 +1364,122 @@ fn image_data_url_part(data_url: &str, index: usize) -> Result<Part, String> {
         .map_err(|error| format!("Invalid uploaded image MIME type: {error}"))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelListAuthStyle {
+    OpenAi,
+    Anthropic,
+    Gemini,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ModelListEndpoint {
+    url: String,
+    auth: ModelListAuthStyle,
+}
+
+#[cfg(test)]
 fn model_list_url(provider_type: &str, base_url: &str) -> Result<String, String> {
-    let trimmed = base_url.trim().trim_end_matches('/');
-    if trimmed.is_empty() {
-        return Err("Base URL is empty".to_string());
+    model_list_endpoint(provider_type, base_url).map(|endpoint| endpoint.url)
+}
+
+fn model_list_endpoint(provider_type: &str, base_url: &str) -> Result<ModelListEndpoint, String> {
+    let base = api_base_url(base_url)?;
+    let lower_base = base.to_ascii_lowercase();
+
+    if provider_type == "gemini" {
+        return Ok(ModelListEndpoint {
+            url: gemini_model_list_url(&base),
+            auth: ModelListAuthStyle::Gemini,
+        });
     }
 
-    let lower = trimmed.to_ascii_lowercase();
-    let base = if let Some(prefix) = lower.strip_suffix("/chat/completions") {
-        &trimmed[..prefix.len()]
-    } else if let Some(prefix) = lower.strip_suffix("/responses") {
-        &trimmed[..prefix.len()]
-    } else {
-        trimmed
-    };
+    if is_anthropic_protocol(provider_type) {
+        if let Some(catalog_base) = strip_anthropic_catalog_base(&base) {
+            return Ok(ModelListEndpoint {
+                url: openai_style_model_list_url(provider_type, &catalog_base),
+                auth: ModelListAuthStyle::OpenAi,
+            });
+        }
 
+        return Ok(ModelListEndpoint {
+            url: anthropic_model_list_url(&base, &lower_base),
+            auth: ModelListAuthStyle::Anthropic,
+        });
+    }
+
+    Ok(ModelListEndpoint {
+        url: openai_style_model_list_url(provider_type, &base),
+        auth: ModelListAuthStyle::OpenAi,
+    })
+}
+
+fn strip_anthropic_catalog_base(base: &str) -> Option<String> {
+    let lower = base.to_ascii_lowercase();
+    for suffix in ["/anthropic/v1", "/anthropic"] {
+        if lower.ends_with(suffix) {
+            return Some(
+                base[..base.len() - suffix.len()]
+                    .trim_end_matches('/')
+                    .to_string(),
+            );
+        }
+    }
+    None
+}
+
+fn anthropic_model_list_url(base: &str, lower_base: &str) -> String {
+    if lower_base.ends_with("/models") {
+        base.to_string()
+    } else if lower_base.ends_with("/v1") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1/models")
+    }
+}
+
+fn gemini_model_list_url(base: &str) -> String {
     let lower_base = base.to_ascii_lowercase();
-    if provider_type == "gemini" {
+    if lower_base.ends_with("/models") {
+        base.to_string()
+    } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
+        format!("{base}/models")
+    } else {
+        format!("{base}/v1beta/models")
+    }
+}
+
+fn openai_style_model_list_url(provider_type: &str, base: &str) -> String {
+    let base = strip_anthropic_catalog_base(base).unwrap_or_else(|| base.to_string());
+    let lower_base = base.to_ascii_lowercase();
+
+    if provider_type == "glm" || is_glm_api_base(&lower_base) || is_zhipu_api_base(&lower_base) {
+        return zhipu_model_list_url(&base, &lower_base);
+    }
+
+    if is_deepseek_api_base(&lower_base) && !lower_base.ends_with("/v1") {
         if lower_base.ends_with("/models") {
-            Ok(base.to_string())
-        } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
-            Ok(format!("{base}/models"))
+            base
         } else {
-            Ok(format!("{base}/v1beta/models"))
+            format!("{base}/models")
         }
     } else if lower_base.ends_with("/models") {
-        Ok(base.to_string())
+        base
     } else if lower_base.ends_with("/v1") || lower_base.ends_with("/v1beta") {
-        Ok(format!("{base}/models"))
+        format!("{base}/models")
     } else {
-        Ok(format!("{base}/v1/models"))
+        format!("{base}/v1/models")
+    }
+}
+
+fn zhipu_model_list_url(base: &str, lower_base: &str) -> String {
+    if lower_base.ends_with("/models") {
+        base.to_string()
+    } else if is_glm_api_base(lower_base) {
+        format!("{base}/models")
+    } else if lower_base.ends_with("/api") {
+        format!("{base}/paas/v4/models")
+    } else {
+        format!("{base}/api/paas/v4/models")
     }
 }
 
@@ -1355,7 +1492,7 @@ fn extract_api_error(value: &Value) -> Option<String> {
 }
 
 fn extract_chat_content(provider_type: &str, value: &Value) -> Option<String> {
-    if provider_type == "anthropic" {
+    if is_anthropic_protocol(provider_type) {
         return value
             .get("content")
             .and_then(Value::as_array)
@@ -1538,6 +1675,128 @@ fn extract_models(value: &Value) -> Vec<RemoteModel> {
     models
 }
 
+fn enrich_models_with_openrouter_metadata(
+    client: &Client,
+    mut models: Vec<RemoteModel>,
+) -> Vec<RemoteModel> {
+    if models
+        .iter()
+        .all(|model| !model.input_modalities.is_empty() || !model.output_modalities.is_empty())
+    {
+        return models;
+    }
+
+    let response = client
+        .get("https://openrouter.ai/api/v1/models")
+        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .send();
+    let Ok(response) = response else {
+        return models;
+    };
+    if !response.status().is_success() {
+        return models;
+    }
+    let Ok(body) = response.json::<Value>() else {
+        return models;
+    };
+
+    enrich_models_from_catalog(&mut models, extract_models(&body));
+
+    models
+}
+
+fn enrich_dashboard_models(dashboard: &mut DashboardState) {
+    if dashboard
+        .api_providers
+        .iter()
+        .flat_map(|provider| provider.models.iter())
+        .all(|model| !model.input_modalities.is_empty() || !model.output_modalities.is_empty())
+    {
+        return;
+    }
+
+    let Ok(client) = Client::builder().timeout(Duration::from_secs(8)).build() else {
+        return;
+    };
+    let response = client
+        .get("https://openrouter.ai/api/v1/models")
+        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .send();
+    let Ok(response) = response else {
+        return;
+    };
+    if !response.status().is_success() {
+        return;
+    }
+    let Ok(body) = response.json::<Value>() else {
+        return;
+    };
+    let catalog = extract_models(&body);
+
+    for provider in &mut dashboard.api_providers {
+        enrich_models_from_catalog(&mut provider.models, catalog.clone());
+    }
+}
+
+fn enrich_models_from_catalog(models: &mut [RemoteModel], catalog: Vec<RemoteModel>) {
+    let mut by_id = HashMap::new();
+    let mut by_suffix = HashMap::new();
+    for model in catalog {
+        let normalized_id = model.id.to_ascii_lowercase();
+        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
+            if let Some((_, suffix)) = normalized_id.rsplit_once('/') {
+                by_suffix
+                    .entry(suffix.to_string())
+                    .or_insert_with(|| model.clone());
+                by_suffix
+                    .entry(model_match_key(suffix))
+                    .or_insert_with(|| model.clone());
+            }
+            by_id
+                .entry(model_match_key(&normalized_id))
+                .or_insert_with(|| model.clone());
+            by_id.entry(normalized_id).or_insert(model);
+        }
+    }
+
+    for model in models {
+        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
+            continue;
+        }
+
+        let key = model.id.to_ascii_lowercase();
+        let compact_key = model_match_key(&key);
+        let source = by_id
+            .get(&key)
+            .or_else(|| by_suffix.get(&key))
+            .or_else(|| by_id.get(&compact_key))
+            .or_else(|| by_suffix.get(&compact_key));
+        if let Some(source) = source {
+            if model.name.is_none() {
+                model.name = source.name.clone();
+            }
+            if model.owned_by.is_none() {
+                model.owned_by = source.owned_by.clone();
+            }
+            if model.description.is_none() {
+                model.description = source.description.clone();
+            }
+            model.input_modalities = source.input_modalities.clone();
+            model.output_modalities = source.output_modalities.clone();
+        }
+    }
+}
+
+fn model_match_key(model_id: &str) -> String {
+    model_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
 fn model_from_value(value: &Value) -> Option<RemoteModel> {
     if let Some(id) = value.as_str().map(str::trim).filter(|id| !id.is_empty()) {
         return Some(RemoteModel {
@@ -1565,21 +1824,21 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
             "capability",
             "abilities",
         ],
-    );
-    let input_modalities = string_array(
-        value,
-        &["input_modalities", "inputModalities", "input", "inputs"],
-    );
-    let output_modalities = string_array(
-        value,
-        &[
-            "output_modalities",
-            "outputModalities",
-            "output",
-            "outputs",
-            "modalities",
-        ],
-    );
+    )
+    .unwrap_or_default();
+    let architecture = value.get("architecture");
+    let input_modalities = string_array(value, &["input_modalities", "inputModalities"])
+        .or_else(|| {
+            architecture
+                .and_then(|item| string_array(item, &["input_modalities", "inputModalities"]))
+        })
+        .unwrap_or_default();
+    let output_modalities = string_array(value, &["output_modalities", "outputModalities"])
+        .or_else(|| {
+            architecture
+                .and_then(|item| string_array(item, &["output_modalities", "outputModalities"]))
+        })
+        .unwrap_or_default();
 
     Some(RemoteModel {
         id,
@@ -1607,7 +1866,7 @@ fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
     })
 }
 
-fn string_array(value: &Value, keys: &[&str]) -> Vec<String> {
+fn string_array(value: &Value, keys: &[&str]) -> Option<Vec<String>> {
     keys.iter()
         .find_map(|key| {
             value.get(*key).map(|item| {
@@ -1630,7 +1889,7 @@ fn string_array(value: &Value, keys: &[&str]) -> Vec<String> {
                 }
             })
         })
-        .unwrap_or_default()
+        .filter(|items| !items.is_empty())
 }
 
 fn launch_terminal(terminal_program: &str, workspace_path: &str) -> Result<(), AppError> {
@@ -1905,6 +2164,263 @@ fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<Provider
         credits_balance: None,
         has_credits: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glm_chat_completions_url_uses_bigmodel_v4_path() {
+        assert_eq!(
+            chat_completions_url("glm", "https://open.bigmodel.cn/api/paas/v4").unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url(
+                "glm",
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+            )
+            .unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+        );
+    }
+
+    #[test]
+    fn glm_model_list_url_uses_bigmodel_v4_models_path() {
+        assert_eq!(
+            model_list_url("glm", "https://open.bigmodel.cn/api/paas/v4").unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/models"
+        );
+        assert_eq!(
+            model_list_url(
+                "glm",
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+            )
+            .unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/models"
+        );
+    }
+
+    #[test]
+    fn openai_compatible_chat_url_keeps_v1_default() {
+        assert_eq!(
+            chat_completions_url("openai-compatible", "https://api.example.com").unwrap(),
+            "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn vendor_legacy_provider_types_normalize_to_openai_compatible() {
+        assert_eq!(normalized_provider_type("glm"), "openai-compatible");
+        assert_eq!(normalized_provider_type("deepseek"), "openai-compatible");
+        assert_eq!(normalized_provider_type("mimo"), "openai-compatible");
+    }
+
+    #[test]
+    fn anthropic_compatible_uses_messages_url_and_parser() {
+        assert_eq!(
+            anthropic_messages_url("https://api.vendor.example").unwrap(),
+            "https://api.vendor.example/v1/messages"
+        );
+        assert_eq!(
+            extract_chat_content(
+                "anthropic-compatible",
+                &serde_json::json!({ "content": [{ "type": "text", "text": "ok" }] })
+            ),
+            Some("ok".to_string())
+        );
+    }
+
+    #[test]
+    fn official_anthropic_model_list_stays_on_anthropic_models_endpoint() {
+        let endpoint =
+            model_list_endpoint("anthropic-compatible", "https://api.anthropic.com").unwrap();
+
+        assert_eq!(endpoint.url, "https://api.anthropic.com/v1/models");
+        assert_eq!(endpoint.auth, ModelListAuthStyle::Anthropic);
+    }
+
+    #[test]
+    fn deepseek_anthropic_model_list_uses_catalog_outside_anthropic_path() {
+        let endpoint =
+            model_list_endpoint("anthropic-compatible", "https://api.deepseek.com/anthropic")
+                .unwrap();
+
+        assert_eq!(endpoint.url, "https://api.deepseek.com/models");
+        assert_eq!(endpoint.auth, ModelListAuthStyle::OpenAi);
+    }
+
+    #[test]
+    fn mimo_anthropic_model_list_uses_openai_catalog_path() {
+        let endpoint = model_list_endpoint(
+            "anthropic-compatible",
+            "https://api.xiaomimimo.com/anthropic",
+        )
+        .unwrap();
+
+        assert_eq!(endpoint.url, "https://api.xiaomimimo.com/v1/models");
+        assert_eq!(endpoint.auth, ModelListAuthStyle::OpenAi);
+    }
+
+    #[test]
+    fn zhipu_anthropic_model_list_uses_bigmodel_v4_catalog_path() {
+        let endpoint = model_list_endpoint(
+            "anthropic-compatible",
+            "https://open.bigmodel.cn/api/anthropic",
+        )
+        .unwrap();
+
+        assert_eq!(endpoint.url, "https://open.bigmodel.cn/api/paas/v4/models");
+        assert_eq!(endpoint.auth, ModelListAuthStyle::OpenAi);
+    }
+
+    #[test]
+    fn mimo_anthropic_chat_auth_uses_mimo_supported_headers() {
+        let mut headers = json_headers();
+        add_anthropic_auth_headers_for_base(
+            &mut headers,
+            "sk-test",
+            "https://api.xiaomimimo.com/anthropic",
+        )
+        .unwrap();
+
+        assert_eq!(headers.get("api-key").unwrap(), "sk-test");
+        assert_eq!(headers.get(AUTHORIZATION).unwrap(), "Bearer sk-test");
+        assert!(headers.get("x-api-key").is_none());
+        assert!(headers.get("anthropic-version").is_none());
+    }
+
+    #[test]
+    fn deepseek_and_zhipu_anthropic_chat_auth_use_anthropic_headers() {
+        for base_url in [
+            "https://api.deepseek.com/anthropic",
+            "https://open.bigmodel.cn/api/anthropic",
+        ] {
+            let mut headers = json_headers();
+            add_anthropic_auth_headers_for_base(&mut headers, "sk-test", base_url).unwrap();
+
+            assert_eq!(headers.get("x-api-key").unwrap(), "sk-test");
+            assert_eq!(headers.get("anthropic-version").unwrap(), "2023-06-01");
+            assert!(headers.get("api-key").is_none());
+        }
+    }
+
+    #[test]
+    fn glm_openai_compatible_model_list_uses_bigmodel_path_by_base_url() {
+        assert_eq!(
+            model_list_url("openai-compatible", "https://open.bigmodel.cn/api/paas/v4").unwrap(),
+            "https://open.bigmodel.cn/api/paas/v4/models"
+        );
+    }
+
+    #[test]
+    fn openrouter_model_parser_reads_architecture_modalities() {
+        let body = serde_json::json!({
+            "data": [{
+                "id": "xiaomi/mimo-v2.5-pro",
+                "name": "Xiaomi: MiMo-V2.5-Pro",
+                "owned_by": "xiaomi",
+                "architecture": {
+                    "modality": "text->text",
+                    "input_modalities": ["text"],
+                    "output_modalities": ["text"]
+                }
+            }]
+        });
+
+        let models = extract_models(&body);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].input_modalities, vec!["text"]);
+        assert_eq!(models[0].output_modalities, vec!["text"]);
+    }
+
+    #[test]
+    fn bare_model_ids_are_enriched_from_openrouter_suffixes() {
+        let mut models = vec![
+            RemoteModel {
+                id: "gpt-5-5".to_string(),
+                name: None,
+                owned_by: Some("custom".to_string()),
+                description: None,
+                capabilities: Vec::new(),
+                input_modalities: Vec::new(),
+                output_modalities: Vec::new(),
+            },
+            RemoteModel {
+                id: "mimo-v2.5".to_string(),
+                name: None,
+                owned_by: Some("xiaomi".to_string()),
+                description: None,
+                capabilities: Vec::new(),
+                input_modalities: Vec::new(),
+                output_modalities: Vec::new(),
+            },
+        ];
+        let catalog = extract_models(&serde_json::json!({
+            "data": [
+                {
+                    "id": "openai/gpt-5.5",
+                    "architecture": {
+                        "input_modalities": ["file", "image", "text"],
+                        "output_modalities": ["text"]
+                    }
+                },
+                {
+                    "id": "xiaomi/mimo-v2.5",
+                    "architecture": {
+                        "input_modalities": ["text", "audio", "image", "video"],
+                        "output_modalities": ["text"]
+                    }
+                }
+            ]
+        }));
+
+        enrich_models_from_catalog(&mut models, catalog);
+
+        assert_eq!(model_match_key("openai/gpt-5.5"), "openaigpt55");
+        assert_eq!(models[0].input_modalities, vec!["file", "image", "text"]);
+        assert_eq!(models[0].output_modalities, vec!["text"]);
+        assert_eq!(
+            models[1].input_modalities,
+            vec!["text", "audio", "image", "video"]
+        );
+        assert_eq!(models[1].output_modalities, vec!["text"]);
+    }
+
+    #[test]
+    fn update_version_comparison_detects_newer_release() {
+        assert!(compare_versions("0.2.7", "0.2.6") > 0);
+        assert_eq!(compare_versions("v0.2.6", "0.2.6"), 0);
+        assert!(compare_versions("0.2.5", "0.2.6") < 0);
+    }
+
+    #[test]
+    fn update_asset_selection_prefers_setup_for_current_arch() {
+        let assets = vec![
+            serde_json::json!({
+                "name": "Codex.Switch_9.9.9_x64.msi",
+                "browser_download_url": "https://github.com/baosen-h/codex-switch/releases/download/v9.9.9/app.msi"
+            }),
+            serde_json::json!({
+                "name": "Codex.Switch_9.9.9_x64-setup.exe",
+                "browser_download_url": "https://github.com/baosen-h/codex-switch/releases/download/v9.9.9/app.exe",
+                "digest": "sha256:mock"
+            }),
+        ];
+
+        let asset = select_update_asset(Some(&assets)).expect("asset selected");
+        assert_eq!(asset.name, "Codex.Switch_9.9.9_x64-setup.exe");
+        assert_eq!(asset.digest.as_deref(), Some("sha256:mock"));
+    }
+
+    #[test]
+    fn update_asset_name_is_sanitized() {
+        assert_eq!(
+            sanitize_asset_name("bad/name:*?\"<>|.exe"),
+            "bad_name_______.exe"
+        );
+    }
 }
 
 fn fetch_openai_oauth_usage(auth_json: &str) -> Result<ProviderBalance, AppError> {
