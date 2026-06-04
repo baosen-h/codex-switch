@@ -198,17 +198,17 @@ function App() {
       },
     );
 
-  const handleSaveApiProvider = async (provider: ApiProvider) =>
-    runAction(
-      () => appApi.saveApiProvider(provider),
-      "Provider saved.",
-      (saved) => {
-        setData((current) => ({
-          ...current,
-          apiProviders: upsertApiProvider(current.apiProviders, saved),
-        }));
-      },
-    );
+  const handleSaveApiProvider = async (provider: ApiProvider) => {
+    try {
+      await appApi.saveApiProvider(provider);
+      await refresh("Provider saved.");
+    } catch (caught) {
+      showToast.current(
+        caught instanceof Error ? caught.message : "Unexpected error.",
+        "err",
+      );
+    }
+  };
 
   const handleDeleteApiProvider = async (id: string) =>
     runAction(

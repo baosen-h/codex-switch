@@ -214,7 +214,9 @@ impl Database {
             ],
         )?;
 
-        self.api_provider_by_id(&provider_id)
+        let saved = self.api_provider_by_id(&provider_id)?;
+        self.sync_linked_providers_from_api_provider(&saved, &now)?;
+        Ok(saved)
     }
 
     pub fn delete_api_provider(&self, id: &str) -> Result<bool, AppError> {
@@ -300,6 +302,57 @@ impl Database {
             provider.config_text.clear();
         }
         Ok(provider)
+    }
+
+    fn sync_linked_providers_from_api_provider(
+        &self,
+        api_provider: &ApiProvider,
+        now: &str,
+    ) -> Result<(), AppError> {
+        let base_url = api_provider.base_url.trim();
+        let api_key = api_provider.api_key.trim();
+        let website_url = api_provider.website_url.trim();
+        let wire_api = normalized_wire_api(&api_provider.wire_api);
+
+        self.connection.execute(
+            r#"
+            UPDATE providers
+            SET
+              config_text = CASE
+                WHEN agent = 'codex'
+                  AND (
+                    base_url <> ?1
+                    OR api_key <> ?2
+                    OR website_url <> ?3
+                    OR wire_api <> ?4
+                  )
+                THEN ''
+                ELSE config_text
+              END,
+              base_url = ?1,
+              api_key = ?2,
+              website_url = ?3,
+              wire_api = ?4,
+              updated_at = CASE
+                WHEN base_url <> ?1
+                  OR api_key <> ?2
+                  OR website_url <> ?3
+                  OR wire_api <> ?4
+                THEN ?5
+                ELSE updated_at
+              END
+            WHERE api_provider_id = ?6
+            "#,
+            params![
+                base_url,
+                api_key,
+                website_url,
+                wire_api,
+                now,
+                api_provider.id
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn settings(&self) -> Result<AppSettings, AppError> {
@@ -680,5 +733,100 @@ fn normalized_wire_api(wire_api: &str) -> String {
     match wire_api.trim() {
         "chat" => "chat".to_string(),
         _ => "responses".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    fn empty_api_provider(id: &str, base_url: &str, api_key: &str, wire_api: &str) -> ApiProvider {
+        ApiProvider {
+            id: id.to_string(),
+            name: "Test API".to_string(),
+            provider_type: "openai-compatible".to_string(),
+            wire_api: wire_api.to_string(),
+            base_url: base_url.to_string(),
+            api_key: api_key.to_string(),
+            website_url: "https://example.test".to_string(),
+            open_ai_auth_json: None,
+            models: Vec::new(),
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn linked_codex_provider(api_provider_id: &str) -> Provider {
+        Provider {
+            id: "agent-1".to_string(),
+            name: "Linked Codex".to_string(),
+            agent: "codex".to_string(),
+            api_provider_id: api_provider_id.to_string(),
+            base_url: String::new(),
+            api_key: String::new(),
+            website_url: String::new(),
+            model: "test-model".to_string(),
+            wire_api: "responses".to_string(),
+            reasoning_effort: "high".to_string(),
+            extra_toml: String::new(),
+            config_text: "stale custom codex config".to_string(),
+            is_current: false,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn saving_api_provider_updates_linked_agent_provider() {
+        let test_home =
+            env::temp_dir().join(format!("codex-switch-db-test-{}", current_time_string()));
+        let old_home = env::var_os("HOME");
+        let old_userprofile = env::var_os("USERPROFILE");
+        env::set_var("HOME", &test_home);
+        env::set_var("USERPROFILE", &test_home);
+
+        let result = (|| -> Result<(), AppError> {
+            let db = Database::new()?;
+            db.save_api_provider(empty_api_provider(
+                "api-1",
+                "https://old.example/v1",
+                "old-key",
+                "chat",
+            ))?;
+            let saved_agent = db.save_provider(linked_codex_provider("api-1"))?;
+            assert_eq!(saved_agent.base_url, "https://old.example/v1");
+            assert_eq!(saved_agent.api_key, "old-key");
+            assert_eq!(saved_agent.wire_api, "chat");
+
+            db.save_api_provider(empty_api_provider(
+                "api-1",
+                "https://new.example/v1",
+                "new-key",
+                "responses",
+            ))?;
+
+            let linked = db.provider_by_id("agent-1")?;
+            assert_eq!(linked.base_url, "https://new.example/v1");
+            assert_eq!(linked.api_key, "new-key");
+            assert_eq!(linked.wire_api, "responses");
+            assert!(linked.config_text.is_empty());
+            Ok(())
+        })();
+
+        if let Some(value) = old_home {
+            env::set_var("HOME", value);
+        } else {
+            env::remove_var("HOME");
+        }
+        if let Some(value) = old_userprofile {
+            env::set_var("USERPROFILE", value);
+        } else {
+            env::remove_var("USERPROFILE");
+        }
+        let _ = fs::remove_dir_all(&test_home);
+
+        result.unwrap();
     }
 }

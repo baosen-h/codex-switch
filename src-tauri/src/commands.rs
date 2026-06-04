@@ -113,15 +113,42 @@ pub fn delete_provider(
 
 #[tauri::command]
 pub fn save_api_provider(
+    app: AppHandle,
     state: State<'_, AppState>,
     provider: ApiProvider,
 ) -> Result<ApiProvider, String> {
-    state
+    let db = state
         .db
         .lock()
-        .map_err(|_| "Failed to lock database".to_string())?
+        .map_err(|_| "Failed to lock database".to_string())?;
+    let saved = db
         .save_api_provider(provider)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    let active_linked_providers: Vec<Provider> = db
+        .providers()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter(|provider| provider.api_provider_id == saved.id && provider.is_current)
+        .collect();
+
+    if !active_linked_providers.is_empty() {
+        let settings = db.settings().map_err(|error| error.to_string())?;
+        let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
+        let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
+        let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+        let dirs = AgentDirs {
+            codex: &codex_dir,
+            claude: &claude_dir,
+            gemini: &gemini_dir,
+        };
+        for provider in &active_linked_providers {
+            write_provider(provider, &dirs).map_err(|error| error.to_string())?;
+        }
+    }
+    drop(db);
+    notify_tray(&app);
+    Ok(saved)
 }
 
 #[tauri::command]

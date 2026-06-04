@@ -382,6 +382,78 @@ test("main pages render usable layouts", async ({ page }) => {
   await capture(page, "15-settings");
 });
 
+test("long talking topic titles stay compact", async ({ page }) => {
+  await page.addInitScript(() => {
+    const longQuestion =
+      "can you tell me stack is from top to bottom or bottom to top when the address increase, what is mostly people think of";
+    window.localStorage.setItem(
+      "codex-switch-talking-topics-v1",
+      JSON.stringify([
+        {
+          id: "topic-long-question",
+          title: "",
+          providerId: "api-deepseek",
+          model: "deepseek-chat",
+          draft: "",
+          draftAttachments: [],
+          messages: [
+            { role: "user", content: longQuestion },
+            { role: "assistant", content: "Mock answer." },
+          ],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      ]),
+    );
+  });
+  await waitForApp(page);
+  await page.getByTitle("Talking").click();
+
+  const topic = page.locator(".conversation-topic").first();
+  const box = await topic.boundingBox();
+  expect(box?.width ?? 0).toBeLessThanOrEqual(310);
+  expect(box?.height ?? 0).toBeLessThanOrEqual(76);
+  await expect(topic.locator("strong")).toHaveCSS("text-overflow", "ellipsis");
+  await capture(page, "19-long-talking-topic");
+});
+
+test("expanded provider quota stays inside the row", async ({ page }) => {
+  await waitForApp(page);
+  await page.locator(".brand-action-collapsed").click();
+  await expect(page.locator(".app-shell")).not.toHaveClass(/app-shell-sidebar-collapsed/);
+
+  const openAiRow = page.locator(".api-provider-row").filter({ hasText: "codex official" }).first();
+  await openAiRow.locator(".balance-refresh-button").click();
+  await expect(openAiRow.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
+
+  const layout = await openAiRow.evaluate((row) => {
+    const rowRect = row.getBoundingClientRect();
+    const panelRect = row.querySelector(".provider-balance-panel")!.getBoundingClientRect();
+    const actionsRect = row.querySelector(".provider-actions")!.getBoundingClientRect();
+    const cards = [...row.querySelectorAll(".quota-mini-card")].map((card) => {
+      const element = card as HTMLElement;
+      return {
+        width: element.getBoundingClientRect().width,
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      };
+    });
+    return {
+      rowRight: rowRect.right,
+      panelRight: panelRect.right,
+      actionsLeft: actionsRect.left,
+      cards,
+    };
+  });
+  expect(layout.panelRight).toBeLessThan(layout.actionsLeft);
+  expect(layout.panelRight).toBeLessThan(layout.rowRight);
+  for (const card of layout.cards) {
+    expect(card.width).toBeGreaterThan(90);
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
+  }
+  await capture(page, "20-expanded-provider-quota");
+});
+
 test("real background in light mode keeps content readable", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(

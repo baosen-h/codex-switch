@@ -2048,6 +2048,9 @@ input:focus, textarea:focus, select:focus {
 }
 
 .conversation-rail {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -2062,6 +2065,10 @@ input:focus, textarea:focus, select:focus {
 }
 
 .rail-header {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2069,16 +2076,29 @@ input:focus, textarea:focus, select:focus {
   margin-bottom: 0.85rem;
 }
 
+.rail-header > div {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+}
+
 .conversation-topic-item {
   position: relative;
   display: grid;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .conversation-topic {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 74px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.3rem;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 0.75rem 2.65rem 0.75rem 0.75rem;
   text-align: left;
   color: var(--t1);
@@ -2091,6 +2111,11 @@ input:focus, textarea:focus, select:focus {
   background: rgb(var(--accent-rgb) / 0.13);
 }
 .conversation-topic span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--t2);
   font-family: var(--mono);
   font-size: 0.72rem;
@@ -2123,8 +2148,12 @@ input:focus, textarea:focus, select:focus {
 }
 
 .conversation-topic-list {
+  width: 100%;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 0.65rem;
   overflow-y: auto;

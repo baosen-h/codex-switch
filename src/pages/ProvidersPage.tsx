@@ -382,8 +382,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
             </button>
             {quotaBalance ? (
               <div className="provider-quota-grid">
-                {renderQuotaCard(quotaBalance.fiveHourLabel || t("quotaFiveHour"), quotaBalance.fiveHourLeft, quotaBalance.fiveHourReset, "five-hour")}
-                {renderQuotaCard(quotaBalance.weeklyLabel || t("quotaWeekly"), quotaBalance.weeklyLeft, quotaBalance.weeklyReset, "weekly")}
+                {renderQuotaCard("5H quota", quotaBalance.fiveHourLeft, quotaBalance.fiveHourReset, "five-hour")}
+                {renderQuotaCard("Weekly", quotaBalance.weeklyLeft, quotaBalance.weeklyReset, "weekly")}
               </div>
             ) : null}
           </>
