@@ -22,7 +22,7 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
 - Codex compatibility: translate chat/completion providers such as DeepSeek, MiMo, and GLM for Codex.
 - Agents: generate Codex, Claude Code, and Gemini configs from provider records.
 - Talking: chat with text, files, and images when the selected model supports them.
-- Vision model support: let text-only models understand images through a configurable vision model in Talking, Codex CLI, Claude Code, and Gemini CLI.
+- Vision model support: let text-only models, such as text-only DeepSeek and GLM variants, understand images through a configurable vision model in Talking, Codex CLI, Claude Code, and Gemini CLI.
 - Drawing: generate and edit images with supported models.
 - Sessions: inspect local sessions, preview transcripts, copy resume commands, and generate handoff text.
 - Settings: switch theme, background, directories, terminal, and release page access.
