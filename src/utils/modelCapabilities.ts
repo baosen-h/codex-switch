@@ -120,6 +120,15 @@ export function modelSupportsVision(model: RemoteModel): boolean {
   return VISION_REGEX.test(id);
 }
 
+export function modelSupportsVisionText(model: RemoteModel): boolean {
+  const modalityFlow = getModelModalityFlow(model);
+  return Boolean(
+    modalityFlow
+    && modalityFlow.input.includes("image")
+    && modalityFlow.output.includes("text"),
+  );
+}
+
 export function modelSupportsImageGeneration(model: RemoteModel): boolean {
   const modalityFlow = getModelModalityFlow(model);
   if (modalityFlow) return modalityFlow.output.includes("image");

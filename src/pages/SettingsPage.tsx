@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { appApi } from "../api/tauri";
-import type { AppSettings, AppTheme, BackgroundColorMode, BackgroundScene } from "../types";
+import type { ApiProvider, AppSettings, AppTheme, BackgroundColorMode, BackgroundScene } from "../types";
 import type { TranslationKey } from "../i18n/translations";
 import { useI18n } from "../i18n/context";
 import { RELEASES_URL } from "../utils/appConstants";
 import { applyTheme, normalizeAppTheme, normalizeBackgroundScene, switchBackgroundColorWithReveal } from "../utils/theme";
+import { modelSupportsVisionText } from "../utils/modelCapabilities";
+import { ModelCapabilityBadges } from "../components/ModelCapabilityBadges";
 
 interface SettingsPageProps {
+  apiProviders: ApiProvider[];
   settings: AppSettings;
   onOpenGuide: () => void;
   onSave: (settings: AppSettings) => Promise<void>;
@@ -49,9 +52,17 @@ const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: Translat
   { value: "keqingViolet", labelKey: "backgroundSceneKeqingViolet" },
 ];
 
-export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
+const ChevronDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path d="M3.5 5.25 7 8.75l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
+  const [visionProviderOpen, setVisionProviderOpen] = useState(false);
+  const [visionModelOpen, setVisionModelOpen] = useState(false);
 
   useEffect(() => {
     setDraft(settings);
@@ -84,6 +95,25 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
     ? draft.terminalProgram
     : "__custom__";
   const selectedScene = normalizeBackgroundScene(draft.backgroundScene);
+  const visionProviders = useMemo(
+    () =>
+      apiProviders
+        .filter(
+          (provider) =>
+            provider.enabled && provider.models.some(modelSupportsVisionText),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [apiProviders],
+  );
+  const visionProvider = visionProviders.find(
+    (provider) => provider.id === draft.visionApiProviderId,
+  );
+  const visionModels = useMemo(
+    () => (visionProvider?.models ?? []).filter(modelSupportsVisionText),
+    [visionProvider],
+  );
+  const visionModel = visionModels.find((model) => model.id === draft.visionModel);
+  const visionConfigurationValid = Boolean(visionProvider && visionModel);
 
   const pickDirectory = async (field: PathFieldKey) => {
     try {
@@ -203,6 +233,99 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
             />
             <span>{t("autoRecordSessions")}</span>
           </label>
+          <label className="checkbox-field field-full">
+            <input
+              checked={draft.visionFallbackEnabled}
+              onChange={(event) => updateDraft("visionFallbackEnabled", event.target.checked)}
+              type="checkbox"
+            />
+            <span>Vision fallback for text-only models</span>
+          </label>
+          {draft.visionFallbackEnabled ? (
+            <>
+              <label className="field">
+                <span>Vision API provider</span>
+                <div className="model-picker vision-picker">
+                  <button
+                    className="vision-picker-control"
+                    onClick={() => {
+                      setVisionProviderOpen((open) => !open);
+                      setVisionModelOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <span>{visionProvider?.name ?? "Select provider"}</span>
+                    <ChevronDownIcon />
+                  </button>
+                  {visionProviderOpen ? (
+                    <div className="model-picker-menu vision-picker-menu">
+                      {visionProviders.length ? visionProviders.map((provider) => (
+                        <button
+                          className={`model-picker-option ${draft.visionApiProviderId === provider.id ? "active" : ""}`}
+                          key={provider.id}
+                          onClick={() => {
+                            const models = provider.models.filter(modelSupportsVisionText);
+                            setDraft((current) => ({
+                              ...current,
+                              visionApiProviderId: provider.id,
+                              visionModel: models[0]?.id ?? "",
+                            }));
+                            setVisionProviderOpen(false);
+                          }}
+                          type="button"
+                        >
+                          <span className="model-picker-option-title">{provider.name}</span>
+                          <span className="model-picker-option-meta">
+                            {provider.providerType} · {provider.models.filter(modelSupportsVisionText).length} vision models
+                          </span>
+                        </button>
+                      )) : (
+                        <div className="model-picker-empty">No provider has a verified image-to-text model.</div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </label>
+              <label className="field">
+                <span>Vision model</span>
+                <div className="model-picker vision-picker">
+                  <button
+                    className="vision-picker-control"
+                    disabled={!visionProvider}
+                    onClick={() => {
+                      setVisionModelOpen((open) => !open);
+                      setVisionProviderOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <span>{visionModel?.name || visionModel?.id || "Select model"}</span>
+                    <ChevronDownIcon />
+                  </button>
+                  {visionModelOpen ? (
+                    <div className="model-picker-menu vision-picker-menu">
+                      {visionModels.map((model) => (
+                        <button
+                          className={`model-picker-option ${draft.visionModel === model.id ? "active" : ""}`}
+                          key={model.id}
+                          onClick={() => {
+                            updateDraft("visionModel", model.id);
+                            setVisionModelOpen(false);
+                          }}
+                          type="button"
+                        >
+                          <span className="model-picker-option-title">{model.name || model.id}</span>
+                          <span className="model-picker-option-meta">
+                            {model.name && model.name !== model.id ? model.id : model.description || "Image input · text output"}
+                          </span>
+                          <ModelCapabilityBadges model={model} />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </label>
+            </>
+          ) : null}
           <div className="field">
             <span>{t("guideSettingsTitle")}</span>
             <button className="secondary-button" onClick={onOpenGuide} type="button">
@@ -214,6 +337,7 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
         <div className="actions">
           <button
             className="primary-button"
+            disabled={draft.visionFallbackEnabled && !visionConfigurationValid}
             onClick={() => void onSave(draft)}
             type="button"
           >

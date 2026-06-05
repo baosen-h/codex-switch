@@ -1,7 +1,7 @@
-use crate::agent_writer::AGENT_CODEX;
+use crate::agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use crate::app_config::{APP_HOME_DIR, PROXY_USER_AGENT};
 use crate::database::Database;
-use crate::models::Provider;
+use crate::models::{ApiProvider, Provider};
 use crate::relay_translate::{self, ChatSseBuffer, ChatSseEvent};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -47,32 +47,46 @@ pub fn start(db: Arc<Mutex<Database>>) {
 
 fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<(), String> {
     let request = read_http_request(&mut stream)?;
-    let provider = select_provider_for_request(&db, &request)?;
-
-    route_request(&provider, request, &mut stream)?;
-    Ok(())
-}
-
-fn select_provider_for_request(
-    db: &Arc<Mutex<Database>>,
-    request: &HttpRequest,
-) -> Result<Provider, String> {
-    let db = db.lock().map_err(|_| "database lock failed".to_string())?;
-    let current = db
-        .current_provider_for_agent(AGENT_CODEX)
-        .map_err(|error| error.to_string())?;
     let path = request.path.split('?').next().unwrap_or("");
-    if request.method != "POST" || !(path == "/v1/responses" || path.ends_with("/responses")) {
-        return Ok(current);
-    }
+    let agent = if path.starts_with("/anthropic/") {
+        AGENT_CLAUDE
+    } else if path.starts_with("/gemini/") {
+        AGENT_GEMINI
+    } else {
+        AGENT_CODEX
+    };
+    let (provider, vision) = {
+        let db = db.lock().map_err(|_| "database lock failed".to_string())?;
+        let mut provider = db
+            .current_provider_for_agent(agent)
+            .map_err(|error| error.to_string())?;
+        if agent == AGENT_CODEX {
+            let model = extract_model(&request.body);
+            let providers = db.providers().map_err(|error| error.to_string())?;
+            provider = select_responses_provider_for_model(&provider, &providers, model.as_deref());
+        }
+        let settings = db.settings().map_err(|error| error.to_string())?;
+        let main_supports_vision = db
+            .api_provider_by_id(&provider.api_provider_id)
+            .ok()
+            .map(|api| crate::vision_fallback::model_supports_vision(&api, &provider.model))
+            .unwrap_or_else(|| crate::vision_fallback::model_name_supports_vision(&provider.model));
+        let vision = if settings.vision_fallback_enabled
+            && !main_supports_vision
+            && !settings.vision_api_provider_id.trim().is_empty()
+            && !settings.vision_model.trim().is_empty()
+        {
+            db.api_provider_by_id(&settings.vision_api_provider_id)
+                .ok()
+                .map(|api| (api, settings.vision_model))
+        } else {
+            None
+        };
+        (provider, vision)
+    };
 
-    let model = extract_model(&request.body);
-    let providers = db.providers().map_err(|error| error.to_string())?;
-    Ok(select_responses_provider_for_model(
-        &current,
-        &providers,
-        model.as_deref(),
-    ))
+    route_request(&provider, vision.as_ref(), request, &mut stream)?;
+    Ok(())
 }
 
 fn select_responses_provider_for_model(
@@ -175,10 +189,18 @@ fn find_header_end(data: &[u8]) -> Option<usize> {
 
 fn route_request(
     provider: &Provider,
+    vision: Option<&(ApiProvider, String)>,
     request: HttpRequest,
     stream: &mut TcpStream,
 ) -> Result<(), String> {
     let path = request.path.split('?').next().unwrap_or("");
+
+    if path.starts_with("/anthropic/") {
+        return handle_anthropic_provider(provider, vision, request, stream);
+    }
+    if path.starts_with("/gemini/") {
+        return handle_gemini_provider(provider, vision, request, stream);
+    }
 
     if request.method == "GET" && (path == "/v1/models" || path.ends_with("/models")) {
         let model = if provider.model.trim().is_empty() {
@@ -204,9 +226,9 @@ fn route_request(
     }
 
     let response = if uses_chat_completions(provider) {
-        handle_chat_completions_provider(provider, request, stream)?
+        handle_chat_completions_provider(provider, vision, request, stream)?
     } else {
-        Some(handle_responses_provider(provider, request)?)
+        handle_responses_provider(provider, vision, request, stream)?
     };
     if let Some(response) = response {
         stream
@@ -218,6 +240,7 @@ fn route_request(
 
 fn handle_chat_completions_provider(
     provider: &Provider,
+    vision: Option<&(ApiProvider, String)>,
     request: HttpRequest,
     client_stream: &mut TcpStream,
 ) -> Result<Option<Vec<u8>>, String> {
@@ -227,8 +250,13 @@ fn handle_chat_completions_provider(
         provider.model.trim().to_string()
     };
 
+    let codex_body = if let Some((vision_provider, vision_model)) = vision {
+        crate::vision_fallback::preprocess_codex_body(&request.body, vision_provider, vision_model)?
+    } else {
+        request.body.clone()
+    };
     let (mut chat_body, translator_state) =
-        relay_translate::translate_request(&request.body, &upstream_model)
+        relay_translate::translate_request(&codex_body, &upstream_model)
             .map_err(|error| error.to_string())?;
     ensure_chat_model_and_stream(&mut chat_body, &upstream_model)?;
     write_debug_snapshot(
@@ -240,7 +268,7 @@ fn handle_chat_completions_provider(
     );
 
     let upstream_url = chat_completions_url(&provider.base_url)?;
-    let stream_requested = request_body_stream_requested(&request.body);
+    let stream_requested = request_body_stream_requested(&codex_body);
     if stream_requested {
         return handle_chat_completions_streaming(
             provider,
@@ -248,7 +276,7 @@ fn handle_chat_completions_provider(
             chat_body,
             translator_state,
             client_stream,
-            &request.body,
+            &codex_body,
         )
         .map(|()| None);
     }
@@ -365,10 +393,25 @@ fn handle_chat_completions_streaming(
     Ok(())
 }
 
-fn handle_responses_provider(provider: &Provider, request: HttpRequest) -> Result<Vec<u8>, String> {
+fn handle_responses_provider(
+    provider: &Provider,
+    vision: Option<&(ApiProvider, String)>,
+    request: HttpRequest,
+    stream: &mut TcpStream,
+) -> Result<Option<Vec<u8>>, String> {
     let upstream_url = responses_url(&provider.base_url)?;
-    let response = post_json(&upstream_url, &provider.api_key, request.body)?;
-    Ok(http_response(
+    let body = if let Some((vision_provider, vision_model)) = vision {
+        crate::vision_fallback::preprocess_codex_body(&request.body, vision_provider, vision_model)?
+    } else {
+        request.body
+    };
+    if request_body_stream_requested(&body) {
+        let response = post_json_stream(&upstream_url, &provider.api_key, body)?;
+        relay_response(response, stream)?;
+        return Ok(None);
+    }
+    let response = post_json(&upstream_url, &provider.api_key, body)?;
+    Ok(Some(http_response(
         response.status.as_u16(),
         if response.content_type.is_empty() {
             "application/json"
@@ -376,7 +419,74 @@ fn handle_responses_provider(provider: &Provider, request: HttpRequest) -> Resul
             &response.content_type
         },
         response.body,
-    ))
+    )))
+}
+
+fn handle_anthropic_provider(
+    provider: &Provider,
+    vision: Option<&(ApiProvider, String)>,
+    request: HttpRequest,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
+    if request.method != "POST"
+        || !request
+            .path
+            .split('?')
+            .next()
+            .unwrap_or("")
+            .ends_with("/messages")
+    {
+        return write_http_response(
+            stream,
+            404,
+            "application/json",
+            br#"{"error":{"message":"unsupported Anthropic gateway route"}}"#.to_vec(),
+        );
+    }
+    let body = if let Some((vision_provider, vision_model)) = vision {
+        crate::vision_fallback::preprocess_anthropic_body(
+            &request.body,
+            vision_provider,
+            vision_model,
+        )?
+    } else {
+        request.body
+    };
+    let url = anthropic_messages_url(&provider.base_url)?;
+    let response = post_protocol_stream(&url, &provider.api_key, body, ProtocolAuth::Anthropic)?;
+    relay_response(response, stream)
+}
+
+fn handle_gemini_provider(
+    provider: &Provider,
+    vision: Option<&(ApiProvider, String)>,
+    request: HttpRequest,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
+    if request.method != "POST" {
+        return write_http_response(
+            stream,
+            404,
+            "application/json",
+            br#"{"error":{"message":"unsupported Gemini gateway route"}}"#.to_vec(),
+        );
+    }
+    let body = if let Some((vision_provider, vision_model)) = vision {
+        crate::vision_fallback::preprocess_gemini_body(
+            &request.body,
+            vision_provider,
+            vision_model,
+        )?
+    } else {
+        request.body
+    };
+    let suffix = request
+        .path
+        .strip_prefix("/gemini")
+        .ok_or_else(|| "Invalid Gemini gateway path".to_string())?;
+    let url = gemini_upstream_url(&provider.base_url, suffix)?;
+    let response = post_protocol_stream(&url, &provider.api_key, body, ProtocolAuth::Gemini)?;
+    relay_response(response, stream)
 }
 
 struct UpstreamResponse {
@@ -466,6 +576,104 @@ fn post_json_stream_once(
         .send()
         .map_err(|error| error.to_string())?;
     Ok(response)
+}
+
+#[derive(Clone, Copy)]
+enum ProtocolAuth {
+    Anthropic,
+    Gemini,
+}
+
+fn post_protocol_stream(
+    url: &str,
+    api_key: &str,
+    body: Vec<u8>,
+    auth: ProtocolAuth,
+) -> Result<reqwest::blocking::Response, String> {
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(
+        "Accept",
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
+    headers.insert("User-Agent", HeaderValue::from_static(PROXY_USER_AGENT));
+    if !api_key.trim().is_empty() {
+        let raw = HeaderValue::from_str(api_key.trim()).map_err(|error| error.to_string())?;
+        let bearer = HeaderValue::from_str(&format!("Bearer {}", api_key.trim()))
+            .map_err(|error| error.to_string())?;
+        match auth {
+            ProtocolAuth::Anthropic => {
+                headers.insert("x-api-key", raw.clone());
+                headers.insert("api-key", raw);
+                headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+                headers.insert(AUTHORIZATION, bearer);
+            }
+            ProtocolAuth::Gemini => {
+                headers.insert("x-goog-api-key", raw);
+                headers.insert(AUTHORIZATION, bearer);
+            }
+        }
+    }
+
+    Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|error| error.to_string())?
+        .post(url)
+        .headers(headers)
+        .body(body)
+        .send()
+        .map_err(|error| error.to_string())
+}
+
+fn relay_response(
+    mut response: reqwest::blocking::Response,
+    stream: &mut TcpStream,
+) -> Result<(), String> {
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/json")
+        .to_string();
+    if content_type
+        .to_ascii_lowercase()
+        .contains("text/event-stream")
+    {
+        let reason = if status == 200 {
+            "OK"
+        } else {
+            "Upstream Error"
+        };
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 {status} {reason}\r\ncontent-type: {content_type}\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .map_err(|error| error.to_string())?;
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = response
+                .read(&mut buffer)
+                .map_err(|error| error.to_string())?;
+            if read == 0 {
+                break;
+            }
+            stream
+                .write_all(&buffer[..read])
+                .map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
+
+    let mut body = Vec::new();
+    response
+        .read_to_end(&mut body)
+        .map_err(|error| error.to_string())?;
+    write_http_response(stream, status, &content_type, body)
 }
 
 fn is_retryable_status(status: u16) -> bool {
@@ -568,6 +776,39 @@ fn responses_url(base_url: &str) -> Result<String, String> {
         Ok(format!("{base}/responses"))
     } else {
         Ok(format!("{base}/v1/responses"))
+    }
+}
+
+fn anthropic_messages_url(base_url: &str) -> Result<String, String> {
+    let base = api_base_url(base_url)?;
+    if base.to_ascii_lowercase().ends_with("/v1") {
+        Ok(format!("{base}/messages"))
+    } else {
+        Ok(format!("{base}/v1/messages"))
+    }
+}
+
+fn gemini_upstream_url(base_url: &str, suffix: &str) -> Result<String, String> {
+    let mut root = base_url.trim().trim_end_matches('/').to_string();
+    for version in ["/v1beta", "/v1"] {
+        if root.to_ascii_lowercase().ends_with(version) {
+            root.truncate(root.len() - version.len());
+            break;
+        }
+    }
+    if root.is_empty() {
+        return Err("provider base URL is empty".to_string());
+    }
+    let (path, query) = suffix.split_once('?').unwrap_or((suffix, ""));
+    let filtered_query = query
+        .split('&')
+        .filter(|pair| !pair.is_empty() && !pair.to_ascii_lowercase().starts_with("key="))
+        .collect::<Vec<_>>()
+        .join("&");
+    if filtered_query.is_empty() {
+        Ok(format!("{root}{path}"))
+    } else {
+        Ok(format!("{root}{path}?{filtered_query}"))
     }
 }
 

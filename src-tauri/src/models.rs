@@ -239,6 +239,13 @@ pub struct AppSettings {
     pub background_color: String,
     pub background_scene: String,
     pub theme: String,
+    pub vision_fallback_enabled: bool,
+    pub vision_api_provider_id: String,
+    pub vision_model: String,
+    pub vision_chat_enabled: bool,
+    pub vision_codex_enabled: bool,
+    pub vision_claude_enabled: bool,
+    pub vision_gemini_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

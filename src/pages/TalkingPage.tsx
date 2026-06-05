@@ -9,6 +9,7 @@ import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, P
 
 interface TalkingPageProps {
   providers: ApiProvider[];
+  visionFallbackAvailable?: boolean;
   onNotify: (message: string, type: "ok" | "err") => void;
 }
 
@@ -177,7 +178,7 @@ function attachmentLabel(attachment: ChatAttachment): string {
   return `${attachment.name} · ${sizeKb} KB`;
 }
 
-export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
+export function TalkingPage({ providers, visionFallbackAvailable = false, onNotify }: TalkingPageProps) {
   const { t } = useI18n();
   const enabledProviders = useMemo(
     () =>
@@ -199,7 +200,9 @@ export function TalkingPage({ providers, onNotify }: TalkingPageProps) {
   const modelOptions = selectedProvider?.models ?? [];
   const activeModel = activeTopic.model || firstModel(selectedProvider);
   const selectedModel = modelOptions.find((item) => item.id === activeModel);
-  const canUseImages = Boolean(selectedModel && modelSupportsVision(selectedModel));
+  const canUseImages = Boolean(
+    selectedModel && (modelSupportsVision(selectedModel) || visionFallbackAvailable),
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

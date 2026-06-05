@@ -9,6 +9,7 @@ mod models;
 mod oauth;
 mod relay_translate;
 mod session_manager;
+mod vision_fallback;
 
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
@@ -218,6 +219,9 @@ fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
                 codex: &codex_dir,
                 claude: &claude_dir,
                 gemini: &gemini_dir,
+                vision_codex: settings.vision_fallback_enabled,
+                vision_claude: settings.vision_fallback_enabled,
+                vision_gemini: settings.vision_fallback_enabled,
             },
         )
     };

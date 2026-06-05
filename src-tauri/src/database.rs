@@ -367,6 +367,13 @@ impl Database {
             background_color: self.setting("background_color")?,
             background_scene: self.setting("background_scene")?,
             theme: self.setting("theme")?,
+            vision_fallback_enabled: self.setting("vision_fallback_enabled")? == "true",
+            vision_api_provider_id: self.setting("vision_api_provider_id")?,
+            vision_model: self.setting("vision_model")?,
+            vision_chat_enabled: self.setting("vision_chat_enabled")? == "true",
+            vision_codex_enabled: self.setting("vision_codex_enabled")? == "true",
+            vision_claude_enabled: self.setting("vision_claude_enabled")? == "true",
+            vision_gemini_enabled: self.setting("vision_gemini_enabled")? == "true",
         })
     }
 
@@ -388,6 +395,31 @@ impl Database {
         self.set_setting("background_color", settings.background_color.clone())?;
         self.set_setting("background_scene", settings.background_scene.clone())?;
         self.set_setting("theme", settings.theme.clone())?;
+        self.set_setting(
+            "vision_fallback_enabled",
+            settings.vision_fallback_enabled.to_string(),
+        )?;
+        self.set_setting(
+            "vision_api_provider_id",
+            settings.vision_api_provider_id.clone(),
+        )?;
+        self.set_setting("vision_model", settings.vision_model.clone())?;
+        self.set_setting(
+            "vision_chat_enabled",
+            settings.vision_chat_enabled.to_string(),
+        )?;
+        self.set_setting(
+            "vision_codex_enabled",
+            settings.vision_codex_enabled.to_string(),
+        )?;
+        self.set_setting(
+            "vision_claude_enabled",
+            settings.vision_claude_enabled.to_string(),
+        )?;
+        self.set_setting(
+            "vision_gemini_enabled",
+            settings.vision_gemini_enabled.to_string(),
+        )?;
         self.settings()
     }
 
@@ -553,6 +585,13 @@ impl Database {
         self.ensure_setting("background_color", "system".to_string())?;
         self.ensure_setting("background_scene", "none".to_string())?;
         self.ensure_setting("theme", "anime".to_string())?;
+        self.ensure_setting("vision_fallback_enabled", "false".to_string())?;
+        self.ensure_setting("vision_api_provider_id", String::new())?;
+        self.ensure_setting("vision_model", String::new())?;
+        self.ensure_setting("vision_chat_enabled", "true".to_string())?;
+        self.ensure_setting("vision_codex_enabled", "true".to_string())?;
+        self.ensure_setting("vision_claude_enabled", "true".to_string())?;
+        self.ensure_setting("vision_gemini_enabled", "true".to_string())?;
 
         let theme = self.setting("theme")?;
         if matches!(theme.as_str(), "system" | "dark" | "light") {

@@ -32,6 +32,13 @@ const emptyState: DashboardState = {
     backgroundColor: "system",
     backgroundScene: "none",
     theme: "professional",
+    visionFallbackEnabled: false,
+    visionApiProviderId: "",
+    visionModel: "",
+    visionChatEnabled: true,
+    visionCodexEnabled: true,
+    visionClaudeEnabled: true,
+    visionGeminiEnabled: true,
   },
 };
 
@@ -294,10 +301,15 @@ function App() {
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "talking" ? (
-    <TalkingPage
-      providers={data.apiProviders}
-      onNotify={(message, type) => showToast.current(message, type)}
-    />
+      <TalkingPage
+        providers={data.apiProviders}
+        visionFallbackAvailable={
+          data.settings.visionFallbackEnabled
+          && Boolean(data.settings.visionApiProviderId)
+          && Boolean(data.settings.visionModel)
+        }
+        onNotify={(message, type) => showToast.current(message, type)}
+      />
   ) : activePage === "drawing" ? (
     <DrawingPage
       providers={data.apiProviders}
@@ -314,7 +326,12 @@ function App() {
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "settings" ? (
-    <SettingsPage settings={data.settings} onOpenGuide={() => setGuideOpen(true)} onSave={handleSaveSettings} />
+    <SettingsPage
+      apiProviders={data.apiProviders}
+      settings={data.settings}
+      onOpenGuide={() => setGuideOpen(true)}
+      onSave={handleSaveSettings}
+    />
   ) : (
     <AgentsPage
       apiProviders={data.apiProviders}

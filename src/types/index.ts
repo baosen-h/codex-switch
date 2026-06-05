@@ -210,6 +210,13 @@ export interface AppSettings {
   backgroundColor: BackgroundColorMode;
   backgroundScene: BackgroundScene;
   theme: AppTheme;
+  visionFallbackEnabled: boolean;
+  visionApiProviderId: string;
+  visionModel: string;
+  visionChatEnabled: boolean;
+  visionCodexEnabled: boolean;
+  visionClaudeEnabled: boolean;
+  visionGeminiEnabled: boolean;
 }
 
 export interface DashboardState {

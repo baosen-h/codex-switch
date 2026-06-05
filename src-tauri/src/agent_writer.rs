@@ -127,6 +127,9 @@ pub struct AgentDirs<'a> {
     pub codex: &'a Path,
     pub claude: &'a Path,
     pub gemini: &'a Path,
+    pub vision_codex: bool,
+    pub vision_claude: bool,
+    pub vision_gemini: bool,
 }
 
 /// Write the provider to disk, using the agent-specific layout.
@@ -134,9 +137,9 @@ pub struct AgentDirs<'a> {
 /// preview); otherwise we regenerate from fields.
 pub fn write_provider(provider: &Provider, dirs: &AgentDirs) -> Result<(), AppError> {
     match provider.agent.as_str() {
-        AGENT_CLAUDE => write_claude(provider, dirs.claude),
-        AGENT_GEMINI => write_gemini(provider, dirs.gemini),
-        _ => write_codex(provider, dirs.codex),
+        AGENT_CLAUDE => write_claude_with_gateway(provider, dirs.claude, dirs.vision_claude),
+        AGENT_GEMINI => write_gemini_with_gateway(provider, dirs.gemini, dirs.vision_gemini),
+        _ => write_codex_with_gateway(provider, dirs.codex, dirs.vision_codex),
     }
 }
 
@@ -204,15 +207,30 @@ fn split_sections(text: &str) -> Vec<(String, String)> {
     out
 }
 
+#[allow(dead_code)]
 pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
+    write_codex_with_gateway(provider, config_dir, false)
+}
+
+fn write_codex_with_gateway(
+    provider: &Provider,
+    config_dir: &Path,
+    use_gateway: bool,
+) -> Result<(), AppError> {
     ensure_dir(config_dir)?;
     let auth_path = config_dir.join("auth.json");
     let config_path = config_dir.join("config.toml");
 
-    let text = if uses_codex_proxy(provider) || saved_codex_text_uses_proxy(&provider.config_text) {
-        render_codex(provider)
+    let mut effective_provider = provider.clone();
+    if use_gateway {
+        effective_provider.wire_api = "chat".to_string();
+    }
+    let text = if uses_codex_proxy(&effective_provider)
+        || saved_codex_text_uses_proxy(&effective_provider.config_text)
+    {
+        render_codex(&effective_provider)
     } else {
-        effective_text(provider, || render_codex(provider))
+        effective_text(&effective_provider, || render_codex(&effective_provider))
     };
     let sections = split_sections(&text);
 
@@ -245,10 +263,29 @@ fn saved_codex_text_uses_proxy(text: &str) -> bool {
     text.contains(&proxy_base_url()) || text.contains("http://127.0.0.1:47632")
 }
 
+#[allow(dead_code)]
 pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
+    write_claude_with_gateway(provider, config_dir, false)
+}
+
+fn write_claude_with_gateway(
+    provider: &Provider,
+    config_dir: &Path,
+    use_gateway: bool,
+) -> Result<(), AppError> {
     ensure_dir(config_dir)?;
     let path = config_dir.join("settings.json");
-    let text = effective_text(provider, || render_claude(provider));
+    let mut effective_provider = provider.clone();
+    if use_gateway {
+        effective_provider.base_url = format!(
+            "http://{}:{}/anthropic",
+            crate::compatibility_proxy::PROXY_HOST,
+            crate::compatibility_proxy::PROXY_PORT
+        );
+        effective_provider.api_key = "codex-switch-local".to_string();
+        effective_provider.config_text.clear();
+    }
+    let text = effective_text(&effective_provider, || render_claude(&effective_provider));
     let sections = split_sections(&text);
     let body = sections
         .into_iter()
@@ -259,12 +296,31 @@ pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppErr
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn write_gemini(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
+    write_gemini_with_gateway(provider, config_dir, false)
+}
+
+fn write_gemini_with_gateway(
+    provider: &Provider,
+    config_dir: &Path,
+    use_gateway: bool,
+) -> Result<(), AppError> {
     ensure_dir(config_dir)?;
     let settings_path = config_dir.join("settings.json");
     let env_path = config_dir.join(".env");
 
-    let text = effective_text(provider, || render_gemini(provider));
+    let mut effective_provider = provider.clone();
+    if use_gateway {
+        effective_provider.base_url = format!(
+            "http://{}:{}/gemini",
+            crate::compatibility_proxy::PROXY_HOST,
+            crate::compatibility_proxy::PROXY_PORT
+        );
+        effective_provider.api_key = "codex-switch-local".to_string();
+        effective_provider.config_text.clear();
+    }
+    let text = effective_text(&effective_provider, || render_gemini(&effective_provider));
     let sections = split_sections(&text);
 
     let mut settings: Option<String> = None;
@@ -305,7 +361,7 @@ pub fn write_gemini(provider: &Provider, config_dir: &Path) -> Result<(), AppErr
 
     let generated_settings = serde_json::from_str::<serde_json::Value>(&settings_body)
         .map_err(|error| AppError::message(format!("Invalid Gemini settings JSON: {error}")))?;
-    let generated_settings = normalize_gemini_settings(generated_settings, provider);
+    let generated_settings = normalize_gemini_settings(generated_settings, &effective_provider);
     let mut merged_settings = fs::read_to_string(&settings_path)
         .ok()
         .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
@@ -313,7 +369,7 @@ pub fn write_gemini(provider: &Provider, config_dir: &Path) -> Result<(), AppErr
     merge_json(&mut merged_settings, generated_settings);
 
     let existing_env = fs::read_to_string(&env_path).unwrap_or_default();
-    let env_body = normalize_gemini_env(&env_body, provider);
+    let env_body = normalize_gemini_env(&env_body, &effective_provider);
     let merged_env = merge_gemini_env(&existing_env, &env_body);
 
     fs::write(
