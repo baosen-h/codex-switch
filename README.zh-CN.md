@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/baosen-h/codex-switch?style=flat" alt="License" /></a>
 </p>
 
-Codex Switch 是一个用于管理 Codex、Claude Code 和 Gemini 服务商配置的 Windows 桌面应用，同时支持聊天、图像生成和本地会话。内置 chat/completion 转换，让 Codex 兼容 DeepSeek、MiMo 和 GLM。
+Codex Switch 是一个用于管理 Codex、Claude Code 和 Gemini 服务商配置的 Windows 桌面应用，同时支持聊天、图像生成和本地会话。内置 chat/completion 转换，让 Codex 兼容 DeepSeek、MiMo 和 GLM；可配置的视觉模型支持还能让纯文本模型理解图片。
 
 ## 重点功能
 
