@@ -101,13 +101,18 @@ function renderClaudePreview(provider: Provider): string {
 
 function renderGeminiPreview(provider: Provider): string {
   const model = provider.model.trim() || "gemini-2.5-pro";
-  const config = { selectedAuthType: "gemini-api-key", model };
+  const settings = {
+    security: { auth: { selectedType: "gemini-api-key" } },
+    model: { name: model },
+  };
   const envLines = [`GEMINI_API_KEY=${provider.apiKey}`];
   if (provider.baseUrl.trim()) {
-    envLines.push(`GOOGLE_GEMINI_BASE_URL=${provider.baseUrl.trim()}`);
+    envLines.push(`GOOGLE_GEMINI_BASE_URL=${geminiCliBaseUrl(provider.baseUrl)}`);
+    envLines.push("GEMINI_API_KEY_AUTH_MECHANISM=bearer");
+    envLines.push("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI");
   }
   return (
-    `// ── ~/.gemini/config.json ──\n${JSON.stringify(config, null, 2)}\n\n` +
+    `// ── ~/.gemini/settings.json ──\n${JSON.stringify(settings, null, 2)}\n\n` +
     `# ── ~/.gemini/.env ──\n${envLines.join("\n")}\n`
   );
 }
@@ -186,10 +191,33 @@ function patchClaudePreview(preview: string, field: PreviewField, value: string)
 
 function patchGeminiPreview(preview: string, field: PreviewField, value: string): string {
   if (field === "model") {
-    return replaceJsonBody(preview, (body) => ({ ...body, model: value || "gemini-2.5-pro" }));
+    return replaceJsonBody(preview, (body) => ({
+      ...body,
+      model: {
+        ...(typeof body.model === "object" && body.model !== null
+          ? (body.model as Record<string, unknown>)
+          : {}),
+        name: value || "gemini-2.5-pro",
+      },
+    }));
   }
   if (field === "apiKey") return replaceEnvLine(preview, "GEMINI_API_KEY", value);
-  if (field === "baseUrl") return replaceEnvLine(preview, "GOOGLE_GEMINI_BASE_URL", value);
+  if (field === "baseUrl") {
+    let next = value.trim()
+      ? replaceEnvLine(preview, "GOOGLE_GEMINI_BASE_URL", geminiCliBaseUrl(value))
+      : removeEnvLine(preview, "GOOGLE_GEMINI_BASE_URL");
+    next = value.trim()
+      ? replaceEnvLine(next, "GEMINI_API_KEY_AUTH_MECHANISM", "bearer")
+      : removeEnvLine(next, "GEMINI_API_KEY_AUTH_MECHANISM");
+    next = value.trim()
+      ? replaceEnvLine(
+          next,
+          "GEMINI_CLI_CUSTOM_HEADERS",
+          "User-Agent:CodexSwitch-GeminiCLI",
+        )
+      : removeEnvLine(next, "GEMINI_CLI_CUSTOM_HEADERS");
+    return next;
+  }
   return preview;
 }
 
@@ -395,6 +423,16 @@ function replaceEnvLine(text: string, key: string, value: string): string {
   return `${text.trimEnd()}\n${line}\n`;
 }
 
+function removeEnvLine(text: string, key: string): string {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`^${escapedKey}=.*(?:\\r?\\n|$)`, "im"), "");
+}
+
+function geminiCliBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  return trimmed.replace(/\/v1(?:beta)?$/i, "");
+}
+
 function matchQuotedValue(text: string, key: string): string {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = text.match(new RegExp(`${escapedKey}\\s*=\\s*"([^"]*)"`, "i"));
@@ -462,10 +500,14 @@ function parseClaudePreview(preview: string): Partial<Provider> {
 }
 
 function parseGeminiPreview(preview: string): Partial<Provider> {
-  const config = parseJsonBlock(preview);
+  const settings = parseJsonBlock(preview);
+  const model =
+    settings && typeof settings.model === "object" && settings.model !== null
+      ? (settings.model as Record<string, unknown>).name
+      : settings?.model;
 
   return {
-    model: typeof config?.model === "string" ? config.model : "",
+    model: typeof model === "string" ? model : "",
     apiKey: matchEnvValue(preview, "GEMINI_API_KEY"),
     baseUrl: matchEnvValue(preview, "GOOGLE_GEMINI_BASE_URL"),
   };
@@ -511,15 +553,23 @@ export function renderInstructionTemplate(agent: AgentKind): string {
 2. Save the provider
 
 3. Expected Gemini shape:
-config.json
+settings.json
 {
-  "selectedAuthType": "gemini-api-key",
-  "model": "gemini-2.5-pro"
+  "security": {
+    "auth": {
+      "selectedType": "gemini-api-key"
+    }
+  },
+  "model": {
+    "name": "gemini-2.5-pro"
+  }
 }
 
 .env
 GEMINI_API_KEY=your-key
-GOOGLE_GEMINI_BASE_URL=https://api.example.com`;
+GOOGLE_GEMINI_BASE_URL=https://api.example.com
+GEMINI_API_KEY_AUTH_MECHANISM=bearer
+GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI`;
   }
 
   return `Codex template (example only)

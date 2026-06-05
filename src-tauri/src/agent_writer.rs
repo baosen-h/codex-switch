@@ -56,20 +56,31 @@ pub fn render_gemini(provider: &Provider) -> String {
     } else {
         model
     };
-    let config = serde_json::to_string_pretty(&serde_json::json!({
-        "selectedAuthType": "gemini-api-key",
-        "model": selected_model,
+    let settings = serde_json::to_string_pretty(&serde_json::json!({
+        "security": {
+            "auth": {
+                "selectedType": "gemini-api-key"
+            }
+        },
+        "model": {
+            "name": selected_model
+        }
     }))
     .unwrap_or_else(|_| "{}".to_string());
 
     let base = provider.base_url.trim();
     let mut env_lines = vec![format!("GEMINI_API_KEY={}", provider.api_key)];
     if !base.is_empty() {
-        env_lines.push(format!("GOOGLE_GEMINI_BASE_URL={}", base));
+        env_lines.push(format!(
+            "GOOGLE_GEMINI_BASE_URL={}",
+            gemini_cli_base_url(base)
+        ));
+        env_lines.push("GEMINI_API_KEY_AUTH_MECHANISM=bearer".to_string());
+        env_lines.push("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI".to_string());
     }
     let env = env_lines.join("\n");
 
-    format!("// ── ~/.gemini/config.json ──\n{config}\n\n# ── ~/.gemini/.env ──\n{env}\n")
+    format!("// ── ~/.gemini/settings.json ──\n{settings}\n\n# ── ~/.gemini/.env ──\n{env}\n")
 }
 
 fn build_codex_toml(provider: &Provider) -> String {
@@ -250,34 +261,175 @@ pub fn write_claude(provider: &Provider, config_dir: &Path) -> Result<(), AppErr
 
 pub fn write_gemini(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
     ensure_dir(config_dir)?;
-    let config_path = config_dir.join("config.json");
+    let settings_path = config_dir.join("settings.json");
     let env_path = config_dir.join(".env");
 
     let text = effective_text(provider, || render_gemini(provider));
     let sections = split_sections(&text);
 
-    let mut config: Option<String> = None;
+    let mut settings: Option<String> = None;
     let mut env: Option<String> = None;
     for (name, body) in sections {
-        if name.contains("config.json") {
-            config = Some(body);
+        if name.contains("settings.json") || name.contains("config.json") {
+            settings = Some(body);
         } else if name.contains(".env") {
             env = Some(body);
         }
     }
 
-    let config_body = config.unwrap_or_else(|| {
+    let settings_body = settings.unwrap_or_else(|| {
         serde_json::to_string_pretty(&serde_json::json!({
-            "selectedAuthType": "gemini-api-key",
-            "model": if provider.model.trim().is_empty() { "gemini-2.5-pro" } else { provider.model.trim() },
+            "security": {
+                "auth": {
+                    "selectedType": "gemini-api-key"
+                }
+            },
+            "model": {
+                "name": if provider.model.trim().is_empty() { "gemini-2.5-pro" } else { provider.model.trim() }
+            },
         }))
         .unwrap_or_else(|_| "{}".to_string())
     });
-    let env_body = env.unwrap_or_else(|| format!("GEMINI_API_KEY={}", provider.api_key));
+    let env_body = env.unwrap_or_else(|| {
+        let mut lines = vec![format!("GEMINI_API_KEY={}", provider.api_key)];
+        if !provider.base_url.trim().is_empty() {
+            lines.push(format!(
+                "GOOGLE_GEMINI_BASE_URL={}",
+                gemini_cli_base_url(provider.base_url.trim())
+            ));
+            lines.push("GEMINI_API_KEY_AUTH_MECHANISM=bearer".to_string());
+            lines.push("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI".to_string());
+        }
+        lines.join("\n")
+    });
 
-    fs::write(config_path, config_body)?;
-    fs::write(env_path, env_body)?;
+    let generated_settings = serde_json::from_str::<serde_json::Value>(&settings_body)
+        .map_err(|error| AppError::message(format!("Invalid Gemini settings JSON: {error}")))?;
+    let generated_settings = normalize_gemini_settings(generated_settings, provider);
+    let mut merged_settings = fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    merge_json(&mut merged_settings, generated_settings);
+
+    let existing_env = fs::read_to_string(&env_path).unwrap_or_default();
+    let env_body = normalize_gemini_env(&env_body, provider);
+    let merged_env = merge_gemini_env(&existing_env, &env_body);
+
+    fs::write(
+        settings_path,
+        serde_json::to_string_pretty(&merged_settings)
+            .map_err(|error| AppError::message(error.to_string()))?,
+    )?;
+    fs::write(env_path, merged_env)?;
     Ok(())
+}
+
+fn normalize_gemini_settings(
+    mut settings: serde_json::Value,
+    provider: &Provider,
+) -> serde_json::Value {
+    let legacy_model = settings
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    if let Some(object) = settings.as_object_mut() {
+        object.remove("selectedAuthType");
+        if legacy_model.is_some() {
+            object.remove("model");
+        }
+    }
+
+    let selected_model = legacy_model.unwrap_or_else(|| {
+        if provider.model.trim().is_empty() {
+            "gemini-2.5-pro".to_string()
+        } else {
+            provider.model.trim().to_string()
+        }
+    });
+    merge_json(
+        &mut settings,
+        serde_json::json!({
+            "security": {
+                "auth": {
+                    "selectedType": "gemini-api-key"
+                }
+            },
+            "model": {
+                "name": selected_model
+            }
+        }),
+    );
+    settings
+}
+
+fn normalize_gemini_env(env: &str, provider: &Provider) -> String {
+    let api_key = env_value(env, "GEMINI_API_KEY").unwrap_or_else(|| provider.api_key.clone());
+    let base_url = env_value(env, "GOOGLE_GEMINI_BASE_URL")
+        .unwrap_or_else(|| provider.base_url.trim().to_string());
+    let mut lines = vec![format!("GEMINI_API_KEY={api_key}")];
+    if !base_url.trim().is_empty() {
+        lines.push(format!(
+            "GOOGLE_GEMINI_BASE_URL={}",
+            gemini_cli_base_url(base_url.trim())
+        ));
+        lines.push("GEMINI_API_KEY_AUTH_MECHANISM=bearer".to_string());
+        lines.push("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI".to_string());
+    }
+    lines.join("\n")
+}
+
+fn gemini_cli_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    for suffix in ["/v1beta", "/v1"] {
+        if let Some(root) = trimmed.strip_suffix(suffix) {
+            return root.to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn env_value(env: &str, key: &str) -> Option<String> {
+    env.lines().find_map(|line| {
+        let (line_key, value) = line.split_once('=')?;
+        (line_key.trim() == key).then(|| value.trim().to_string())
+    })
+}
+
+fn merge_json(target: &mut serde_json::Value, source: serde_json::Value) {
+    match (target, source) {
+        (serde_json::Value::Object(target), serde_json::Value::Object(source)) => {
+            for (key, value) in source {
+                merge_json(target.entry(key).or_insert(serde_json::Value::Null), value);
+            }
+        }
+        (target, source) => *target = source,
+    }
+}
+
+fn merge_gemini_env(existing: &str, generated: &str) -> String {
+    const MANAGED_KEYS: [&str; 4] = [
+        "GEMINI_API_KEY",
+        "GOOGLE_GEMINI_BASE_URL",
+        "GEMINI_API_KEY_AUTH_MECHANISM",
+        "GEMINI_CLI_CUSTOM_HEADERS",
+    ];
+
+    let mut lines = existing
+        .lines()
+        .filter(|line| {
+            let key = line.split_once('=').map(|(key, _)| key.trim());
+            !key.is_some_and(|key| MANAGED_KEYS.contains(&key))
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    lines.extend(
+        generated
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_string),
+    );
+    format!("{}\n", lines.join("\n").trim())
 }
 
 #[cfg(test)]
@@ -315,6 +467,26 @@ mod tests {
             website_url: String::new(),
             model: model.to_string(),
             wire_api: "messages".to_string(),
+            reasoning_effort: String::new(),
+            extra_toml: String::new(),
+            config_text: String::new(),
+            is_current: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn gemini_provider(base_url: &str, model: &str) -> Provider {
+        Provider {
+            id: "provider-gemini".to_string(),
+            name: "GemAI".to_string(),
+            agent: AGENT_GEMINI.to_string(),
+            api_provider_id: String::new(),
+            base_url: base_url.to_string(),
+            api_key: "sk-test".to_string(),
+            website_url: String::new(),
+            model: model.to_string(),
+            wire_api: "responses".to_string(),
             reasoning_effort: String::new(),
             extra_toml: String::new(),
             config_text: String::new(),
@@ -426,5 +598,129 @@ base_url = "http://127.0.0.1:47632/v1"
         assert_eq!(value["env"]["ANTHROPIC_MODEL"], "deepseek-chat");
 
         std::fs::remove_dir_all(&dir).expect("remove temp claude test dir");
+    }
+
+    #[test]
+    fn render_gemini_uses_current_cli_settings_and_bearer_auth() {
+        let provider = gemini_provider(
+            "https://api.gemai.cc",
+            "[福利]gemini-3.1-flash-lite-preview",
+        );
+        let text = render_gemini(&provider);
+
+        assert!(text.contains("~/.gemini/settings.json"));
+        assert!(text.contains(r#""selectedType": "gemini-api-key""#));
+        assert!(text.contains(r#""name": "[福利]gemini-3.1-flash-lite-preview""#));
+        assert!(text.contains("GOOGLE_GEMINI_BASE_URL=https://api.gemai.cc"));
+        assert!(text.contains("GEMINI_API_KEY_AUTH_MECHANISM=bearer"));
+        assert!(text.contains("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI"));
+    }
+
+    #[test]
+    fn write_gemini_preserves_unmanaged_settings_and_env() {
+        let provider = gemini_provider("https://api.gemai.cc", "gemini-2.0-flash");
+        let dir =
+            std::env::temp_dir().join(format!("codex-switch-gemini-test-{}", std::process::id()));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale temp gemini test dir");
+        }
+        std::fs::create_dir_all(&dir).expect("create temp gemini test dir");
+        std::fs::write(
+            dir.join("settings.json"),
+            r#"{"general":{"previewFeatures":true},"mcpServers":{"demo":{"command":"demo"}}}"#,
+        )
+        .expect("seed settings");
+        std::fs::write(
+            dir.join(".env"),
+            "KEEP_ME=yes\nGEMINI_API_KEY=old\nGOOGLE_GEMINI_BASE_URL=https://old.example\n",
+        )
+        .expect("seed env");
+
+        write_gemini(&provider, &dir).expect("write gemini settings");
+
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("settings.json")).expect("read settings"),
+        )
+        .expect("valid settings json");
+        assert_eq!(settings["general"]["previewFeatures"], true);
+        assert_eq!(settings["mcpServers"]["demo"]["command"], "demo");
+        assert_eq!(
+            settings["security"]["auth"]["selectedType"],
+            "gemini-api-key"
+        );
+        assert_eq!(settings["model"]["name"], "gemini-2.0-flash");
+
+        let env = std::fs::read_to_string(dir.join(".env")).expect("read env");
+        assert!(env.contains("KEEP_ME=yes"));
+        assert!(env.contains("GEMINI_API_KEY=sk-test"));
+        assert!(env.contains("GOOGLE_GEMINI_BASE_URL=https://api.gemai.cc"));
+        assert!(env.contains("GEMINI_API_KEY_AUTH_MECHANISM=bearer"));
+        assert!(env.contains("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI"));
+        assert!(!env.contains("GEMINI_API_KEY=old"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp gemini test dir");
+    }
+
+    #[test]
+    fn write_gemini_migrates_legacy_saved_preview() {
+        let mut provider = gemini_provider(
+            "https://api.gemai.cc",
+            "[福利]gemini-3.1-flash-lite-preview",
+        );
+        provider.config_text = r#"// ── ~/.gemini/config.json ──
+{
+  "selectedAuthType": "gemini-api-key",
+  "model": "[福利]gemini-3.1-flash-lite-preview"
+}
+
+# ── ~/.gemini/.env ──
+GEMINI_API_KEY=sk-test
+GOOGLE_GEMINI_BASE_URL=https://api.gemai.cc
+"#
+        .to_string();
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-gemini-legacy-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale temp gemini legacy test dir");
+        }
+
+        write_gemini(&provider, &dir).expect("write migrated gemini settings");
+
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("settings.json")).expect("read settings"),
+        )
+        .expect("valid settings json");
+        assert!(settings.get("selectedAuthType").is_none());
+        assert_eq!(
+            settings["model"]["name"],
+            "[福利]gemini-3.1-flash-lite-preview"
+        );
+        assert_eq!(
+            settings["security"]["auth"]["selectedType"],
+            "gemini-api-key"
+        );
+        let env = std::fs::read_to_string(dir.join(".env")).expect("read env");
+        assert!(env.contains("GEMINI_API_KEY_AUTH_MECHANISM=bearer"));
+        assert!(env.contains("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI"));
+
+        std::fs::remove_dir_all(&dir).expect("remove temp gemini legacy test dir");
+    }
+
+    #[test]
+    fn gemini_cli_base_url_removes_openai_or_api_version_suffix() {
+        assert_eq!(
+            gemini_cli_base_url("https://api.gemai.cc/v1"),
+            "https://api.gemai.cc"
+        );
+        assert_eq!(
+            gemini_cli_base_url("https://generativelanguage.googleapis.com/v1beta/"),
+            "https://generativelanguage.googleapis.com"
+        );
+        assert_eq!(
+            gemini_cli_base_url("https://gateway.example.com"),
+            "https://gateway.example.com"
+        );
     }
 }
