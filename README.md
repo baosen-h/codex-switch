@@ -73,19 +73,26 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
   </tr>
 </table>
 
+### Vision Support for Text-Only Models
+
+With a vision model configured in Codex Switch, text-only models can understand image input in **Talking**, **Codex CLI**, **Claude Code**, and **Gemini CLI**. DeepSeek is used below as one example, shown analyzing the same browser screenshot in Talking and Codex CLI.
+
 <table>
   <tr>
-    <th colspan="2" align="center">Vision Model Support in Codex CLI</th>
+    <th align="center">Talking</th>
+    <th align="center">Codex CLI</th>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/codex-vision-support-request.png" alt="DeepSeek receives an image in Codex CLI" width="100%" /></td>
-    <td width="50%"><img src="docs/images/codex-vision-support-result.png" alt="DeepSeek understands the image through MiMo-V2.5" width="100%" /></td>
+    <td width="50%"><img src="docs/images/vision-talking-result.png" alt="DeepSeek analyzing an image on the Talking page" width="100%" /></td>
+    <td width="50%"><img src="docs/images/vision-codex-cli-result.png" alt="DeepSeek analyzing an image in Codex CLI" width="100%" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>Send an image to a text-only DeepSeek model in Codex CLI.</sub></td>
-    <td align="center"><sub>MiMo-V2.5 provides the image information, allowing DeepSeek to answer.</sub></td>
+    <td align="center"><sub>A text-only DeepSeek model receives vision support when chatting with images in Talking.</sub></td>
+    <td align="center"><sub>The same DeepSeek example receives vision support through Codex CLI.</sub></td>
   </tr>
 </table>
+
+The image understanding is supplied by the vision provider and model selected under **Settings → Vision model**, while the original text-only model still produces the final response. This is not limited to DeepSeek; other text-only models can use the same vision support when their requests pass through Codex Switch.
 
 ## Install
 
