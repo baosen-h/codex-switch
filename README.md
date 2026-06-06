@@ -108,6 +108,7 @@ npm run tauri -- build
 Codex Switch was inspired by the following open-source projects:
 
 - [CC Switch](https://github.com/farion1231/cc-switch) - Cross-platform manager for Claude Code, Codex, Gemini CLI, and other AI coding tools.
+- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) - Cross-platform desktop client with unified access to multiple LLM providers.
 - [Codex Switcher](https://github.com/xtftbwvfp/codex-switcher) - Desktop account, quota, relay, and local proxy manager for Codex CLI and Codex App.
 - [mimo2codex](https://github.com/7as0nch/mimo2codex) - Local proxy that connects Codex clients to OpenAI-compatible and Responses API providers.
 - [deepseek-vision](https://github.com/ErlichLiu/deepseek-vision) - Proxy that adds vision understanding, web search, and compatible APIs to DeepSeek models.

@@ -108,6 +108,7 @@ npm run tauri -- build
 Codex Switch 的设计受到以下优秀开源项目的启发：
 
 - [CC Switch](https://github.com/farion1231/cc-switch) - 面向 Claude Code、Codex、Gemini CLI 等 AI 编程工具的跨平台管理器。
+- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) - 统一接入多个大模型服务商的跨平台桌面客户端。
 - [Codex Switcher](https://github.com/xtftbwvfp/codex-switcher) - Codex CLI 和 Codex App 的账号、配额、中转与本地代理管理工具。
 - [mimo2codex](https://github.com/7as0nch/mimo2codex) - 将 Codex 客户端连接到 OpenAI-compatible 和 Responses API 服务商的本地代理。
 - [deepseek-vision](https://github.com/ErlichLiu/deepseek-vision) - 为 DeepSeek 模型提供视觉理解、联网搜索和兼容接口的代理服务。
