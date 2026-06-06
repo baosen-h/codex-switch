@@ -219,9 +219,9 @@ fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
                 codex: &codex_dir,
                 claude: &claude_dir,
                 gemini: &gemini_dir,
-                vision_codex: settings.vision_fallback_enabled,
-                vision_claude: settings.vision_fallback_enabled,
-                vision_gemini: settings.vision_fallback_enabled,
+                vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+                vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+                vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
             },
         )
     };

@@ -12,7 +12,14 @@ const MAX_IMAGES: usize = 3;
 const VISION_PROMPT: &str = "Analyze this image for another AI assistant. Extract visible text exactly and describe errors, code, UI state, objects, layout, charts, and spatial relationships relevant to the user's request. Do not answer the user's request directly.";
 static DESCRIPTION_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
-pub fn model_supports_vision(provider: &ApiProvider, model: &str) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisionCapability {
+    Vision,
+    TextOnly,
+    Unknown,
+}
+
+pub fn model_vision_capability(provider: &ApiProvider, model: &str) -> VisionCapability {
     if let Some(info) = provider
         .models
         .iter()
@@ -28,43 +35,14 @@ pub fn model_supports_vision(provider: &ApiProvider, model: &str) -> bool {
             .iter()
             .any(|value| value == "image" || value == "image_recognition")
         {
-            return true;
+            return VisionCapability::Vision;
         }
         if !info.input_modalities.is_empty() {
-            return false;
+            return VisionCapability::TextOnly;
         }
     }
 
-    model_name_supports_vision(model)
-}
-
-pub fn model_name_supports_vision(model: &str) -> bool {
-    let id = model.to_ascii_lowercase();
-    [
-        "vision",
-        "vl",
-        "omni",
-        "gpt-4",
-        "gpt-5",
-        "o1",
-        "o3",
-        "o4",
-        "claude-3",
-        "claude-sonnet-4",
-        "claude-opus-4",
-        "claude-haiku-4",
-        "gemini",
-        "pixtral",
-        "llava",
-        "internvl",
-        "gemma-3",
-        "gemma3",
-        "grok-4",
-        "kimi-k2.5",
-        "kimi-k2.6",
-    ]
-    .iter()
-    .any(|needle| id.contains(needle))
+    VisionCapability::Unknown
 }
 
 pub fn preprocess_chat_messages(
@@ -74,7 +52,7 @@ pub fn preprocess_chat_messages(
     vision_provider: &ApiProvider,
     vision_model: &str,
 ) -> Result<Vec<ChatMessage>, String> {
-    if model_supports_vision(main_provider, main_model) {
+    if model_vision_capability(main_provider, main_model) != VisionCapability::TextOnly {
         return Ok(messages.to_vec());
     }
 
@@ -484,6 +462,7 @@ fn image_as_base64(client: &Client, image: &str) -> Result<(String, String), Str
 fn normalized_provider_type(provider_type: &str) -> String {
     match provider_type.trim().to_ascii_lowercase().as_str() {
         "" | "new-api" | "glm" | "deepseek" | "mimo" => "openai-compatible".to_string(),
+        "openai_oauth" | "openai_apikey" => "openai".to_string(),
         value => value.to_string(),
     }
 }
@@ -597,7 +576,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_text_modality_overrides_name_guessing() {
+    fn explicit_text_modality_is_text_only() {
         let api = provider(RemoteModel {
             id: "gpt-5-text".to_string(),
             name: None,
@@ -607,7 +586,58 @@ mod tests {
             input_modalities: vec!["text".to_string()],
             output_modalities: vec!["text".to_string()],
         });
-        assert!(!model_supports_vision(&api, "gpt-5-text"));
+        assert_eq!(
+            model_vision_capability(&api, "gpt-5-text"),
+            VisionCapability::TextOnly
+        );
+    }
+
+    #[test]
+    fn missing_model_metadata_is_unknown() {
+        let api = provider(RemoteModel {
+            id: "known-model".to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+            capabilities: vec![],
+            input_modalities: vec![],
+            output_modalities: vec![],
+        });
+        assert_eq!(
+            model_vision_capability(&api, "gpt-5"),
+            VisionCapability::Unknown
+        );
+    }
+
+    #[test]
+    fn unknown_model_does_not_trigger_fallback() {
+        let api = provider(RemoteModel {
+            id: "gpt-5".to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+            capabilities: vec![],
+            input_modalities: vec![],
+            output_modalities: vec![],
+        });
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "inspect".to_string(),
+            attachments: vec![ChatAttachment {
+                id: "image".to_string(),
+                name: "image.png".to_string(),
+                mime_type: "image/png".to_string(),
+                size: 1,
+                kind: "image".to_string(),
+                data_url: Some("data:image/png;base64,AA==".to_string()),
+                text: None,
+            }],
+        }];
+
+        let output =
+            preprocess_chat_messages(&messages, &api, "gpt-5", &api, "gpt-5").unwrap();
+
+        assert_eq!(output[0].attachments.len(), 1);
     }
 
     #[test]

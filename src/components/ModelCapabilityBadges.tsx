@@ -16,6 +16,7 @@ const modalityMeta: Record<string, { label: string; Icon: () => JSX.Element }> =
   audio: { label: "Audio", Icon: () => <span className="model-capability-glyph">A</span> },
   video: { label: "Video", Icon: () => <span className="model-capability-glyph">V</span> },
   file: { label: "File", Icon: () => <FileIcon size={12} /> },
+  unknown: { label: "Unknown", Icon: () => <span className="model-capability-glyph">?</span> },
 };
 
 function modalityLabel(modality: string): string {

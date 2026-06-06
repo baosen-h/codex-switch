@@ -66,13 +66,19 @@ fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<
             provider = select_responses_provider_for_model(&provider, &providers, model.as_deref());
         }
         let settings = db.settings().map_err(|error| error.to_string())?;
-        let main_supports_vision = db
+        let main_vision_capability = db
             .api_provider_by_id(&provider.api_provider_id)
             .ok()
-            .map(|api| crate::vision_fallback::model_supports_vision(&api, &provider.model))
-            .unwrap_or_else(|| crate::vision_fallback::model_name_supports_vision(&provider.model));
+            .map(|api| crate::vision_fallback::model_vision_capability(&api, &provider.model))
+            .unwrap_or(crate::vision_fallback::VisionCapability::Unknown);
+        let agent_fallback_enabled = match agent {
+            AGENT_CLAUDE => settings.vision_claude_enabled,
+            AGENT_GEMINI => settings.vision_gemini_enabled,
+            _ => settings.vision_codex_enabled,
+        };
         let vision = if settings.vision_fallback_enabled
-            && !main_supports_vision
+            && agent_fallback_enabled
+            && main_vision_capability == crate::vision_fallback::VisionCapability::TextOnly
             && !settings.vision_api_provider_id.trim().is_empty()
             && !settings.vision_model.trim().is_empty()
         {

@@ -17,7 +17,8 @@ interface ProvidersPageProps {
 const providerTypes: Array<{ value: ApiProviderType; label: string; baseUrl: string; websiteUrl: string }> = [
   { value: "openai-compatible", label: "OpenAI Compatible / New API", baseUrl: "https://api.example.com/v1", websiteUrl: "" },
   { value: "anthropic-compatible", label: "Anthropic Compatible", baseUrl: "https://api.example.com", websiteUrl: "" },
-  { value: "openai", label: "OpenAI", baseUrl: "https://api.openai.com/v1", websiteUrl: "https://platform.openai.com" },
+  { value: "openai_oauth", label: "OpenAI OAuth", baseUrl: "", websiteUrl: "https://chatgpt.com" },
+  { value: "openai_apikey", label: "OpenAI API Key", baseUrl: "https://api.openai.com/v1", websiteUrl: "https://platform.openai.com" },
   { value: "anthropic", label: "Anthropic", baseUrl: "https://api.anthropic.com/v1", websiteUrl: "https://console.anthropic.com" },
   { value: "gemini", label: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", websiteUrl: "https://aistudio.google.com" },
   { value: "openrouter", label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", websiteUrl: "https://openrouter.ai" },
@@ -156,7 +157,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   useEffect(() => {
-    if (view !== "form" || normalizeProviderType(draft.providerType) !== "openai") return;
+    if (view !== "form" || normalizeProviderType(draft.providerType) !== "openai_oauth") return;
     let active = true;
     const unlisten = listen<string>("openai-oauth-code", async (event) => {
       if (!active) return;
@@ -167,7 +168,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         setDraft((current) => ({
           ...current,
           name: current.name.trim() || result.email || "OpenAI OAuth",
-          providerType: "openai",
+          providerType: "openai_oauth",
           baseUrl: "",
           apiKey: "",
           websiteUrl: "https://chatgpt.com",
@@ -203,8 +204,12 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     setDraft((current) => ({
       ...current,
       providerType: normalizedType,
+      apiKey: normalizedType === "openai_oauth" ? "" : current.apiKey,
+      openAiAuthJson: normalizedType === "openai_apikey" ? undefined : current.openAiAuthJson,
       baseUrl:
-        !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
+        normalizedType === "openai_oauth"
+          ? ""
+          : !current.baseUrl || current.baseUrl === previousPreset?.baseUrl
           ? preset?.baseUrl || ""
           : current.baseUrl,
       websiteUrl:
@@ -366,7 +371,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       balance && !("error" in balance) && (balance.fiveHourLeft !== undefined || balance.weeklyLeft !== undefined)
         ? balance
         : null;
-    const openAiQuota = provider.providerType === "openai";
+    const openAiQuota = provider.providerType === "openai_oauth";
     return (
       <div className={`provider-balance-panel ${openAiQuota ? "provider-balance-panel-quota" : ""}`} title={balanceTitle(balance)}>
         {openAiQuota ? (
@@ -448,19 +453,23 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
                     <option value="chat">Chat Completions</option>
                   </select>
                 </label>
-                <label className="field">
-                  <span>{t("baseUrl")}</span>
-                  <input value={draft.baseUrl} onChange={(event) => updateDraft("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" />
-                </label>
+                {normalizeProviderType(draft.providerType) !== "openai_oauth" ? (
+                  <label className="field">
+                    <span>{t("baseUrl")}</span>
+                    <input value={draft.baseUrl} onChange={(event) => updateDraft("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" />
+                  </label>
+                ) : null}
                 <label className="field">
                   <span>{t("officialWebsite")}</span>
                   <input value={draft.websiteUrl} onChange={(event) => updateDraft("websiteUrl", event.target.value)} placeholder="https://example.com" />
                 </label>
-                <label className="field field-full">
-                  <span>{t("apiKey")}</span>
-                  <input value={draft.apiKey} onChange={(event) => updateDraft("apiKey", event.target.value)} placeholder="sk-..." type="password" />
-                </label>
-                {normalizeProviderType(draft.providerType) === "openai" ? (
+                {normalizeProviderType(draft.providerType) !== "openai_oauth" ? (
+                  <label className="field field-full">
+                    <span>{t("apiKey")}</span>
+                    <input value={draft.apiKey} onChange={(event) => updateDraft("apiKey", event.target.value)} placeholder="sk-..." type="password" />
+                  </label>
+                ) : null}
+                {normalizeProviderType(draft.providerType) === "openai_oauth" ? (
                   <div className="field field-full oauth-panel">
                     <span>Official OpenAI OAuth</span>
                     <div className="oauth-actions">

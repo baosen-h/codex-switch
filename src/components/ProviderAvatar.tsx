@@ -10,7 +10,8 @@ import xiaomiLogo from "../assets/provider-icons/xiaomi.png";
 import zhipuLogo from "../assets/provider-icons/zhipu.png";
 
 const providerTypeLogos: Partial<Record<ApiProviderType, string>> = {
-  openai: openAiLogo,
+  openai_oauth: openAiLogo,
+  openai_apikey: openAiLogo,
   anthropic: anthropicLogo,
   "anthropic-compatible": anthropicLogo,
   gemini: geminiLogo,

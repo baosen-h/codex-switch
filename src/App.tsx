@@ -305,6 +305,7 @@ function App() {
         providers={data.apiProviders}
         visionFallbackAvailable={
           data.settings.visionFallbackEnabled
+          && data.settings.visionChatEnabled
           && Boolean(data.settings.visionApiProviderId)
           && Boolean(data.settings.visionModel)
         }

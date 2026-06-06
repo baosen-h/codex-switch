@@ -35,6 +35,19 @@ pub fn render_codex(provider: &Provider) -> String {
     format!("# ── ~/.codex/config.toml ──\n{toml}\n\n# ── ~/.codex/auth.json ──\n{auth}\n")
 }
 
+pub fn render_codex_oauth(model: &str, auth_json: &str) -> String {
+    let selected_model = if model.trim().is_empty() {
+        "gpt-5.4"
+    } else {
+        model.trim()
+    };
+    format!(
+        "# ── ~/.codex/config.toml ──\nmodel = {:?}\ndisable_response_storage = true\n\n# ── ~/.codex/auth.json ──\n{}\n",
+        selected_model,
+        auth_json.trim()
+    )
+}
+
 pub fn render_claude(provider: &Provider) -> String {
     let base_url = provider.base_url.trim();
     let model = provider.model.trim();
@@ -222,10 +235,13 @@ fn write_codex_with_gateway(
     let config_path = config_dir.join("config.toml");
 
     let mut effective_provider = provider.clone();
-    if use_gateway {
+    let uses_oauth = saved_codex_text_uses_oauth(&effective_provider.config_text);
+    if use_gateway && !uses_oauth {
         effective_provider.wire_api = "chat".to_string();
     }
-    let text = if uses_codex_proxy(&effective_provider)
+    let text = if uses_oauth {
+        effective_text(&effective_provider, || render_codex(&effective_provider))
+    } else if uses_codex_proxy(&effective_provider)
         || saved_codex_text_uses_proxy(&effective_provider.config_text)
     {
         render_codex(&effective_provider)
@@ -261,6 +277,16 @@ fn uses_codex_proxy(provider: &Provider) -> bool {
 
 fn saved_codex_text_uses_proxy(text: &str) -> bool {
     text.contains(&proxy_base_url()) || text.contains("http://127.0.0.1:47632")
+}
+
+fn saved_codex_text_uses_oauth(text: &str) -> bool {
+    split_sections(text).into_iter().any(|(name, body)| {
+        name.contains("auth.json")
+            && serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|value| value.get("tokens").cloned())
+                .is_some_and(|tokens| tokens.is_object())
+    })
 }
 
 #[allow(dead_code)]
@@ -579,6 +605,36 @@ base_url = "http://127.0.0.1:47632/v1"
 "#;
 
         assert!(saved_codex_text_uses_proxy(text));
+    }
+
+    #[test]
+    fn vision_gateway_preserves_codex_oauth_auth() {
+        let auth_json = r#"{
+  "tokens": {
+    "access_token": "oauth-access",
+    "refresh_token": "oauth-refresh"
+  }
+}"#;
+        let mut provider = codex_provider("responses", "");
+        provider.base_url.clear();
+        provider.api_key.clear();
+        provider.config_text = render_codex_oauth(&provider.model, auth_json);
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-oauth-gateway-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale OAuth test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, true).expect("write OAuth config");
+
+        let auth = std::fs::read_to_string(dir.join("auth.json")).expect("read auth.json");
+        assert!(auth.contains("\"tokens\""));
+        assert!(auth.contains("\"access_token\": \"oauth-access\""));
+        assert!(!auth.contains("OPENAI_API_KEY"));
+
+        std::fs::remove_dir_all(&dir).expect("remove OAuth test dir");
     }
 
     #[test]

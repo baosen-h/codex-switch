@@ -4,7 +4,7 @@ import { appApi } from "../api/tauri";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider, ChatAttachment, ChatMessage } from "../types";
-import { modelSupportsChat, modelSupportsVision } from "../utils/modelCapabilities";
+import { getModelVisionCapability, modelSupportsChat } from "../utils/modelCapabilities";
 import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
 
 interface TalkingPageProps {
@@ -200,8 +200,9 @@ export function TalkingPage({ providers, visionFallbackAvailable = false, onNoti
   const modelOptions = selectedProvider?.models ?? [];
   const activeModel = activeTopic.model || firstModel(selectedProvider);
   const selectedModel = modelOptions.find((item) => item.id === activeModel);
+  const visionCapability = getModelVisionCapability(selectedModel);
   const canUseImages = Boolean(
-    selectedModel && (modelSupportsVision(selectedModel) || visionFallbackAvailable),
+    selectedModel && (visionCapability !== "text-only" || visionFallbackAvailable),
   );
 
   useEffect(() => {

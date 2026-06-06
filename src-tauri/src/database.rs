@@ -201,7 +201,13 @@ impl Database {
             params![
                 provider_id,
                 provider.name.trim(),
-                normalized_api_provider_type(&provider.provider_type),
+                normalized_api_provider_type(
+                    &provider.provider_type,
+                    provider
+                        .open_ai_auth_json
+                        .as_deref()
+                        .is_some_and(|value| !value.trim().is_empty()),
+                ),
                 normalized_wire_api(&provider.wire_api),
                 provider.base_url.trim(),
                 provider.api_key.trim(),
@@ -561,6 +567,13 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_api_providers_updated_at
             ON api_providers(updated_at DESC);
+
+            UPDATE api_providers
+            SET provider_type = CASE
+              WHEN trim(open_ai_auth_json) <> '' THEN 'openai_oauth'
+              ELSE 'openai_apikey'
+            END
+            WHERE provider_type = 'openai';
             "#,
         )?;
 
@@ -752,7 +765,7 @@ fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Er
     })
 }
 
-fn normalized_api_provider_type(provider_type: &str) -> String {
+fn normalized_api_provider_type(provider_type: &str, has_openai_oauth: bool) -> String {
     let trimmed = provider_type.trim();
     if trimmed.is_empty() {
         "openai-compatible".to_string()
@@ -763,6 +776,12 @@ fn normalized_api_provider_type(provider_type: &str) -> String {
         || trimmed.eq_ignore_ascii_case("mimo")
     {
         "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("openai") {
+        if has_openai_oauth {
+            "openai_oauth".to_string()
+        } else {
+            "openai_apikey".to_string()
+        }
     } else {
         trimmed.to_string()
     }

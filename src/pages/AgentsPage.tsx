@@ -188,7 +188,9 @@ export function AgentsPage({
           ? next
           : { ...next, model: providerModels[0]?.id ?? defaultModelForAgent(next.agent) };
       const configText =
-        withModel.agent === "codex" && apiProvider?.openAiAuthJson
+        withModel.agent === "codex"
+          && apiProvider?.providerType === "openai_oauth"
+          && apiProvider.openAiAuthJson
           ? renderCodexOAuthPreview(withModel.model, apiProvider.openAiAuthJson)
           : patchProviderPreviewFromFields(withModel);
       return {

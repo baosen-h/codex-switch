@@ -1,6 +1,6 @@
 use crate::agent_writer::{
-    resolve_claude_dir, resolve_codex_dir, resolve_gemini_dir, write_provider, AgentDirs,
-    AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI,
+    render_codex_oauth, resolve_claude_dir, resolve_codex_dir, resolve_gemini_dir, write_provider,
+    AgentDirs, AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI,
 };
 use crate::app_config::{
     APP_HOME_DIR, APP_ID, APP_NAME, LATEST_RELEASE_API_URL, RELEASES_URL, RELEASE_DOWNLOAD_PREFIX,
@@ -86,9 +86,9 @@ pub fn save_provider(
                 codex: &codex_dir,
                 claude: &claude_dir,
                 gemini: &gemini_dir,
-                vision_codex: settings.vision_fallback_enabled,
-                vision_claude: settings.vision_fallback_enabled,
-                vision_gemini: settings.vision_fallback_enabled,
+                vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+                vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+                vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
             },
         )
         .map_err(|error| error.to_string())?;
@@ -124,17 +124,53 @@ pub fn save_api_provider(
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
+    let previous = if provider.id.trim().is_empty() {
+        None
+    } else {
+        db.api_provider_by_id(&provider.id).ok()
+    };
     let saved = db
         .save_api_provider(provider)
         .map_err(|error| error.to_string())?;
 
-    let active_linked_providers: Vec<Provider> = db
+    let linked_providers: Vec<Provider> = db
         .providers()
         .map_err(|error| error.to_string())?
         .into_iter()
-        .filter(|provider| provider.api_provider_id == saved.id && provider.is_current)
+        .filter(|provider| provider.api_provider_id == saved.id)
         .collect();
+    let auth_mode_changed = previous
+        .as_ref()
+        .map(|item| item.provider_type != saved.provider_type)
+        .unwrap_or(false);
+    let oauth_auth_changed = saved.provider_type == "openai_oauth"
+        && previous
+            .as_ref()
+            .and_then(|item| item.open_ai_auth_json.as_deref())
+            != saved.open_ai_auth_json.as_deref();
 
+    let mut refreshed_linked_providers = Vec::with_capacity(linked_providers.len());
+    for mut provider in linked_providers {
+        if provider.agent == AGENT_CODEX && (auth_mode_changed || oauth_auth_changed) {
+            if saved.provider_type == "openai_oauth" {
+                provider.config_text = render_codex_oauth(
+                    &provider.model,
+                    saved.open_ai_auth_json.as_deref().unwrap_or("{}"),
+                );
+            } else {
+                provider.config_text.clear();
+            }
+            provider = db
+                .save_provider(provider)
+                .map_err(|error| error.to_string())?;
+        }
+        refreshed_linked_providers.push(provider);
+    }
+
+    let active_linked_providers: Vec<&Provider> = refreshed_linked_providers
+        .iter()
+        .filter(|provider| provider.is_current)
+        .collect();
     if !active_linked_providers.is_empty() {
         let settings = db.settings().map_err(|error| error.to_string())?;
         let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
@@ -144,11 +180,11 @@ pub fn save_api_provider(
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
-            vision_codex: settings.vision_fallback_enabled,
-            vision_claude: settings.vision_fallback_enabled,
-            vision_gemini: settings.vision_fallback_enabled,
+            vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+            vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+            vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
         };
-        for provider in &active_linked_providers {
+        for provider in active_linked_providers {
             write_provider(provider, &dirs).map_err(|error| error.to_string())?;
         }
     }
@@ -191,9 +227,9 @@ pub fn activate_provider(
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
-            vision_codex: settings.vision_fallback_enabled,
-            vision_claude: settings.vision_fallback_enabled,
-            vision_gemini: settings.vision_fallback_enabled,
+            vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+            vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+            vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -267,6 +303,7 @@ pub async fn send_chat_message(
                 .map_err(|_| "Failed to lock database".to_string())?;
             let settings = db.settings().map_err(|error| error.to_string())?;
             if settings.vision_fallback_enabled
+                && settings.vision_chat_enabled
                 && !settings.vision_api_provider_id.trim().is_empty()
                 && !settings.vision_model.trim().is_empty()
             {
@@ -460,9 +497,9 @@ pub fn launch_codex(state: State<'_, AppState>, request: LaunchRequest) -> Resul
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
-            vision_codex: settings.vision_fallback_enabled,
-            vision_claude: settings.vision_fallback_enabled,
-            vision_gemini: settings.vision_fallback_enabled,
+            vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+            vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+            vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -494,9 +531,9 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
                     codex: &codex_dir,
                     claude: &claude_dir,
                     gemini: &gemini_dir,
-                    vision_codex: settings.vision_fallback_enabled,
-                    vision_claude: settings.vision_fallback_enabled,
-                    vision_gemini: settings.vision_fallback_enabled,
+                    vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+                    vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+                    vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
                 },
             )
             .map_err(|error| error.to_string())?;
@@ -568,9 +605,9 @@ pub fn launch_provider(state: State<'_, AppState>, provider_id: String) -> Resul
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
-            vision_codex: settings.vision_fallback_enabled,
-            vision_claude: settings.vision_fallback_enabled,
-            vision_gemini: settings.vision_fallback_enabled,
+            vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
+            vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
+            vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
         },
     )
     .map_err(|error| error.to_string())?;
@@ -609,9 +646,9 @@ pub fn save_settings(
         codex: &codex_dir,
         claude: &claude_dir,
         gemini: &gemini_dir,
-        vision_codex: saved.vision_fallback_enabled,
-        vision_claude: saved.vision_fallback_enabled,
-        vision_gemini: saved.vision_fallback_enabled,
+        vision_codex: saved.vision_fallback_enabled && saved.vision_codex_enabled,
+        vision_claude: saved.vision_fallback_enabled && saved.vision_claude_enabled,
+        vision_gemini: saved.vision_fallback_enabled && saved.vision_gemini_enabled,
     };
     for agent in [AGENT_CODEX, AGENT_CLAUDE, AGENT_GEMINI] {
         if let Ok(provider) = db.current_provider_for_agent(agent) {
@@ -1095,6 +1132,10 @@ fn normalized_provider_type(provider_type: &str) -> String {
         || trimmed.eq_ignore_ascii_case("mimo")
     {
         "openai-compatible".to_string()
+    } else if trimmed.eq_ignore_ascii_case("openai_oauth")
+        || trimmed.eq_ignore_ascii_case("openai_apikey")
+    {
+        "openai".to_string()
     } else {
         trimmed.to_ascii_lowercase()
     }
@@ -2053,7 +2094,7 @@ fn launch_terminal_command(
 }
 
 fn fetch_provider_balance(provider: &ApiProvider) -> Result<ProviderBalance, AppError> {
-    if provider.provider_type == "openai" {
+    if provider.provider_type == "openai_oauth" {
         if let Some(auth_json) = provider
             .open_ai_auth_json
             .as_deref()

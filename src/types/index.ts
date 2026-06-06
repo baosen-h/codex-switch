@@ -21,7 +21,8 @@ export interface Provider {
 
 export type ApiProviderType =
   | "openai-compatible"
-  | "openai"
+  | "openai_oauth"
+  | "openai_apikey"
   | "anthropic"
   | "anthropic-compatible"
   | "gemini"
