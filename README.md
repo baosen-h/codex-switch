@@ -79,16 +79,28 @@ With a vision model configured in Codex Switch, text-only models can understand 
 
 <table>
   <tr>
-    <th align="center">Talking</th>
-    <th align="center">Codex CLI</th>
+    <th align="center">Input Image</th>
+    <th align="center">Talking Result</th>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/vision-talking-result.png" alt="DeepSeek analyzing an image on the Talking page" width="100%" /></td>
-    <td width="50%"><img src="docs/images/vision-codex-cli-result.png" alt="DeepSeek analyzing an image in Codex CLI" width="100%" /></td>
+    <td width="50%"><img src="docs/images/vision-source-image.png" alt="Browser screenshot used as the image input" width="100%" /></td>
+    <td width="50%"><img src="docs/images/vision-talking-result.png" alt="DeepSeek analyzing the image on the Talking page" width="100%" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>A text-only DeepSeek model receives vision support when chatting with images in Talking.</sub></td>
-    <td align="center"><sub>The same DeepSeek example receives vision support through Codex CLI.</sub></td>
+    <td align="center"><sub>The browser screenshot used to test image understanding.</sub></td>
+    <td align="center"><sub>A text-only DeepSeek model analyzes the image in Talking.</sub></td>
+  </tr>
+  <tr>
+    <th align="center">Codex CLI Request</th>
+    <th align="center">Codex CLI Result</th>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/vision-codex-cli-request.png" alt="Image attached to a DeepSeek request in Codex CLI" width="100%" /></td>
+    <td width="50%"><img src="docs/images/vision-codex-cli-result.png" alt="DeepSeek analyzing the attached image in Codex CLI" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The same image is attached and sent through Codex CLI.</sub></td>
+    <td align="center"><sub>DeepSeek receives the visual context and returns an image-aware response.</sub></td>
   </tr>
 </table>
 
