@@ -58,14 +58,18 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
 
 <table>
   <tr>
-    <th colspan="2" align="center">Vision Model Support in Codex CLI</th>
+    <th align="center">Vision Model Support in Codex CLI</th>
   </tr>
   <tr>
     <td><img src="docs/images/codex-vision-support-request.png" alt="DeepSeek receives an image in Codex CLI" width="100%" /></td>
-    <td><img src="docs/images/codex-vision-support-result.png" alt="DeepSeek understands the image through MiMo-V2.5" width="100%" /></td>
   </tr>
   <tr>
     <td align="center"><sub>Send an image to a text-only DeepSeek model in Codex CLI.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/codex-vision-support-result.png" alt="DeepSeek understands the image through MiMo-V2.5" width="100%" /></td>
+  </tr>
+  <tr>
     <td align="center"><sub>MiMo-V2.5 provides the image information, allowing DeepSeek to answer.</sub></td>
   </tr>
 </table>
