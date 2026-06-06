@@ -103,6 +103,22 @@ npm run tauri -- build
 - Drawing is focused on OpenAI-compatible image endpoints.
 - Vision model support only lists models verified to accept image input and return text.
 
+## Reference Projects
+
+Codex Switch was inspired by the following open-source projects:
+
+- [CC Switch](https://github.com/farion1231/cc-switch) - Cross-platform manager for Claude Code, Codex, Gemini CLI, and other AI coding tools.
+- [Codex Switcher](https://github.com/xtftbwvfp/codex-switcher) - Desktop account, quota, relay, and local proxy manager for Codex CLI and Codex App.
+- [mimo2codex](https://github.com/7as0nch/mimo2codex) - Local proxy that connects Codex clients to OpenAI-compatible and Responses API providers.
+- [deepseek-vision](https://github.com/ErlichLiu/deepseek-vision) - Proxy that adds vision understanding, web search, and compatible APIs to DeepSeek models.
+
+Thanks to these projects and their contributors for their open-source work.
+
+## Feedback & Support
+
+- Found a problem? [Submit an Issue](https://github.com/baosen-h/codex-switch/issues/new).
+- Contributions are welcome. [Open a Pull Request](https://github.com/baosen-h/codex-switch/pulls) to help improve the project.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

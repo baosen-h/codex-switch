@@ -103,6 +103,22 @@ npm run tauri -- build
 - Drawing 主要面向 OpenAI-compatible 图片接口。
 - 视觉模型支持只会列出已确认支持图片输入和文本输出的模型。
 
+## 参考项目
+
+Codex Switch 的设计受到以下优秀开源项目的启发：
+
+- [CC Switch](https://github.com/farion1231/cc-switch) - 面向 Claude Code、Codex、Gemini CLI 等 AI 编程工具的跨平台管理器。
+- [Codex Switcher](https://github.com/xtftbwvfp/codex-switcher) - Codex CLI 和 Codex App 的账号、配额、中转与本地代理管理工具。
+- [mimo2codex](https://github.com/7as0nch/mimo2codex) - 将 Codex 客户端连接到 OpenAI-compatible 和 Responses API 服务商的本地代理。
+- [deepseek-vision](https://github.com/ErlichLiu/deepseek-vision) - 为 DeepSeek 模型提供视觉理解、联网搜索和兼容接口的代理服务。
+
+感谢这些项目及其贡献者的开源精神。
+
+## 反馈与支持
+
+- 遇到问题？请[提交 Issue](https://github.com/baosen-h/codex-switch/issues/new)。
+- 欢迎参与改进，可以[提交 Pull Request](https://github.com/baosen-h/codex-switch/pulls)。
+
 ## 许可证
 
 MIT。见 [LICENSE](LICENSE)。
