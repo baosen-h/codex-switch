@@ -14,6 +14,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/baosen-h/codex-switch?style=flat" alt="License" /></a>
 </p>
 
+## Product Introduction
+
+https://github.com/baosen-h/codex-switch/raw/refs/heads/main/video/renders/codex-switch-introduction.mp4
+
 Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemini provider configs, plus chat, image generation, and local sessions. Built-in chat/completion translation helps Codex work with compatible models like DeepSeek, MiMo, and GLM, while configurable vision model support enables text-only models to understand images.
 
 ## Highlights
