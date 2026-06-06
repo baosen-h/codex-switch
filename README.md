@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="#product-introduction"><img src="https://img.shields.io/badge/Video_Tutorial-EA4C89?style=flat&logo=youtube&logoColor=white" alt="Video Tutorial" /></a>
   <a href="https://github.com/baosen-h/codex-switch/releases"><img src="https://img.shields.io/github/v/release/baosen-h/codex-switch?style=flat" alt="GitHub release" /></a>
   <a href="https://github.com/baosen-h/codex-switch/releases"><img src="https://img.shields.io/github/downloads/baosen-h/codex-switch/total?style=flat&color=blue" alt="GitHub downloads" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/baosen-h/codex-switch?style=flat" alt="License" /></a>
