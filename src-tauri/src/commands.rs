@@ -532,8 +532,10 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
                     claude: &claude_dir,
                     gemini: &gemini_dir,
                     vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
-                    vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
-                    vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
+                    vision_claude: settings.vision_fallback_enabled
+                        && settings.vision_claude_enabled,
+                    vision_gemini: settings.vision_fallback_enabled
+                        && settings.vision_gemini_enabled,
                 },
             )
             .map_err(|error| error.to_string())?;
@@ -552,6 +554,22 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
 
 fn provider_for_session(db: &Database, session: &SessionRecord) -> Option<Provider> {
     let providers = db.providers().ok()?;
+    select_provider_for_session(&providers, session).cloned()
+}
+
+fn select_provider_for_session<'a>(
+    providers: &'a [Provider],
+    session: &SessionRecord,
+) -> Option<&'a Provider> {
+    // A Codex session records the provider/model, but not the OAuth account.
+    // Respect the account the user explicitly activated before resuming.
+    if let Some(provider) = providers
+        .iter()
+        .find(|provider| provider.agent == AGENT_CODEX && provider.is_current)
+    {
+        return Some(provider);
+    }
+
     let session_model = session.provider_model.trim();
     let session_provider = session.provider_name.trim();
     let session_provider_id = session.provider_id.trim();
@@ -561,14 +579,14 @@ fn provider_for_session(db: &Database, session: &SessionRecord) -> Option<Provid
             provider.agent == AGENT_CODEX
                 && provider.model.trim().eq_ignore_ascii_case(session_model)
         }) {
-            return Some(provider.clone());
+            return Some(provider);
         }
     }
 
     let normalized_provider = normalize_lookup(session_provider);
     let normalized_provider_id = normalize_lookup(session_provider_id);
     providers
-        .into_iter()
+        .iter()
         .filter(|provider| provider.agent == AGENT_CODEX)
         .find(|provider| {
             normalize_lookup(&provider.name) == normalized_provider
@@ -2306,6 +2324,60 @@ fn fetch_openai_compatible_balance(base: &str, api_key: &str) -> Result<Provider
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_codex_provider(name: &str, model: &str, is_current: bool) -> Provider {
+        Provider {
+            id: format!("provider-{name}"),
+            name: name.to_string(),
+            agent: AGENT_CODEX.to_string(),
+            api_provider_id: format!("api-{name}"),
+            base_url: String::new(),
+            api_key: String::new(),
+            website_url: String::new(),
+            model: model.to_string(),
+            wire_api: "responses".to_string(),
+            reasoning_effort: "high".to_string(),
+            extra_toml: String::new(),
+            config_text: String::new(),
+            is_current,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn test_codex_session(model: &str) -> SessionRecord {
+        SessionRecord {
+            id: "session".to_string(),
+            provider_id: "openai".to_string(),
+            provider_name: "openai".to_string(),
+            provider_model: model.to_string(),
+            agent: AGENT_CODEX.to_string(),
+            session_id: "session-id".to_string(),
+            workspace_path: String::new(),
+            title: String::new(),
+            summary: None,
+            source_path: String::new(),
+            resume_command: String::new(),
+            status: "active".to_string(),
+            notes: String::new(),
+            message_count: 0,
+            started_at: String::new(),
+            last_active_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn session_resume_prefers_explicitly_active_codex_account() {
+        let providers = vec![
+            test_codex_provider("old-session-provider", "gpt-5.4", false),
+            test_codex_provider("selected-account", "gpt-5.5", true),
+        ];
+        let session = test_codex_session("gpt-5.4");
+
+        let selected = select_provider_for_session(&providers, &session).unwrap();
+
+        assert_eq!(selected.name, "selected-account");
+    }
 
     #[test]
     fn glm_chat_completions_url_uses_bigmodel_v4_path() {
