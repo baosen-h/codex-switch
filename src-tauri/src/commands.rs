@@ -517,6 +517,7 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?;
     let settings = db.settings().map_err(|error| error.to_string())?;
+    let mut resume_command = session.resume_command.clone();
     if session.agent == AGENT_CODEX {
         let source_path = PathBuf::from(&session.source_path);
         let resume_record = session_manager::session_record_for_path(&source_path)
@@ -539,6 +540,7 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
                 },
             )
             .map_err(|error| error.to_string())?;
+            resume_command = codex_resume_command(&session.session_id, &provider.model);
         }
     }
     drop(db);
@@ -546,10 +548,22 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
     launch_terminal_command(
         &settings.terminal_program,
         &session.workspace_path,
-        &session.resume_command,
+        &resume_command,
     )
     .map_err(|error| error.to_string())?;
     Ok(true)
+}
+
+fn codex_resume_command(session_id: &str, model: &str) -> String {
+    format!(
+        "codex resume --model {} {}",
+        quote_command_argument(model),
+        quote_command_argument(session_id)
+    )
+}
+
+fn quote_command_argument(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\\\""))
 }
 
 fn provider_for_session(db: &Database, session: &SessionRecord) -> Option<Provider> {
@@ -2377,6 +2391,14 @@ mod tests {
         let selected = select_provider_for_session(&providers, &session).unwrap();
 
         assert_eq!(selected.name, "selected-account");
+    }
+
+    #[test]
+    fn codex_resume_overrides_the_old_session_model() {
+        assert_eq!(
+            codex_resume_command("session-id", "gpt-5.5"),
+            "codex resume --model \"gpt-5.5\" \"session-id\""
+        );
     }
 
     #[test]
