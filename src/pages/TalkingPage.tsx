@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ClipboardEvent, DragEvent } from "react";
 import { appApi } from "../api/tauri";
+import { MessageContent } from "../components/MessageContent";
 import { ProviderAvatar } from "../components/ProviderAvatar";
 import { useI18n } from "../i18n/context";
 import type { ApiProvider, ChatAttachment, ChatMessage } from "../types";
+import { copyText } from "../utils/clipboard";
 import { getModelVisionCapability, modelSupportsChat } from "../utils/modelCapabilities";
-import { AttachIcon as SemiAttachIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
+import { AttachIcon as SemiAttachIcon, CopyIcon, DeleteIcon, ImageIcon as SemiImageIcon, PlusIcon as SemiPlusIcon, SendIcon as SemiSendIcon } from "../components/UiIcons";
 
 interface TalkingPageProps {
   providers: ApiProvider[];
@@ -180,6 +182,11 @@ function attachmentLabel(attachment: ChatAttachment): string {
 
 export function TalkingPage({ providers, visionFallbackAvailable = false, onNotify }: TalkingPageProps) {
   const { t } = useI18n();
+  const roleLabels = {
+    user: t("roleUser"),
+    assistant: t("roleAI"),
+    system: t("roleSystem"),
+  };
   const enabledProviders = useMemo(
     () =>
       providers.filter(
@@ -415,8 +422,25 @@ export function TalkingPage({ providers, visionFallbackAvailable = false, onNoti
             {activeTopic.messages.length ? (
               activeTopic.messages.map((message, index) => (
                 <div className={`chat-message ${message.role === "user" ? "chat-message-user" : "chat-message-ai"}`} key={`${message.role}-${index}`}>
+                  <div className={`chat-message-avatar chat-message-avatar-${message.role}`} aria-hidden="true">
+                    {message.role === "user" ? "U" : "AI"}
+                  </div>
                   <div className="chat-message-body">
-                    {message.content ? <span>{message.content}</span> : null}
+                    <div className="chat-message-header">
+                      <strong>{roleLabels[message.role]}</strong>
+                      {message.content ? (
+                        <button
+                          aria-label={`${t("copyImage")} ${roleLabels[message.role]}`}
+                          className="message-copy-button"
+                          onClick={() => void copyText(message.content).then(() => onNotify(t("copyImage"), "ok"))}
+                          title={t("copyImage")}
+                          type="button"
+                        >
+                          <CopyIcon size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {message.content ? <MessageContent content={message.content} /> : null}
                     {message.attachments?.length ? (
                       <div className="chat-attachment-list">
                         {message.attachments.map((attachment) => (

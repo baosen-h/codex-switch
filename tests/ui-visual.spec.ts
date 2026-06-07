@@ -417,6 +417,52 @@ test("long talking topic titles stay compact", async ({ page }) => {
   await capture(page, "19-long-talking-topic");
 });
 
+test("talking messages render markdown, roles, and copy actions", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "codex-switch-talking-topics-v1",
+      JSON.stringify([{
+        id: "topic-rich-message",
+        title: "Rich message",
+        providerId: "api-openai",
+        model: "gpt-5.1-codex",
+        draft: "",
+        draftAttachments: [],
+        messages: [
+          { role: "user", content: "Explain this style." },
+          { role: "assistant", content: "**Wiggle style** is a vintage fashion trend.\n\n- Compact\n- Readable\n\nUse `copy` when needed." },
+        ],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }]),
+    );
+  });
+  await waitForApp(page);
+  await page.getByTitle("Talking").click();
+
+  await expect(page.locator(".chat-message-avatar")).toHaveCount(2);
+  await expect(page.locator(".chat-message-ai .message-content strong")).toHaveText("Wiggle style");
+  await expect(page.locator(".chat-message-ai .message-content li")).toHaveCount(2);
+  await expect(page.locator(".chat-message-ai .message-copy-button")).toBeAttached();
+  await expect(page.locator(".chat-message-ai .message-content")).not.toContainText("**");
+  await page.locator(".chat-message-ai .message-copy-button").click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("**Wiggle style**");
+  await capture(page, "19b-talking-rich-messages");
+});
+
+test("session transcript keeps compact role identity and copy controls", async ({ page }) => {
+  await waitForApp(page);
+  await page.getByTitle("Sessions").click();
+  await page.locator(".session-list-item").first().click();
+
+  await expect(page.locator(".message-role-avatar")).toHaveCount(2);
+  await expect(page.locator(".message-row-user .message-role-avatar-user")).toHaveCount(1);
+  await expect(page.locator(".message-card .message-copy-button")).toHaveCount(2);
+  await expect(page.locator(".message-card .message-content")).toHaveCount(2);
+  await capture(page, "19c-session-compact-messages");
+});
+
 test("expanded provider quota stays inside the row", async ({ page }) => {
   await waitForApp(page);
   await page.locator(".brand-action-collapsed").click();

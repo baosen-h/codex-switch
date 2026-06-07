@@ -3,6 +3,8 @@ import type { AgentKind, HandoffMode, HandoffPreview, SessionMessage, SessionRec
 import { useI18n } from "../i18n/context";
 import { formatConversationTime, timeAgo } from "../utils/time";
 import { BoltIcon, BranchIcon, CopyIcon, DeleteIcon, ListIcon, RefreshIcon, ResumeIcon } from "../components/UiIcons";
+import { MessageContent } from "../components/MessageContent";
+import { copyText } from "../utils/clipboard";
 
 const PixelX = () => (
   <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
@@ -31,25 +33,6 @@ type AgentFilter = AgentKind | "all";
 const INITIAL_SESSION_BATCH = 80;
 const SESSION_BATCH_SIZE = 80;
 const COLLAPSED_MESSAGE_CHARS = 1200;
-
-async function copyText(value: string) {
-  if (!value) return;
-
-  try {
-    await navigator.clipboard.writeText(value);
-    return;
-  } catch {
-    const area = document.createElement("textarea");
-    area.value = value;
-    area.setAttribute("readonly", "true");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.append(area);
-    area.select();
-    document.execCommand("copy");
-    area.remove();
-  }
-}
 
 function isDeveloperLikeMessage(message: SessionMessage): boolean {
   const role = message.role.toLowerCase();
@@ -526,6 +509,9 @@ export function SessionsPage({
                             <div
                               className={`message-row message-row-${message.role}`}
                             >
+                              <div className={`message-role-avatar message-role-avatar-${message.role}`} aria-hidden="true">
+                                {message.role === "user" ? "U" : message.role === "assistant" ? "AI" : message.role.slice(0, 1).toUpperCase()}
+                              </div>
                               <div className={`message-card message-card-${message.role}`}>
                                 <div className="message-card-header">
                                   <strong>{roleLabels[message.role] ?? message.role}</strong>
@@ -538,7 +524,7 @@ export function SessionsPage({
                                     <CopyIcon />
                                   </button>
                                 </div>
-                                <p>{displayContent}</p>
+                                <MessageContent content={displayContent} />
                                 {isLong ? (
                                   <button
                                     className="message-unfold-button"
