@@ -200,6 +200,34 @@ export type BackgroundScene =
   | "animeMechaPilot";
 export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "slate" | "rose" | "violet";
 
+export type WebSearchCapability = "searchKeywords" | "fetchUrls";
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  content: string;
+  sourceInput: string;
+}
+
+export interface WebSearchResponse {
+  providerId: string;
+  capability: WebSearchCapability;
+  inputs: string[];
+  results: WebSearchResult[];
+}
+
+export interface WebSearchSettings {
+  searchProviderId: string;
+  searchApiUrl: string;
+  searchApiKeys: string[];
+  fetchProviderId: string;
+  fetchApiUrl: string;
+  fetchApiKeys: string[];
+  maxResults: number;
+  excludeDomains: string[];
+  cutoffTokens: number;
+}
+
 export interface AppSettings {
   codexConfigDir: string;
   claudeConfigDir: string;
@@ -218,6 +246,7 @@ export interface AppSettings {
   visionCodexEnabled: boolean;
   visionClaudeEnabled: boolean;
   visionGeminiEnabled: boolean;
+  webSearch: WebSearchSettings;
 }
 
 export interface DashboardState {

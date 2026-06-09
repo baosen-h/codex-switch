@@ -1,5 +1,94 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WebSearchCapability {
+    SearchKeywords,
+    FetchUrls,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchResult {
+    pub title: String,
+    pub url: String,
+    pub content: String,
+    pub source_input: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchResponse {
+    pub provider_id: String,
+    pub capability: WebSearchCapability,
+    pub inputs: Vec<String>,
+    pub results: Vec<WebSearchResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WebSearchSettings {
+    pub search_provider_id: String,
+    pub search_api_url: String,
+    pub search_api_keys: Vec<String>,
+    pub fetch_provider_id: String,
+    pub fetch_api_url: String,
+    pub fetch_api_keys: Vec<String>,
+    pub max_results: u32,
+    pub exclude_domains: Vec<String>,
+    pub cutoff_tokens: u32,
+}
+
+impl Default for WebSearchSettings {
+    fn default() -> Self {
+        Self {
+            search_provider_id: String::new(),
+            search_api_url: String::new(),
+            search_api_keys: Vec::new(),
+            fetch_provider_id: "direct".to_string(),
+            fetch_api_url: String::new(),
+            fetch_api_keys: Vec::new(),
+            max_results: 5,
+            exclude_domains: Vec::new(),
+            cutoff_tokens: 4_000,
+        }
+    }
+}
+
+impl WebSearchSettings {
+    pub fn normalized(mut self) -> Self {
+        self.search_provider_id = self.search_provider_id.trim().to_ascii_lowercase();
+        self.search_api_url = self.search_api_url.trim().to_string();
+        self.search_api_keys = normalize_string_list(self.search_api_keys);
+        self.fetch_provider_id = self.fetch_provider_id.trim().to_ascii_lowercase();
+        if self.fetch_provider_id.is_empty() {
+            self.fetch_provider_id = "direct".to_string();
+        }
+        self.fetch_api_url = self.fetch_api_url.trim().to_string();
+        self.fetch_api_keys = normalize_string_list(self.fetch_api_keys);
+        self.max_results = self.max_results.clamp(1, 20);
+        self.exclude_domains = normalize_string_list(
+            self.exclude_domains
+                .into_iter()
+                .map(|domain| domain.to_ascii_lowercase())
+                .collect(),
+        );
+        self.cutoff_tokens = self.cutoff_tokens.clamp(256, 32_000);
+        self
+    }
+}
+
+fn normalize_string_list(values: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim();
+        if !value.is_empty() && !normalized.iter().any(|existing| existing == value) {
+            normalized.push(value.to_string());
+        }
+    }
+    normalized
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Provider {
@@ -246,6 +335,8 @@ pub struct AppSettings {
     pub vision_codex_enabled: bool,
     pub vision_claude_enabled: bool,
     pub vision_gemini_enabled: bool,
+    #[serde(default)]
+    pub web_search: WebSearchSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,4 +352,33 @@ pub struct DashboardState {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
     pub workspace_path: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WebSearchSettings;
+
+    #[test]
+    fn web_search_settings_normalize_values() {
+        let settings = WebSearchSettings {
+            search_provider_id: " Tavily ".to_string(),
+            search_api_url: " https://api.tavily.com ".to_string(),
+            search_api_keys: vec![" key-1 ".to_string(), "key-1".to_string(), String::new()],
+            fetch_provider_id: String::new(),
+            fetch_api_url: String::new(),
+            fetch_api_keys: Vec::new(),
+            max_results: 0,
+            exclude_domains: vec![" Example.COM ".to_string(), "example.com".to_string()],
+            cutoff_tokens: 100,
+        }
+        .normalized();
+
+        assert_eq!(settings.search_provider_id, "tavily");
+        assert_eq!(settings.search_api_url, "https://api.tavily.com");
+        assert_eq!(settings.search_api_keys, vec!["key-1"]);
+        assert_eq!(settings.fetch_provider_id, "direct");
+        assert_eq!(settings.max_results, 1);
+        assert_eq!(settings.exclude_domains, vec!["example.com"]);
+        assert_eq!(settings.cutoff_tokens, 256);
+    }
 }

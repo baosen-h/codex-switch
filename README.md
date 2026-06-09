@@ -106,6 +106,20 @@ With a vision model configured in Codex Switch, text-only models can understand 
 
 The image understanding is supplied by the vision provider and model selected under **Settings → Vision model**, while the original text-only model still produces the final response. This is not limited to DeepSeek; other text-only models can use the same vision support when their requests pass through Codex Switch.
 
+## Automatic Web Search
+
+Configure Tavily, Zhipu, Exa, Bocha, SearXNG, or Jina once under
+**Settings → Automatic web search**. Chat-compatible models receive local
+`web__search` and `web__fetch` tools and decide when they need current
+information; there is no per-chat search mode. URL fetching can use the built-in
+direct fetcher or Jina Reader. Provider-native web search remains unchanged and
+takes priority when available.
+
+Direct URL fetching validates every redirect, blocks private and reserved
+network addresses, accepts readable text formats only, and limits responses to
+10 MB. Search results use numbered source IDs so the model can add `[N]`
+citations.
+
 ## Install
 
 Download the latest Windows release:

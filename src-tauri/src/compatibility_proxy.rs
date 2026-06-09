@@ -1,7 +1,7 @@
 use crate::agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use crate::app_config::{APP_HOME_DIR, PROXY_USER_AGENT};
 use crate::database::Database;
-use crate::models::{ApiProvider, Provider};
+use crate::models::{ApiProvider, Provider, WebSearchResponse, WebSearchSettings};
 use crate::relay_translate::{self, ChatSseBuffer, ChatSseEvent};
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
@@ -18,6 +18,9 @@ pub const PROXY_HOST: &str = "127.0.0.1";
 pub const PROXY_PORT: u16 = 47632;
 const UPSTREAM_MAX_RETRIES: usize = 3;
 const UPSTREAM_RETRY_BASE_MS: u64 = 500;
+const LOCAL_WEB_SEARCH_TOOL: &str = "web__search";
+const LOCAL_WEB_FETCH_TOOL: &str = "web__fetch";
+const LOCAL_WEB_MAX_STEPS: usize = 8;
 
 pub fn proxy_base_url() -> String {
     format!("http://{}:{}/v1", PROXY_HOST, PROXY_PORT)
@@ -55,7 +58,7 @@ fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<
     } else {
         AGENT_CODEX
     };
-    let (provider, vision) = {
+    let (provider, vision, web_search) = {
         let db = db.lock().map_err(|_| "database lock failed".to_string())?;
         let mut provider = db
             .current_provider_for_agent(agent)
@@ -88,10 +91,16 @@ fn handle_connection(mut stream: TcpStream, db: Arc<Mutex<Database>>) -> Result<
         } else {
             None
         };
-        (provider, vision)
+        (provider, vision, settings.web_search)
     };
 
-    route_request(&provider, vision.as_ref(), request, &mut stream)?;
+    route_request(
+        &provider,
+        vision.as_ref(),
+        &web_search,
+        request,
+        &mut stream,
+    )?;
     Ok(())
 }
 
@@ -196,6 +205,7 @@ fn find_header_end(data: &[u8]) -> Option<usize> {
 fn route_request(
     provider: &Provider,
     vision: Option<&(ApiProvider, String)>,
+    web_search: &WebSearchSettings,
     request: HttpRequest,
     stream: &mut TcpStream,
 ) -> Result<(), String> {
@@ -232,7 +242,7 @@ fn route_request(
     }
 
     let response = if uses_chat_completions(provider) {
-        handle_chat_completions_provider(provider, vision, request, stream)?
+        handle_chat_completions_provider(provider, vision, web_search, request, stream)?
     } else {
         handle_responses_provider(provider, vision, request, stream)?
     };
@@ -247,6 +257,7 @@ fn route_request(
 fn handle_chat_completions_provider(
     provider: &Provider,
     vision: Option<&(ApiProvider, String)>,
+    web_search: &WebSearchSettings,
     request: HttpRequest,
     client_stream: &mut TcpStream,
 ) -> Result<Option<Vec<u8>>, String> {
@@ -265,6 +276,12 @@ fn handle_chat_completions_provider(
         relay_translate::translate_request(&codex_body, &upstream_model)
             .map_err(|error| error.to_string())?;
     ensure_chat_model_and_stream(&mut chat_body, &upstream_model)?;
+    let stream_requested = request_body_stream_requested(&codex_body);
+    let local_web_enabled =
+        should_enable_local_web(stream_requested, web_search, &chat_body);
+    if local_web_enabled {
+        prepare_local_web_agent_body(&mut chat_body)?;
+    }
     write_debug_snapshot(
         "translated_request",
         provider,
@@ -274,7 +291,28 @@ fn handle_chat_completions_provider(
     );
 
     let upstream_url = chat_completions_url(&provider.base_url)?;
-    let stream_requested = request_body_stream_requested(&codex_body);
+    if local_web_enabled {
+        let response = run_local_web_agent(provider, &upstream_url, chat_body, web_search)?;
+        if !response.status.is_success() {
+            return Ok(Some(http_response(
+                response.status.as_u16(),
+                if response.content_type.is_empty() {
+                    "application/json"
+                } else {
+                    &response.content_type
+                },
+                response.body,
+            )));
+        }
+        let body = relay_translate::translate_sync_response(&translator_state, &response.body)
+            .map_err(|error| error.to_string())?;
+        let (content_type, body) = if stream_requested {
+            ("text/event-stream", synthetic_sse_from_response(&body))
+        } else {
+            ("application/json", body)
+        };
+        return Ok(Some(http_response(200, content_type, body)));
+    }
     if stream_requested {
         return handle_chat_completions_streaming(
             provider,
@@ -306,6 +344,251 @@ fn handle_chat_completions_provider(
     let body = relay_translate::translate_sync_response(&translator_state, &response.body)
         .map_err(|error| error.to_string())?;
     Ok(Some(http_response(200, "application/json", body)))
+}
+
+fn should_enable_local_web(
+    stream_requested: bool,
+    settings: &WebSearchSettings,
+    chat_body: &[u8],
+) -> bool {
+    !stream_requested
+        && !settings.search_provider_id.trim().is_empty()
+        && !chat_has_native_web_search(chat_body)
+}
+
+fn chat_has_native_web_search(body: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| value.get("tools").and_then(Value::as_array).cloned())
+        .is_some_and(|tools| {
+            tools.iter().any(|tool| {
+                matches!(
+                    tool.get("type").and_then(Value::as_str),
+                    Some("web_search") | Some("web_search_preview")
+                )
+            })
+        })
+}
+
+fn prepare_local_web_agent_body(body: &mut Vec<u8>) -> Result<(), String> {
+    let mut value: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "Translated chat request is not an object".to_string())?;
+    object.insert("stream".to_string(), Value::Bool(false));
+    object.remove("stream_options");
+    object.insert("parallel_tool_calls".to_string(), Value::Bool(false));
+    let tools = object
+        .entry("tools")
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| "Translated chat tools are not an array".to_string())?;
+    tools.retain(|tool| {
+        let name = tool.pointer("/function/name").and_then(Value::as_str);
+        !matches!(name, Some(LOCAL_WEB_SEARCH_TOOL | LOCAL_WEB_FETCH_TOOL))
+    });
+    tools.push(serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": LOCAL_WEB_SEARCH_TOOL,
+            "description": "Search the web for current or uncertain information. Call only when fresh external information is needed. The result contains numbered sources; cite them as [N] in the final answer.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A focused web search query."
+                    }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }
+        }
+    }));
+    tools.push(serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": LOCAL_WEB_FETCH_TOOL,
+            "description": "Fetch readable content from known public URLs. Use after search when snippets are insufficient.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 5
+                    }
+                },
+                "required": ["urls"],
+                "additionalProperties": false
+            }
+        }
+    }));
+    *body = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn run_local_web_agent(
+    provider: &Provider,
+    upstream_url: &str,
+    initial_body: Vec<u8>,
+    settings: &WebSearchSettings,
+) -> Result<UpstreamResponse, String> {
+    let mut request: Value =
+        serde_json::from_slice(&initial_body).map_err(|error| error.to_string())?;
+    let mut next_source_id = 1usize;
+
+    for _ in 0..LOCAL_WEB_MAX_STEPS {
+        let body = serde_json::to_vec(&request).map_err(|error| error.to_string())?;
+        let response = post_json(upstream_url, &provider.api_key, body)?;
+        if !response.status.is_success() {
+            return Ok(response);
+        }
+        let response_value: Value = serde_json::from_slice(&response.body)
+            .map_err(|error| format!("Invalid chat response during web search: {error}"))?;
+        let calls = local_web_tool_calls(&response_value)?;
+        if calls.is_empty() {
+            return Ok(response);
+        }
+
+        let messages = request
+            .get_mut("messages")
+            .and_then(Value::as_array_mut)
+            .ok_or_else(|| "Chat request messages are missing".to_string())?;
+        let assistant_message = response_value
+            .pointer("/choices/0/message")
+            .cloned()
+            .ok_or_else(|| "Chat response message is missing".to_string())?;
+        messages.push(assistant_message);
+        for call in calls {
+            let output = execute_local_web_tool(settings, &call, &mut next_source_id);
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": output,
+            }));
+        }
+    }
+
+    Err(format!(
+        "Web search exceeded the {LOCAL_WEB_MAX_STEPS} step limit"
+    ))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LocalWebToolCall {
+    id: String,
+    name: String,
+    arguments: Value,
+}
+
+fn local_web_tool_calls(response: &Value) -> Result<Vec<LocalWebToolCall>, String> {
+    let Some(calls) = response
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut local_calls = Vec::new();
+    let mut has_external_call = false;
+    for call in calls {
+        let name = call
+            .pointer("/function/name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !matches!(name, LOCAL_WEB_SEARCH_TOOL | LOCAL_WEB_FETCH_TOOL) {
+            has_external_call = true;
+            continue;
+        }
+        let id = call
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Web tool call is missing an id".to_string())?;
+        let arguments = call
+            .pointer("/function/arguments")
+            .and_then(Value::as_str)
+            .unwrap_or("{}");
+        let arguments = serde_json::from_str(arguments)
+            .map_err(|error| format!("Invalid arguments for {name}: {error}"))?;
+        local_calls.push(LocalWebToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            arguments,
+        });
+    }
+    if has_external_call && !local_calls.is_empty() {
+        return Err("Model returned local web and client tool calls in the same step".to_string());
+    }
+    if has_external_call {
+        return Ok(Vec::new());
+    }
+    Ok(local_calls)
+}
+
+fn execute_local_web_tool(
+    settings: &WebSearchSettings,
+    call: &LocalWebToolCall,
+    next_source_id: &mut usize,
+) -> String {
+    let result = match call.name.as_str() {
+        LOCAL_WEB_SEARCH_TOOL => {
+            let query = call
+                .arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            crate::web_search::search_keywords(settings, &[query])
+        }
+        LOCAL_WEB_FETCH_TOOL => {
+            let urls = call
+                .arguments
+                .get("urls")
+                .and_then(Value::as_array)
+                .map(|urls| {
+                    urls.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            crate::web_search::fetch_urls(settings, &urls)
+        }
+        _ => Err(format!("Unsupported local web tool: {}", call.name)),
+    };
+
+    match result {
+        Ok(response) => web_tool_output(response, next_source_id),
+        Err(error) => serde_json::json!({
+            "error": error,
+            "instruction": "The lookup failed. Retry with a different query or explain the failure to the user."
+        })
+        .to_string(),
+    }
+}
+
+fn web_tool_output(response: WebSearchResponse, next_source_id: &mut usize) -> String {
+    let results = response
+        .results
+        .into_iter()
+        .map(|result| {
+            let id = *next_source_id;
+            *next_source_id += 1;
+            serde_json::json!({
+                "id": id,
+                "title": result.title,
+                "url": result.url,
+                "content": result.content,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "providerId": response.provider_id,
+        "results": results,
+        "citationInstruction": "Cite used sources as [N] and include their URLs in the answer."
+    })
+    .to_string()
 }
 
 fn handle_chat_completions_streaming(
@@ -1004,5 +1287,103 @@ mod tests {
             chat_completions_url("https://open.bigmodel.cn/api/paas/v4/chat/completions").unwrap(),
             "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         );
+    }
+
+    #[test]
+    fn local_web_tools_are_injected_without_streaming() {
+        let mut body = serde_json::to_vec(&serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "latest news"}],
+            "stream": true,
+            "stream_options": {"include_usage": true},
+            "tools": []
+        }))
+        .unwrap();
+
+        prepare_local_web_agent_body(&mut body).unwrap();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(value.get("stream").and_then(Value::as_bool), Some(false));
+        assert!(value.get("stream_options").is_none());
+        assert_eq!(
+            value.get("parallel_tool_calls").and_then(Value::as_bool),
+            Some(false)
+        );
+        let names = value
+            .get("tools")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool.pointer("/function/name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec![LOCAL_WEB_SEARCH_TOOL, LOCAL_WEB_FETCH_TOOL]);
+    }
+
+    #[test]
+    fn local_web_tool_calls_are_parsed() {
+        let response = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": LOCAL_WEB_SEARCH_TOOL,
+                            "arguments": "{\"query\":\"Rust release\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+
+        assert_eq!(
+            local_web_tool_calls(&response).unwrap(),
+            vec![LocalWebToolCall {
+                id: "call-1".to_string(),
+                name: LOCAL_WEB_SEARCH_TOOL.to_string(),
+                arguments: serde_json::json!({"query": "Rust release"}),
+            }]
+        );
+    }
+
+    #[test]
+    fn native_web_search_is_not_replaced() {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "tools": [{"type": "web_search", "web_search": {"enable": true}}]
+        }))
+        .unwrap();
+        assert!(chat_has_native_web_search(&body));
+    }
+
+    #[test]
+    fn streaming_codex_requests_never_enter_local_web_loop() {
+        let settings = WebSearchSettings {
+            search_provider_id: "tavily".to_string(),
+            ..WebSearchSettings::default()
+        };
+        let body = serde_json::to_vec(&serde_json::json!({"tools": []})).unwrap();
+        assert!(!should_enable_local_web(true, &settings, &body));
+        assert!(should_enable_local_web(false, &settings, &body));
+    }
+
+    #[test]
+    fn citation_ids_continue_across_tool_results() {
+        let response = WebSearchResponse {
+            provider_id: "test".to_string(),
+            capability: crate::models::WebSearchCapability::SearchKeywords,
+            inputs: vec!["query".to_string()],
+            results: vec![crate::models::WebSearchResult {
+                title: "Result".to_string(),
+                url: "https://example.com".to_string(),
+                content: "Content".to_string(),
+                source_input: "query".to_string(),
+            }],
+        };
+        let mut next_id = 3;
+        let output: Value = serde_json::from_str(&web_tool_output(response, &mut next_id)).unwrap();
+        assert_eq!(
+            output.pointer("/results/0/id").and_then(Value::as_u64),
+            Some(3)
+        );
+        assert_eq!(next_id, 4);
     }
 }

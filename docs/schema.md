@@ -44,3 +44,17 @@
 - `auto_record_sessions`
 - `language`
 - `theme`
+- `web_search`
+  - `searchProviderId`
+  - `searchApiUrl`
+  - `searchApiKeys`
+  - `fetchProviderId`
+  - `fetchApiUrl`
+  - `fetchApiKeys`
+  - `maxResults`
+  - `excludeDomains`
+  - `cutoffTokens`
+
+`web_search` is stored as JSON in the existing key/value settings table. Search
+and URL fetching use separate provider identifiers so either capability can be
+changed independently.

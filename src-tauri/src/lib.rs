@@ -10,14 +10,15 @@ mod oauth;
 mod relay_translate;
 mod session_manager;
 mod vision_fallback;
+mod web_search;
 
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, build_session_handoff, check_app_update, delete_api_provider,
-    delete_provider, delete_session, download_and_install_update, generate_image, get_dashboard,
-    get_provider_balance, get_session_messages, launch_codex, launch_provider, launch_session,
-    list_provider_models, open_external_url, pick_directory, save_api_provider, save_provider,
-    save_settings, send_chat_message, AppState,
+    delete_provider, delete_session, download_and_install_update, fetch_web_urls, generate_image,
+    get_dashboard, get_provider_balance, get_session_messages, launch_codex, launch_provider,
+    launch_session, list_provider_models, open_external_url, pick_directory, save_api_provider,
+    save_provider, save_settings, search_web, send_chat_message, AppState,
 };
 use models::Provider;
 use oauth::{complete_openai_oauth, start_openai_oauth, submit_openai_oauth_callback};
@@ -118,6 +119,8 @@ pub fn run() {
             complete_openai_oauth,
             pick_directory,
             save_settings,
+            search_web,
+            fetch_web_urls,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch");

@@ -19,6 +19,7 @@ import type {
   SessionMessage,
   SessionRecord,
   StartOpenAiOauthResult,
+  WebSearchResponse,
 } from "../types";
 
 export const appApi = {
@@ -93,5 +94,11 @@ export const appApi = {
   },
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invoke("save_settings", { settings });
+  },
+  searchWeb(keywords: string[]): Promise<WebSearchResponse> {
+    return invoke("search_web", { keywords });
+  },
+  fetchWebUrls(urls: string[]): Promise<WebSearchResponse> {
+    return invoke("fetch_web_urls", { urls });
   },
 };

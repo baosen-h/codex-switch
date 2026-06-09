@@ -52,6 +52,32 @@ const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: Translat
   { value: "keqingViolet", labelKey: "backgroundSceneKeqingViolet" },
 ];
 
+const defaultWebSearchSettings: AppSettings["webSearch"] = {
+  searchProviderId: "",
+  searchApiUrl: "",
+  searchApiKeys: [],
+  fetchProviderId: "direct",
+  fetchApiUrl: "",
+  fetchApiKeys: [],
+  maxResults: 5,
+  excludeDomains: [],
+  cutoffTokens: 4000,
+};
+
+const searchProviderOptions = [
+  { id: "tavily", name: "Tavily", apiUrl: "https://api.tavily.com/search", requiresKey: true },
+  { id: "zhipu", name: "Zhipu", apiUrl: "https://open.bigmodel.cn/api/paas/v4/web_search", requiresKey: true },
+  { id: "exa", name: "Exa", apiUrl: "https://api.exa.ai/search", requiresKey: true },
+  { id: "bocha", name: "Bocha", apiUrl: "https://api.bochaai.com/v1/web-search", requiresKey: true },
+  { id: "searxng", name: "SearXNG", apiUrl: "http://localhost:8080/search", requiresKey: false },
+  { id: "jina", name: "Jina", apiUrl: "https://s.jina.ai", requiresKey: true },
+] as const;
+
+const fetchProviderOptions = [
+  { id: "direct", name: "Direct fetch", apiUrl: "", requiresKey: false },
+  { id: "jina", name: "Jina Reader", apiUrl: "https://r.jina.ai", requiresKey: true },
+] as const;
+
 const ChevronDownIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
     <path d="M3.5 5.25 7 8.75l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
@@ -76,6 +102,19 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
     const next = { ...draft, [field]: value } as AppSettings;
     setDraft(next);
     void onSave(next);
+  };
+
+  const updateWebSearch = <K extends keyof AppSettings["webSearch"]>(
+    field: K,
+    value: AppSettings["webSearch"][K],
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      webSearch: {
+        ...(current.webSearch ?? defaultWebSearchSettings),
+        [field]: value,
+      },
+    }));
   };
 
   const handleBackgroundColorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -114,6 +153,19 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
   );
   const visionModel = visionModels.find((model) => model.id === draft.visionModel);
   const visionConfigurationValid = Boolean(visionProvider && visionModel);
+  const webSearch = draft.webSearch ?? defaultWebSearchSettings;
+  const searchProviderOption = searchProviderOptions.find(
+    (provider) => provider.id === webSearch.searchProviderId,
+  );
+  const fetchProviderOption = fetchProviderOptions.find(
+    (provider) => provider.id === webSearch.fetchProviderId,
+  );
+  const webSearchConfigurationValid =
+    (!webSearch.searchProviderId ||
+      Boolean(searchProviderOption) &&
+        (!searchProviderOption?.requiresKey || webSearch.searchApiKeys.some((key) => key.trim()))) &&
+    Boolean(fetchProviderOption) &&
+    (!fetchProviderOption?.requiresKey || webSearch.fetchApiKeys.some((key) => key.trim()));
 
   const pickDirectory = async (field: PathFieldKey) => {
     try {
@@ -326,6 +378,132 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
               </label>
             </>
           ) : null}
+          <div className="field field-full">
+            <span>Automatic web search</span>
+            <small>
+              Configure once here. Models decide when to search; there is no chat mode switch.
+              Provider-native search remains preferred when available.
+            </small>
+          </div>
+          <label className="field">
+            <span>Search provider</span>
+            <select
+              value={webSearch.searchProviderId}
+              onChange={(event) => {
+                const providerId = event.target.value;
+                const option = searchProviderOptions.find((provider) => provider.id === providerId);
+                updateWebSearch("searchProviderId", providerId);
+                if (option) {
+                  updateWebSearch("searchApiUrl", option.apiUrl);
+                }
+                if (providerId !== webSearch.searchProviderId) {
+                  updateWebSearch("searchApiKeys", []);
+                }
+              }}
+            >
+              <option value="">Not configured</option>
+              {searchProviderOptions.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>URL fetch provider</span>
+            <select
+              value={webSearch.fetchProviderId}
+              onChange={(event) => {
+                const providerId = event.target.value;
+                const option = fetchProviderOptions.find((provider) => provider.id === providerId);
+                updateWebSearch("fetchProviderId", providerId);
+                updateWebSearch("fetchApiUrl", option?.apiUrl ?? "");
+                if (providerId !== webSearch.fetchProviderId) {
+                  updateWebSearch("fetchApiKeys", []);
+                }
+              }}
+            >
+              {fetchProviderOptions.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+          </label>
+          {searchProviderOption ? (
+            <>
+              <label className="field">
+                <span>{searchProviderOption.name} API URL</span>
+                <input
+                  value={webSearch.searchApiUrl}
+                  onChange={(event) => updateWebSearch("searchApiUrl", event.target.value)}
+                  placeholder={searchProviderOption.apiUrl}
+                />
+              </label>
+              {searchProviderOption.requiresKey ? (
+                <label className="field">
+                  <span>{searchProviderOption.name} API keys</span>
+                  <textarea
+                    value={webSearch.searchApiKeys.join("\n")}
+                    onChange={(event) =>
+                      updateWebSearch(
+                        "searchApiKeys",
+                        event.target.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
+                      )
+                    }
+                    placeholder="One API key per line"
+                    rows={3}
+                  />
+                </label>
+              ) : null}
+            </>
+          ) : null}
+          {fetchProviderOption?.id === "jina" ? (
+            <>
+              <label className="field">
+                <span>Jina Reader API URL</span>
+                <input
+                  value={webSearch.fetchApiUrl}
+                  onChange={(event) => updateWebSearch("fetchApiUrl", event.target.value)}
+                  placeholder={fetchProviderOption.apiUrl}
+                />
+              </label>
+              <label className="field">
+                <span>Jina Reader API keys</span>
+                <textarea
+                  value={webSearch.fetchApiKeys.join("\n")}
+                  onChange={(event) =>
+                    updateWebSearch(
+                      "fetchApiKeys",
+                      event.target.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
+                    )
+                  }
+                  placeholder="One API key per line"
+                  rows={3}
+                />
+              </label>
+            </>
+          ) : null}
+          <label className="field">
+            <span>Maximum search results</span>
+            <input
+              min={1}
+              max={20}
+              type="number"
+              value={webSearch.maxResults}
+              onChange={(event) => updateWebSearch("maxResults", Number(event.target.value) || 1)}
+            />
+          </label>
+          <label className="field">
+            <span>Excluded domains</span>
+            <textarea
+              value={webSearch.excludeDomains.join("\n")}
+              onChange={(event) =>
+                updateWebSearch(
+                  "excludeDomains",
+                  event.target.value.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean),
+                )
+              }
+              placeholder={"example.com\nspam.example"}
+              rows={3}
+            />
+          </label>
           <div className="field">
             <span>{t("guideSettingsTitle")}</span>
             <button className="secondary-button" onClick={onOpenGuide} type="button">
@@ -337,7 +515,10 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
         <div className="actions">
           <button
             className="primary-button"
-            disabled={draft.visionFallbackEnabled && !visionConfigurationValid}
+            disabled={
+              (draft.visionFallbackEnabled && !visionConfigurationValid) ||
+              !webSearchConfigurationValid
+            }
             onClick={() => void onSave(draft)}
             type="button"
           >

@@ -5,6 +5,7 @@ use crate::app_config::{APP_HOME_DIR, DB_FILE, LEGACY_APP_HOME_DIR, LEGACY_DB_FI
 use crate::error::AppError;
 use crate::models::{
     ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord,
+    WebSearchSettings,
 };
 use crate::session_manager;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -380,10 +381,12 @@ impl Database {
             vision_codex_enabled: self.setting("vision_codex_enabled")? == "true",
             vision_claude_enabled: self.setting("vision_claude_enabled")? == "true",
             vision_gemini_enabled: self.setting("vision_gemini_enabled")? == "true",
+            web_search: serde_json::from_str(&self.setting("web_search")?).unwrap_or_default(),
         })
     }
 
     pub fn save_settings(&self, settings: AppSettings) -> Result<AppSettings, AppError> {
+        let web_search = settings.web_search.normalized();
         self.set_setting("codex_config_dir", settings.codex_config_dir.clone())?;
         self.set_setting("claude_config_dir", settings.claude_config_dir.clone())?;
         self.set_setting("gemini_config_dir", settings.gemini_config_dir.clone())?;
@@ -425,6 +428,10 @@ impl Database {
         self.set_setting(
             "vision_gemini_enabled",
             settings.vision_gemini_enabled.to_string(),
+        )?;
+        self.set_setting(
+            "web_search",
+            serde_json::to_string(&web_search).map_err(AppError::from)?,
         )?;
         self.settings()
     }
@@ -605,6 +612,10 @@ impl Database {
         self.ensure_setting("vision_codex_enabled", "true".to_string())?;
         self.ensure_setting("vision_claude_enabled", "true".to_string())?;
         self.ensure_setting("vision_gemini_enabled", "true".to_string())?;
+        self.ensure_setting(
+            "web_search",
+            serde_json::to_string(&WebSearchSettings::default()).map_err(AppError::from)?,
+        )?;
 
         let theme = self.setting("theme")?;
         if matches!(theme.as_str(), "system" | "dark" | "light") {

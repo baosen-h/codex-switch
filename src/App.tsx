@@ -39,6 +39,17 @@ const emptyState: DashboardState = {
     visionCodexEnabled: true,
     visionClaudeEnabled: true,
     visionGeminiEnabled: true,
+    webSearch: {
+      searchProviderId: "",
+      searchApiUrl: "",
+      searchApiKeys: [],
+      fetchProviderId: "direct",
+      fetchApiUrl: "",
+      fetchApiKeys: [],
+      maxResults: 5,
+      excludeDomains: [],
+      cutoffTokens: 4000,
+    },
   },
 };
 

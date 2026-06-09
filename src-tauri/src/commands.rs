@@ -13,7 +13,7 @@ use crate::models::{
     ApiProvider, AppSettings, AppUpdateInfo, ChatAttachment, ChatMessage, ChatRequest,
     ChatResponse, DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse,
     LaunchRequest, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
-    SessionRecord, UpdateDownloadProgress,
+    SessionRecord, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -297,12 +297,12 @@ pub async fn send_chat_message(
 ) -> Result<ChatResponse, String> {
     let db = Arc::clone(&state.db);
     tauri::async_runtime::spawn_blocking(move || {
-        let request = {
+        let (request, web_search) = {
             let db = db
                 .lock()
                 .map_err(|_| "Failed to lock database".to_string())?;
             let settings = db.settings().map_err(|error| error.to_string())?;
-            if settings.vision_fallback_enabled
+            let request = if settings.vision_fallback_enabled
                 && settings.vision_chat_enabled
                 && !settings.vision_api_provider_id.trim().is_empty()
                 && !settings.vision_model.trim().is_empty()
@@ -323,21 +323,73 @@ pub async fn send_chat_message(
                 }
             } else {
                 request
-            }
+            };
+            (request, settings.web_search)
         };
-        send_chat_message_blocking(request)
+        send_chat_message_blocking(request, &web_search)
     })
     .await
     .map_err(|error| format!("Chat task failed: {error}"))?
 }
 
-fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, String> {
+#[tauri::command]
+pub async fn search_web(
+    state: State<'_, AppState>,
+    keywords: Vec<String>,
+) -> Result<WebSearchResponse, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = db
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?
+            .settings()
+            .map_err(|error| error.to_string())?
+            .web_search;
+        crate::web_search::search_keywords(&settings, &keywords)
+    })
+    .await
+    .map_err(|error| format!("Web search task failed: {error}"))?
+}
+
+#[tauri::command]
+pub async fn fetch_web_urls(
+    state: State<'_, AppState>,
+    urls: Vec<String>,
+) -> Result<WebSearchResponse, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = db
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?
+            .settings()
+            .map_err(|error| error.to_string())?
+            .web_search;
+        crate::web_search::fetch_urls(&settings, &urls)
+    })
+    .await
+    .map_err(|error| format!("Web fetch task failed: {error}"))?
+}
+
+fn send_chat_message_blocking(
+    request: ChatRequest,
+    web_search: &WebSearchSettings,
+) -> Result<ChatResponse, String> {
     let provider_type = normalized_provider_type(&request.provider.provider_type);
     let api_key = request.provider.api_key.trim();
     let client = Client::builder()
         .timeout(Duration::from_secs(90))
         .build()
         .map_err(|error| error.to_string())?;
+
+    if !is_anthropic_protocol(&provider_type)
+        && provider_type != "gemini"
+        && !web_search.search_provider_id.trim().is_empty()
+    {
+        let body = send_openai_chat_with_web(&client, &request, web_search)?;
+        let content = extract_chat_content(&provider_type, &body)
+            .ok_or_else(|| "Chat response did not contain text content".to_string())?;
+        return Ok(ChatResponse { content });
+    }
 
     let response = if is_anthropic_protocol(&provider_type) {
         let url = anthropic_messages_url(&request.provider.base_url)?;
@@ -390,6 +442,213 @@ fn send_chat_message_blocking(request: ChatRequest) -> Result<ChatResponse, Stri
     let content = extract_chat_content(&provider_type, &body)
         .ok_or_else(|| "Chat response did not contain text content".to_string())?;
     Ok(ChatResponse { content })
+}
+
+const TALKING_WEB_SEARCH_TOOL: &str = "web__search";
+const TALKING_WEB_FETCH_TOOL: &str = "web__fetch";
+const TALKING_WEB_MAX_STEPS: usize = 8;
+
+fn send_openai_chat_with_web(
+    client: &Client,
+    request: &ChatRequest,
+    web_search: &WebSearchSettings,
+) -> Result<Value, String> {
+    let provider_type = normalized_provider_type(&request.provider.provider_type);
+    let url = chat_completions_url(&provider_type, &request.provider.base_url)?;
+    let mut headers = json_headers();
+    add_openai_auth_headers(&mut headers, request.provider.api_key.trim())?;
+    let mut messages = openai_chat_messages(&request.messages);
+    let mut next_source_id = 1usize;
+
+    for _ in 0..TALKING_WEB_MAX_STEPS {
+        let response = client
+            .post(&url)
+            .headers(headers.clone())
+            .json(&serde_json::json!({
+                "model": request.model.trim(),
+                "messages": messages,
+                "tools": talking_web_tools(),
+                "tool_choice": "auto",
+                "parallel_tool_calls": false,
+            }))
+            .send()
+            .map_err(|error| format!("Failed to send chat request: {error}"))?;
+        let status = response.status();
+        let body: Value = response
+            .json()
+            .map_err(|error| format!("Failed to parse chat response: {error}"))?;
+        if !status.is_success() {
+            return Err(extract_api_error(&body)
+                .unwrap_or_else(|| format!("Chat request failed with HTTP status {status}")));
+        }
+
+        let calls = talking_web_tool_calls(&body)?;
+        if calls.is_empty() {
+            return Ok(body);
+        }
+        let assistant_message = body
+            .pointer("/choices/0/message")
+            .cloned()
+            .ok_or_else(|| "Chat response message is missing".to_string())?;
+        messages.push(assistant_message);
+        for call in calls {
+            let output = execute_talking_web_tool(web_search, &call, &mut next_source_id);
+            messages.push(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": output,
+            }));
+        }
+    }
+
+    Err(format!(
+        "Web search exceeded the {TALKING_WEB_MAX_STEPS} step limit"
+    ))
+}
+
+fn talking_web_tools() -> Vec<Value> {
+    vec![
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": TALKING_WEB_SEARCH_TOOL,
+                "description": "Search the web for current, recent, or uncertain information. Cite used sources as [N] in the final answer.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"}
+                    },
+                    "required": ["query"],
+                    "additionalProperties": false
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": TALKING_WEB_FETCH_TOOL,
+                "description": "Fetch readable content from known public URLs when search snippets are insufficient.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "urls": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 5
+                        }
+                    },
+                    "required": ["urls"],
+                    "additionalProperties": false
+                }
+            }
+        }),
+    ]
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct TalkingWebToolCall {
+    id: String,
+    name: String,
+    arguments: Value,
+}
+
+fn talking_web_tool_calls(response: &Value) -> Result<Vec<TalkingWebToolCall>, String> {
+    let Some(calls) = response
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    calls
+        .iter()
+        .map(|call| {
+            let id = call
+                .get("id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Web tool call is missing an id".to_string())?;
+            let name = call
+                .pointer("/function/name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Web tool call is missing a name".to_string())?;
+            if !matches!(name, TALKING_WEB_SEARCH_TOOL | TALKING_WEB_FETCH_TOOL) {
+                return Err(format!("Unsupported Talking tool call: {name}"));
+            }
+            let arguments = call
+                .pointer("/function/arguments")
+                .and_then(Value::as_str)
+                .unwrap_or("{}");
+            Ok(TalkingWebToolCall {
+                id: id.to_string(),
+                name: name.to_string(),
+                arguments: serde_json::from_str(arguments)
+                    .map_err(|error| format!("Invalid arguments for {name}: {error}"))?,
+            })
+        })
+        .collect()
+}
+
+fn execute_talking_web_tool(
+    settings: &WebSearchSettings,
+    call: &TalkingWebToolCall,
+    next_source_id: &mut usize,
+) -> String {
+    let result = match call.name.as_str() {
+        TALKING_WEB_SEARCH_TOOL => {
+            let query = call
+                .arguments
+                .get("query")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            crate::web_search::search_keywords(settings, &[query])
+        }
+        TALKING_WEB_FETCH_TOOL => {
+            let urls = call
+                .arguments
+                .get("urls")
+                .and_then(Value::as_array)
+                .map(|urls| {
+                    urls.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            crate::web_search::fetch_urls(settings, &urls)
+        }
+        _ => Err(format!("Unsupported Talking web tool: {}", call.name)),
+    };
+
+    match result {
+        Ok(response) => {
+            let results = response
+                .results
+                .into_iter()
+                .map(|result| {
+                    let id = *next_source_id;
+                    *next_source_id += 1;
+                    serde_json::json!({
+                        "id": id,
+                        "title": result.title,
+                        "url": result.url,
+                        "content": result.content,
+                    })
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "providerId": response.provider_id,
+                "results": results,
+                "citationInstruction": "Cite used sources as [N] and include their URLs."
+            })
+            .to_string()
+        }
+        Err(error) => serde_json::json!({
+            "error": error,
+            "instruction": "Retry with a different query or explain the lookup failure."
+        })
+        .to_string(),
+    }
 }
 
 #[tauri::command]
@@ -2438,6 +2697,31 @@ mod tests {
         assert_eq!(
             chat_completions_url("openai-compatible", "https://api.example.com").unwrap(),
             "https://api.example.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn talking_web_tool_call_is_parsed() {
+        let response = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "function": {
+                            "name": TALKING_WEB_SEARCH_TOOL,
+                            "arguments": "{\"query\":\"latest Rust release\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+        assert_eq!(
+            talking_web_tool_calls(&response).unwrap(),
+            vec![TalkingWebToolCall {
+                id: "call-1".to_string(),
+                name: TALKING_WEB_SEARCH_TOOL.to_string(),
+                arguments: serde_json::json!({"query": "latest Rust release"}),
+            }]
         );
     }
 
