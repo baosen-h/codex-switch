@@ -73,7 +73,7 @@ export function AgentProviderForm({
 
   return (
     <section className="page providers-page">
-      <article className="card provider-edit-card">
+      <article className="provider-edit-card agent-provider-edit-card">
         <div className="card-heading provider-edit-heading">
           <div>
             <span className="eyebrow">{isEditing ? labels.edit : "New"}</span>
@@ -89,7 +89,7 @@ export function AgentProviderForm({
           </button>
         </div>
 
-        <div className="provider-editor-layout">
+        <div className="provider-editor-layout agent-provider-editor-layout">
           <div className="provider-form-panel">
             <div className="form-grid compact-form-grid">
               <label className="field">

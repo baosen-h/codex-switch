@@ -105,6 +105,17 @@ select {
   backdrop-filter: none;
 }
 
+select,
+select option {
+  color: var(--t1);
+  background-color: var(--p1);
+}
+
+select option:checked {
+  color: white;
+  background-color: var(--a);
+}
+
 input:focus,
 textarea:focus,
 select:focus {
@@ -318,10 +329,11 @@ h3 { font-size: 15px; }
   height: 24px !important;
   min-width: 24px;
   border-radius: 7px;
+  background: color-mix(in srgb, var(--p2) 76%, white);
 }
 .provider-row .provider-title .provider-avatar img {
   box-sizing: border-box;
-  padding: 3px;
+  padding: 2px;
   object-fit: contain;
   border-radius: 7px;
 }
@@ -397,6 +409,26 @@ h3 { font-size: 15px; }
   border-radius: 10px;
   background: var(--p1);
   padding: 18px;
+}
+.agent-provider-edit-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.agent-provider-edit-card .provider-edit-heading {
+  position: static;
+}
+.agent-provider-editor-layout {
+  width: min(1128px, calc(100% - 96px));
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 0 30px;
+}
+.agent-provider-editor-layout .provider-form-panel {
+  padding: 18px 28px;
 }
 .provider-detail-empty {
   display: grid;
@@ -500,6 +532,7 @@ h3 { font-size: 15px; }
   padding-bottom: 10px;
   border-bottom: 1px solid var(--b0);
 }
+.drawing-heading:empty { display: none; }
 .drawing-workspace .drawing-heading h3 {
   margin-top: 2px;
   font-size: 16px;
@@ -952,7 +985,7 @@ h3 { font-size: 15px; }
   width: 100%;
   min-width: 0;
   border: 0;
-  background: transparent;
+  background: var(--p1);
   box-shadow: none;
 }
 .provider-select-control select:focus { box-shadow: none; }
@@ -1052,6 +1085,78 @@ h3 { font-size: 15px; }
   border-top: 1px solid var(--b0);
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(10px);
+}
+
+.model-capability-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-capability-tag,
+.model-modality-chip {
+  border-color: color-mix(in srgb, currentColor 36%, transparent);
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.model-capability-tag {
+  min-height: 24px;
+  border-radius: 7px;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
+.model-modality-chip {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 8px;
+}
+
+.model-modality-chip svg,
+.model-capability-tag svg {
+  color: currentColor;
+}
+
+.model-modality-text,
+.model-capability-vision { color: #38bdf8; }
+.model-modality-image,
+.model-capability-image { color: #22c55e; }
+.model-modality-audio,
+.model-capability-reasoning { color: #f59e0b; }
+.model-modality-video { color: #8b5cf6; }
+.model-modality-file,
+.model-capability-web { color: #0ea5e9; }
+.model-capability-function { color: #14b8a6; }
+
+.api-model-pill .model-capability-row {
+  overflow: visible;
+}
+
+.api-model-pill .model-modality-chip,
+.api-model-pill .model-capability-tag {
+  overflow: visible;
+  color: currentColor;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.api-model-pill .model-modality-text,
+.api-model-pill .model-capability-vision { color: #38bdf8; }
+.api-model-pill .model-modality-image,
+.api-model-pill .model-capability-image { color: #22c55e; }
+.api-model-pill .model-modality-audio,
+.api-model-pill .model-capability-reasoning { color: #f59e0b; }
+.api-model-pill .model-modality-video { color: #8b5cf6; }
+.api-model-pill .model-modality-file,
+.api-model-pill .model-capability-web { color: #0ea5e9; }
+.api-model-pill .model-capability-function { color: #14b8a6; }
+
+.api-model-pill .model-modality-chip > span,
+.api-model-pill .model-capability-tag > span {
+  color: currentColor;
 }
 
 /* Talking and Agents: hierarchy refinements without changing workflows. */

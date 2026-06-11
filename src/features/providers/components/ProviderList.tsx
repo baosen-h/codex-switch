@@ -47,9 +47,7 @@ export function ProviderList({
           <div className="toolbar-title-block">
             <div>
               <span className="eyebrow">{labels.providers}</span>
-              <h2>{labels.apiProviders}</h2>
             </div>
-            <span className="toolbar-count">{providers.length}</span>
           </div>
           <button className="add-button add-button-compact" onClick={onAddProvider} type="button" title={labels.addProvider}>
             <AddIcon />

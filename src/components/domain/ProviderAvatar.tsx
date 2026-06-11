@@ -3,6 +3,7 @@ import anthropicLogo from "../../assets/provider-icons/anthropic.png";
 import deepSeekLogo from "../../assets/provider-icons/deepseek.png";
 import geminiLogo from "../../assets/provider-icons/google.png";
 import huggingFaceLogo from "../../assets/provider-icons/huggingface.webp";
+import newApiLogo from "../../assets/provider-icons/newapi.png";
 import ollamaLogo from "../../assets/provider-icons/ollama.png";
 import openAiLogo from "../../assets/provider-icons/openai.png";
 import openRouterLogo from "../../assets/provider-icons/openrouter.png";
@@ -18,10 +19,12 @@ const providerTypeLogos: Partial<Record<ApiProviderType, string>> = {
   ollama: ollamaLogo,
   openrouter: openRouterLogo,
   huggingface: huggingFaceLogo,
+  "openai-compatible": newApiLogo,
+  "new-api": newApiLogo,
 };
 
 const keywordLogos: Array<[RegExp, string]> = [
-  [/deepseek|deepseek\.com|deepseek-ai/i, deepSeekLogo],
+  [/deepseek|deepseek\.com|deepseek-ai|deepseek[_-]/i, deepSeekLogo],
   [/\bmimo\b|xiaomi|mi\.com|mimo-v/i, xiaomiLogo],
   [/zhipu|bigmodel|glm/i, zhipuLogo],
   [/openrouter/i, openRouterLogo],

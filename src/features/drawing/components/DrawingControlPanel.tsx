@@ -38,7 +38,6 @@ export function DrawingControlPanel({
     <aside className="drawing-control-panel">
       <div className="drawing-heading">
         <span className="eyebrow">{labels.drawing}</span>
-        <h3>{labels.imageStudio}</h3>
       </div>
 
       <label className="field">

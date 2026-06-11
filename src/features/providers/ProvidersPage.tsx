@@ -283,7 +283,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         ) : (
           <div className="provider-detail-empty">
             <div className="provider-detail-empty-mark">CS</div>
-            <h2>{t("apiProviders")}</h2>
             <p>{t("selectProvider")}</p>
             <button className="primary-button" onClick={() => openForm()} type="button">
               {t("addProvider")}
