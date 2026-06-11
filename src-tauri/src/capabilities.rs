@@ -26,6 +26,13 @@ use uuid::Uuid;
 
 const CREDENTIAL_SERVICE: &str = "codex-switch-mcp";
 const MCP_TIMEOUT: Duration = Duration::from_secs(10);
+const BUILTIN_SKILL_NAMES: &[&str] = &[
+    "imagegen",
+    "openai-docs",
+    "plugin-creator",
+    "skill-creator",
+    "skill-installer",
+];
 
 pub fn state(db: &Database) -> Result<CapabilitiesState, AppError> {
     discover_local_capabilities(db)?;
@@ -169,6 +176,9 @@ fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), Ap
         let Ok((name, description, instructions)) = read_skill_md(&path) else {
             continue;
         };
+        if is_shadow_builtin_skill(&path, &name) {
+            continue;
+        }
         if let Some(skill) = existing.iter_mut().find(|item| item.name.eq_ignore_ascii_case(&name)) {
             let changed = !agent.is_empty() && set_target(&mut skill.targets, agent);
             if changed {
@@ -297,6 +307,11 @@ pub fn preview_mcp(db: &Database, mut server: McpServer, agent: &str) -> Result<
 pub fn import_skill(db: &Database, source_path: &str) -> Result<(Skill, CapabilitySyncResult), AppError> {
     let path = PathBuf::from(source_path);
     let (name, description, instructions) = read_skill_md(&path)?;
+    if is_shadow_builtin_skill(&path, &name) {
+        return Err(AppError::message(format!(
+            "{name} is already provided as a built-in Skill"
+        )));
+    }
     let skill = Skill {
         id: String::new(),
         name,
@@ -803,6 +818,15 @@ fn is_hidden_system_skill_path(path: &str) -> bool {
         || normalized.contains("/.codex-switcher/skills/.system/")
 }
 
+fn is_shadow_builtin_skill(path: &Path, name: &str) -> bool {
+    if !BUILTIN_SKILL_NAMES.iter().any(|item| item.eq_ignore_ascii_case(name.trim())) {
+        return false;
+    }
+    let normalized = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
+    normalized.contains("/.codex-switcher/skills/")
+        && !is_hidden_system_skill_path(&normalized)
+}
+
 fn read_skill_md(dir: &Path) -> Result<(String, String, String), AppError> {
     let path = dir.join("SKILL.md");
     let text = fs::read_to_string(&path).map_err(|_| AppError::message("Selected folder does not contain a readable SKILL.md"))?;
@@ -1033,6 +1057,23 @@ mod tests {
         assert!(!filesystem_safe_name("bad/name"));
         assert!(!filesystem_safe_name("NUL"));
         assert!(filesystem_safe_name("Code Review"));
+    }
+
+    #[test]
+    fn hides_system_and_shadow_builtin_skills() {
+        assert!(is_hidden_system_skill_path("C:/Users/me/.codex-switcher/skills/.system/imagegen"));
+        assert!(is_shadow_builtin_skill(
+            Path::new("C:/Users/me/.codex-switcher/skills/imagegen"),
+            "imagegen",
+        ));
+        assert!(!is_shadow_builtin_skill(
+            Path::new("C:/Users/me/.codex-switcher/skills/custom-review"),
+            "custom-review",
+        ));
+        assert!(!is_shadow_builtin_skill(
+            Path::new("C:/Users/me/.codex-switcher/skills/.system/imagegen"),
+            "imagegen",
+        ));
     }
 
     #[test]

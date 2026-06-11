@@ -47,10 +47,10 @@
   --b1: rgba(0, 0, 0, 0.1);
   --t1: #202124;
   --t2: #6b6d72;
-  --a: #00a866;
-  --a-dk: #008653;
-  --a-d: rgba(0, 168, 102, 0.1);
-  --accent-rgb: 0 168 102;
+  --a: #66a645;
+  --a-dk: #558a39;
+  --a-d: rgba(102, 166, 69, 0.1);
+  --accent-rgb: 102 166 69;
   --titlebar-bg: #f7f7f8;
   --titlebar-border: rgba(0, 0, 0, 0.08);
   --titlebar-hover: rgba(0, 0, 0, 0.05);
