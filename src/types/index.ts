@@ -333,6 +333,16 @@ export interface Skill {
   updatedAt: string;
 }
 
+export interface SkillMarketResult {
+  id: string;
+  skillId: string;
+  name: string;
+  description: string;
+  source: string;
+  installs: number;
+  url: string;
+}
+
 export interface SyncTargetResult {
   agent: AgentKind;
   status: string;

@@ -3,7 +3,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Code2,
-  Compass,
+  ExternalLink,
   FileInput,
   FolderSearch,
   FlaskConical,
@@ -23,6 +23,7 @@ import type {
   McpPreset,
   McpServer,
   Skill,
+  SkillMarketResult,
 } from "../../types";
 
 const emptyTargets = (): CapabilityTargets => ({ codex: false, claude: false, gemini: false });
@@ -314,12 +315,12 @@ function SkillManager({
   onReload: () => Promise<void>;
 }) {
   const [search, setSearch] = useState("");
+  const [marketResults, setMarketResults] = useState<SkillMarketResult[]>([]);
   const [draft, setDraft] = useState<Skill>(state.skills[0] ?? emptySkill());
   const [preview, setPreview] = useState("");
   const [message, setMessage] = useState("");
-  const [discoverMessage, setDiscoverMessage] = useState("");
+  const [marketMessage, setMarketMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const filtered = state.skills.filter((skill) => skill.name.toLowerCase().includes(search.toLowerCase()));
   const previewReady = Boolean(draft.name.trim() && draft.instructions.trim());
 
   const act = async (action: () => Promise<void>) => {
@@ -334,9 +335,18 @@ function SkillManager({
     }
   };
 
-  const discoverLocal = () => void act(async () => {
-    await onReload();
-    setDiscoverMessage("Scanned Codex, Claude, and Gemini skills folders for SKILL.md. Local Skills appear in the list above.");
+  const searchMarket = () => void act(async () => {
+    const query = search.trim();
+    setMarketMessage("");
+    if (!query) {
+      setMarketResults([]);
+      setMarketMessage("Enter a market search term.");
+      return;
+    }
+
+    const results = await appApi.searchSkillMarket(query);
+    setMarketResults(results);
+    setMarketMessage(results.length ? `${results.length} market Skills found.` : "No market Skills found.");
   });
 
   return (
@@ -344,10 +354,20 @@ function SkillManager({
       <div className="capability-manager-body">
         <aside className="capability-manager-list">
           <div className="capability-list-actions">
-            <label className="capability-search"><Search size={15} /><input placeholder="Search skills" value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+            <label className="capability-search">
+              <Search size={15} />
+              <input
+                placeholder="Search Skills market"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") searchMarket();
+                }}
+              />
+            </label>
             <button className="primary-button icon-action-button" onClick={() => setDraft(emptySkill())} title="New skill" type="button"><Plus size={16} /></button>
           </div>
-          {filtered.map((skill) => (
+          {state.skills.map((skill) => (
             <button className={`capability-list-item ${skill.id === draft.id ? "active" : ""}`} key={skill.id} onClick={() => { setDraft(structuredClone(skill)); setPreview(""); }} type="button">
               <span>
                 <strong>{skill.name}</strong>
@@ -358,16 +378,22 @@ function SkillManager({
             </button>
           ))}
           <div className="capability-discovery-list">
-            <strong>Discover</strong>
-            <button disabled={busy} onClick={discoverLocal} type="button">
-              <span><Compass size={14} /> Scan local skills</span>
-              <small>Codex · Claude · Gemini · .agents</small>
+            <strong>Market</strong>
+            <button disabled={busy} onClick={searchMarket} type="button">
+              <span><Search size={14} /> Search market</span>
+              <small>skills.sh</small>
             </button>
             <button disabled={busy} onClick={() => void act(async () => { const path = await appApi.pickDirectory(); if (!path) return; const [skill, sync] = await appApi.importSkill(path); setDraft(skill); setMessage(syncText(sync)); await onReload(); })} type="button">
               <span><FileInput size={14} /> Import folder</span>
               <small>Use external folder</small>
             </button>
-            {discoverMessage ? <p>{discoverMessage}</p> : null}
+            {marketMessage ? <p>{marketMessage}</p> : null}
+            {marketResults.map((skill) => (
+              <button key={skill.id} onClick={() => void appApi.openExternalUrl(skill.url)} type="button">
+                <span><ExternalLink size={14} /> {skill.name}</span>
+                <small>{skill.source || "skills.sh"} · {skill.installs.toLocaleString()} installs</small>
+              </button>
+            ))}
           </div>
         </aside>
         <main className="capability-editor">

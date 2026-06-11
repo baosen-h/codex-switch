@@ -1,7 +1,7 @@
 mod agent_writer;
 mod app_config;
-mod commands;
 mod capabilities;
+mod commands;
 mod compatibility_proxy;
 mod database;
 mod error;
@@ -21,7 +21,7 @@ use commands::{
     get_dashboard, get_provider_balance, get_session_messages, import_skill, launch_codex,
     launch_provider, launch_session, list_provider_models, open_external_url, pick_directory,
     preview_mcp_config, preview_skill, save_api_provider, save_mcp_preset, save_mcp_server,
-    save_provider, save_settings, save_skill, search_web, send_chat_message,
+    save_provider, save_settings, save_skill, search_skill_market, search_web, send_chat_message,
     sync_mcp_capabilities, sync_skill_capabilities, test_mcp_server, AppState,
 };
 use models::Provider;
@@ -134,6 +134,7 @@ pub fn run() {
             save_mcp_preset,
             delete_mcp_preset,
             import_skill,
+            search_skill_market,
             save_skill,
             delete_skill,
             preview_skill,

@@ -472,6 +472,20 @@ pub struct Skill {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SkillMarketResult {
+    pub id: String,
+    pub skill_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub source: String,
+    #[serde(default)]
+    pub installs: u64,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncTargetResult {
     pub agent: String,
     pub status: String,

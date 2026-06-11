@@ -14,7 +14,8 @@ use crate::models::{
     ChatAttachment, ChatMessage, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
     ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, McpPreset, McpServer,
     McpTestResult, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
-    SessionRecord, Skill, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
+    SessionRecord, Skill, SkillMarketResult, UpdateDownloadProgress, WebSearchResponse,
+    WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -1453,8 +1454,7 @@ pub fn preview_mcp_config(
     agent: String,
 ) -> Result<String, String> {
     let db = state.db.lock().map_err(|_| "Failed to lock database")?;
-    crate::capabilities::preview_mcp(&db, server, &agent)
-        .map_err(|error| error.to_string())
+    crate::capabilities::preview_mcp(&db, server, &agent).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -1467,10 +1467,7 @@ pub fn sync_mcp_capabilities(
 }
 
 #[tauri::command]
-pub fn save_mcp_preset(
-    state: State<'_, AppState>,
-    preset: McpPreset,
-) -> Result<McpPreset, String> {
+pub fn save_mcp_preset(state: State<'_, AppState>, preset: McpPreset) -> Result<McpPreset, String> {
     let db = state.db.lock().map_err(|_| "Failed to lock database")?;
     crate::capabilities::save_preset(&db, preset).map_err(|error| error.to_string())
 }
@@ -1488,6 +1485,96 @@ pub fn import_skill(
 ) -> Result<(Skill, CapabilitySyncResult), String> {
     let db = state.db.lock().map_err(|_| "Failed to lock database")?;
     crate::capabilities::import_skill(&db, &source_path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn search_skill_market(query: String) -> Result<Vec<SkillMarketResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || search_skill_market_blocking(&query))
+        .await
+        .map_err(|error| format!("Skill market search task failed: {error}"))?
+}
+
+fn search_skill_market_blocking(query: &str) -> Result<Vec<SkillMarketResult>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let url = format!(
+        "https://skills.sh/api/search?q={}",
+        urlencoding::encode(query)
+    );
+    let response = client
+        .get(url)
+        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .map_err(|error| format!("Failed to search Skills market: {error}"))?;
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .map_err(|error| format!("Failed to parse Skills market response: {error}"))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "Skills market search failed with HTTP status {status}"
+        ));
+    }
+
+    let skills = body
+        .get("skills")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Skills market response did not include skills.".to_string())?;
+
+    Ok(skills
+        .iter()
+        .filter_map(parse_skill_market_result)
+        .collect())
+}
+
+fn parse_skill_market_result(value: &Value) -> Option<SkillMarketResult> {
+    let id = value.get("id").and_then(Value::as_str)?.to_string();
+    let skill_id = value
+        .get("skillId")
+        .or_else(|| value.get("skill_id"))
+        .and_then(Value::as_str)
+        .unwrap_or(&id)
+        .to_string();
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or(&skill_id)
+        .to_string();
+    let source = value
+        .get("source")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let description = value
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let installs = value.get("installs").and_then(Value::as_u64).unwrap_or(0);
+    let url = if source.trim().is_empty() {
+        format!("https://skills.sh/skills/{skill_id}")
+    } else {
+        format!("https://skills.sh/{source}/{skill_id}")
+    };
+
+    Some(SkillMarketResult {
+        id,
+        skill_id,
+        name,
+        description,
+        source,
+        installs,
+        url,
+    })
 }
 
 #[tauri::command]
@@ -1514,9 +1601,7 @@ pub fn preview_skill(skill: Skill) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn sync_skill_capabilities(
-    state: State<'_, AppState>,
-) -> Result<CapabilitySyncResult, String> {
+pub fn sync_skill_capabilities(state: State<'_, AppState>) -> Result<CapabilitySyncResult, String> {
     let db = state.db.lock().map_err(|_| "Failed to lock database")?;
     crate::capabilities::sync_skills(&db).map_err(|error| error.to_string())
 }

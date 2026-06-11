@@ -25,6 +25,7 @@ import type {
   SessionRecord,
   StartOpenAiOauthResult,
   Skill,
+  SkillMarketResult,
   WebSearchResponse,
 } from "../types";
 
@@ -133,6 +134,9 @@ export const appApi = {
   },
   importSkill(sourcePath: string): Promise<[Skill, CapabilitySyncResult]> {
     return invoke("import_skill", { sourcePath });
+  },
+  searchSkillMarket(query: string): Promise<SkillMarketResult[]> {
+    return invoke("search_skill_market", { query });
   },
   saveSkill(skill: Skill): Promise<[Skill, CapabilitySyncResult]> {
     return invoke("save_skill", { skill });
