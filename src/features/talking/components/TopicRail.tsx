@@ -32,7 +32,6 @@ export function TopicRail({
       <div className="rail-header">
         <div>
           <span className="eyebrow">{talkingLabel}</span>
-          <h2>{topicTitle(activeTopic, defaultTopicLabel)}</h2>
         </div>
         <button className="add-button add-button-compact" onClick={onNewTopic} type="button" title={newTopicLabel}>
           <PlusIcon />

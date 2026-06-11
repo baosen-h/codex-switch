@@ -1,4 +1,4 @@
-import type { AppSettings, AppTheme, BackgroundScene } from "../../types";
+import type { AppSettings, AppTheme } from "../../types";
 import type { TranslationKey } from "../../i18n/translations";
 
 export type PathFieldKey =
@@ -24,18 +24,6 @@ export const themeOptions: Array<{ value: AppTheme; labelKey: TranslationKey }> 
   { value: "slate", labelKey: "themeSlate" },
   { value: "rose", labelKey: "themeRose" },
   { value: "violet", labelKey: "themeViolet" },
-];
-
-export const backgroundSceneOptions: Array<{ value: BackgroundScene; labelKey: TranslationKey }> = [
-  { value: "none", labelKey: "backgroundSceneNone" },
-  { value: "raidenShogun", labelKey: "backgroundSceneRaidenShogun" },
-  { value: "lumineGold", labelKey: "backgroundSceneLumineGold" },
-  { value: "hutaoLantern", labelKey: "backgroundSceneHutaoLantern" },
-  { value: "ayakaSnow", labelKey: "backgroundSceneAyakaSnow" },
-  { value: "yaeSakura", labelKey: "backgroundSceneYaeSakura" },
-  { value: "nahidaDream", labelKey: "backgroundSceneNahidaDream" },
-  { value: "furinaStage", labelKey: "backgroundSceneFurinaStage" },
-  { value: "keqingViolet", labelKey: "backgroundSceneKeqingViolet" },
 ];
 
 export const defaultWebSearchSettings: AppSettings["webSearch"] = {

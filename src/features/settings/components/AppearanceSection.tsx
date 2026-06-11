@@ -1,18 +1,16 @@
 import type { AppSettings, BackgroundColorMode } from "../../../types";
 import type { TranslationKey } from "../../../i18n/translations";
 import { normalizeAppTheme } from "../../../utils/theme";
-import { backgroundSceneOptions, themeOptions } from "../settingsConfig";
+import { themeOptions } from "../settingsConfig";
 
 interface AppearanceSectionProps {
   draft: AppSettings;
-  selectedScene: string;
   labels: {
     language: string;
     backgroundColor: string;
     backgroundAuto: string;
     backgroundDark: string;
     backgroundLight: string;
-    backgroundScene: string;
     theme: string;
   };
   t: (key: TranslationKey) => string;
@@ -23,7 +21,6 @@ interface AppearanceSectionProps {
 
 export function AppearanceSection({
   draft,
-  selectedScene,
   labels,
   t,
   onUpdateAndSave,
@@ -48,17 +45,6 @@ export function AppearanceSection({
           <option value="system">{labels.backgroundAuto}</option>
           <option value="dark">{labels.backgroundDark}</option>
           <option value="light">{labels.backgroundLight}</option>
-        </select>
-      </label>
-      <label className="field">
-        <span>{labels.backgroundScene}</span>
-        <select
-          value={selectedScene}
-          onChange={(event) => onUpdateAndSave("backgroundScene", event.target.value)}
-        >
-          {backgroundSceneOptions.map((option) => (
-            <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-          ))}
         </select>
       </label>
       <label className="field">

@@ -32,12 +32,6 @@
   --content-surface: rgba(15, 23, 42, 0.5);
   --content-row-surface: rgba(15, 23, 42, 0.72);
   --panel-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
-  --wallpaper: none;
-  --wallpaper-fallback: none;
-  --wallpaper-veil: none;
-  --wallpaper-position: center center;
-  --grain:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 3px);
   --mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   --sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pixel: var(--sans);
@@ -190,16 +184,6 @@
   --sidebar-surface: rgba(5, 9, 18, 0.42);
   --content-surface: rgba(8, 13, 24, 0.46);
   --content-row-surface: rgba(12, 18, 32, 0.74);
-  --wallpaper: url("https://w.wallhaven.cc/full/pk/wallhaven-pk6ekj.jpg");
-  --wallpaper-fallback:
-    radial-gradient(circle at 78% 16%, rgba(0, 115, 230, 0.34) 0 12%, transparent 28%),
-    radial-gradient(circle at 24% 78%, rgba(121, 104, 196, 0.28) 0 14%, transparent 32%),
-    linear-gradient(135deg, #050912 0%, #0a1830 42%, #181329 72%, #050912 100%);
-  --wallpaper-veil:
-    linear-gradient(90deg, rgba(3, 7, 14, 0.64) 0%, rgba(5, 9, 18, 0.42) 38%, rgba(5, 9, 18, 0.26) 100%),
-    linear-gradient(180deg, rgba(3, 7, 14, 0.26) 0%, rgba(3, 7, 14, 0.46) 100%);
-  --grain:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 3px);
 }
 
 :root[data-theme="anime"][data-background-color="light"] {
@@ -220,11 +204,6 @@
   --sidebar-surface: rgba(255, 255, 255, 0.68);
   --content-surface: rgba(255, 255, 255, 0.56);
   --content-row-surface: rgba(255, 255, 255, 0.76);
-  --wallpaper-veil:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.56) 44%, rgba(255, 255, 255, 0.24) 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.68) 100%);
-  --grain:
-    repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.018) 0 1px, transparent 1px 3px);
   color-scheme: light;
 }
 
@@ -334,30 +313,6 @@ body {
   color: var(--t1);
   font-family: var(--sans);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-}
-
-body::before,
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-}
-
-:root[data-background-scene="none"] body::before {
-  background: var(--bg);
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) body::before {
-  background:
-    var(--wallpaper-veil),
-    var(--wallpaper) var(--wallpaper-position) / cover no-repeat,
-    var(--wallpaper-fallback),
-    var(--bg);
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) body::after {
-  background: var(--grain);
 }
 
 button,
@@ -1509,35 +1464,6 @@ select:focus {
 .update-row .secondary-button {
   justify-content: flex-start;
   min-width: min(320px, 100%);
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) .main-content {
-  background: color-mix(in srgb, var(--bg) 18%, transparent);
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) .providers-page,
-:root[data-background-scene]:not([data-background-scene="none"]) .talking-page,
-:root[data-background-scene]:not([data-background-scene="none"]) .drawing-page,
-:root[data-background-scene]:not([data-background-scene="none"]) .settings-page {
-  background: transparent;
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) .provider-toolbar,
-:root[data-background-scene]:not([data-background-scene="none"]) .session-connected-top,
-:root[data-background-scene]:not([data-background-scene="none"]) .chat-shell,
-:root[data-background-scene]:not([data-background-scene="none"]) .drawing-workspace,
-:root[data-background-scene]:not([data-background-scene="none"]) .settings-page > .card,
-:root[data-background-scene]:not([data-background-scene="none"]) .provider-connected-card,
-:root[data-background-scene]:not([data-background-scene="none"]) .session-connected-card {
-  background: color-mix(in srgb, var(--content-surface) 82%, transparent);
-}
-
-:root[data-background-scene]:not([data-background-scene="none"]) .provider-row,
-:root[data-background-scene]:not([data-background-scene="none"]) .session-editor,
-:root[data-background-scene]:not([data-background-scene="none"]) .message-card,
-:root[data-background-scene]:not([data-background-scene="none"]) .drawing-provider-card,
-:root[data-background-scene]:not([data-background-scene="none"]) .conversation-topic {
-  background: color-mix(in srgb, var(--content-row-surface) 84%, transparent);
 }
 
 .tour-overlay {

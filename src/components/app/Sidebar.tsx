@@ -2,6 +2,7 @@ import type { PageKey } from "../../types";
 import { useI18n } from "../../i18n/context";
 import {
   AgentsIcon,
+  CapabilitiesIcon,
   DrawingIcon,
   ProvidersIcon,
   SessionsIcon,
@@ -27,6 +28,7 @@ export function Sidebar({ activePage, collapsed, onSelect, onCollapsedChange }: 
     { key: "talking",   label: t("talking"),   Icon: TalkingIcon },
     { key: "drawing",   label: t("drawing"),   Icon: DrawingIcon },
     { key: "sessions",  label: t("sessions"),  Icon: SessionsIcon },
+    { key: "capabilities", label: t("capabilities"), Icon: CapabilitiesIcon },
     { key: "settings",  label: t("settings"),  Icon: SettingsIcon },
   ];
 

@@ -326,7 +326,6 @@ pub struct AppSettings {
     pub auto_record_sessions: bool,
     pub language: String,
     pub background_color: String,
-    pub background_scene: String,
     pub theme: String,
     pub vision_fallback_enabled: bool,
     pub vision_api_provider_id: String,

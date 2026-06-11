@@ -1,28 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { appApi } from "../../api/tauri";
 import type { AppSettings, BackgroundColorMode } from "../../types";
 import { useI18n } from "../../i18n/context";
 import { RELEASES_URL } from "../../utils/appConstants";
-import { applyTheme, normalizeAppTheme, normalizeBackgroundScene, switchBackgroundColorWithReveal } from "../../utils/theme";
-import { modelSupportsVisionText } from "../../utils/modelCapabilities";
+import { applyTheme, normalizeAppTheme, switchBackgroundColor } from "../../utils/theme";
 import { AppearanceSection } from "./components/AppearanceSection";
 import { SettingsActionsSection } from "./components/SettingsActionsSection";
 import { SettingsPathSection } from "./components/SettingsPathSection";
-import { VisionFallbackSection } from "./components/VisionFallbackSection";
-import { WebSearchSection } from "./components/WebSearchSection";
-import {
-  defaultWebSearchSettings,
-  isWebSearchConfigurationValid,
-  shellOptions,
-  type PathFieldKey,
-} from "./settingsConfig";
+import { shellOptions, type PathFieldKey } from "./settingsConfig";
 import type { SettingsPageProps } from "./types";
 
-export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: SettingsPageProps) {
+export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
-  const [visionProviderOpen, setVisionProviderOpen] = useState(false);
-  const [visionModelOpen, setVisionModelOpen] = useState(false);
 
   useEffect(() => {
     setDraft(settings);
@@ -38,23 +28,9 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
     void onSave(next);
   };
 
-  const updateWebSearch = <K extends keyof AppSettings["webSearch"]>(
-    field: K,
-    value: AppSettings["webSearch"][K],
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      webSearch: {
-        ...(current.webSearch ?? defaultWebSearchSettings),
-        [field]: value,
-      },
-    }));
-  };
-
   const handleBackgroundColorChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const mode = event.target.value as BackgroundColorMode;
-    const rect = event.currentTarget.getBoundingClientRect();
-    switchBackgroundColorWithReveal(mode, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    switchBackgroundColor(mode);
     updateAndSave("backgroundColor", mode);
   };
 
@@ -67,31 +43,6 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
   const selectedShell = shellOptions.some((option) => option.value === draft.terminalProgram)
     ? draft.terminalProgram
     : "__custom__";
-  const selectedScene = normalizeBackgroundScene(draft.backgroundScene);
-  const visionProviders = useMemo(
-    () =>
-      apiProviders
-        .filter(
-          (provider) =>
-            provider.enabled && provider.models.some(modelSupportsVisionText),
-        )
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [apiProviders],
-  );
-  const visionProvider = visionProviders.find(
-    (provider) => provider.id === draft.visionApiProviderId,
-  );
-  const visionModels = useMemo(
-    () => (visionProvider?.models ?? []).filter(modelSupportsVisionText),
-    [visionProvider],
-  );
-  const visionModel = visionModels.find((model) => model.id === draft.visionModel);
-  const visionConfigurationValid = Boolean(visionProvider && visionModel);
-  const webSearch = draft.webSearch ?? defaultWebSearchSettings;
-  const canSave =
-    (!draft.visionFallbackEnabled || visionConfigurationValid) &&
-    isWebSearchConfigurationValid(webSearch);
-
   const pickDirectory = async (field: PathFieldKey) => {
     try {
       const selected = await appApi.pickDirectory(draft[field]);
@@ -107,68 +58,76 @@ export function SettingsPage({ apiProviders, settings, onOpenGuide, onSave }: Se
 
   return (
     <section className="page settings-page">
-      <article className="card">
-        <div className="form-grid">
-          <SettingsPathSection
-            draft={draft}
-            selectedShell={selectedShell}
-            labels={{
-              codexConfigDir: t("codexConfigDir"),
-              claudeConfigDir: t("claudeConfigDir"),
-              geminiConfigDir: t("geminiConfigDir"),
-              defaultWorkspace: t("defaultWorkspace"),
-              terminalProgram: t("terminalProgram"),
-              browse: t("browse"),
-              autoRecordSessions: t("autoRecordSessions"),
-            }}
-            onUpdateDraft={updateDraft}
-            onPickDirectory={(field) => void pickDirectory(field)}
-          />
-          <AppearanceSection
-            draft={draft}
-            selectedScene={selectedScene}
-            labels={{
-              language: t("language"),
-              backgroundColor: t("backgroundColor"),
-              backgroundAuto: t("backgroundAuto"),
-              backgroundDark: t("backgroundDark"),
-              backgroundLight: t("backgroundLight"),
-              backgroundScene: t("backgroundScene"),
-              theme: t("theme"),
-            }}
-            t={t}
-            onUpdateAndSave={updateAndSave}
-            onBackgroundColorChange={handleBackgroundColorChange}
-            onThemeChange={handleThemeChange}
-          />
-          <VisionFallbackSection
-            draft={draft}
-            visionProviders={visionProviders}
-            visionProvider={visionProvider}
-            visionModels={visionModels}
-            visionModel={visionModel}
-            visionProviderOpen={visionProviderOpen}
-            visionModelOpen={visionModelOpen}
-            onUpdateDraft={updateDraft}
-            onSetDraft={setDraft}
-            onSetVisionProviderOpen={setVisionProviderOpen}
-            onSetVisionModelOpen={setVisionModelOpen}
-          />
-          <WebSearchSection webSearch={webSearch} onUpdateWebSearch={updateWebSearch} />
-          <SettingsActionsSection
-            appVersion={__APP_VERSION__}
-            labels={{
-              appVersion: t("appVersion"),
-              openReleases: t("openReleases"),
-              guideSettingsTitle: t("guideSettingsTitle"),
-              guideSettingsButton: t("guideSettingsButton"),
-              saveSettings: t("saveSettings"),
-            }}
-            canSave={canSave}
-            onOpenReleases={() => void openReleases()}
-            onOpenGuide={onOpenGuide}
-            onSave={() => void onSave(draft)}
-          />
+      <article className="card settings-workspace">
+        <aside className="settings-nav" aria-label={t("settings")}>
+          <strong>{t("settings")}</strong>
+          <a href="#settings-general">{t("settingsGeneral")}</a>
+          <a href="#settings-appearance">{t("settingsAppearance")}</a>
+          <a href="#settings-application">{t("settingsApplication")}</a>
+        </aside>
+
+        <div className="settings-content">
+          <section className="settings-group" id="settings-general">
+            <header><h2>{t("settingsGeneral")}</h2><p>{t("settingsGeneralHint")}</p></header>
+            <div className="form-grid">
+              <SettingsPathSection
+                draft={draft}
+                selectedShell={selectedShell}
+                labels={{
+                  codexConfigDir: t("codexConfigDir"),
+                  claudeConfigDir: t("claudeConfigDir"),
+                  geminiConfigDir: t("geminiConfigDir"),
+                  defaultWorkspace: t("defaultWorkspace"),
+                  terminalProgram: t("terminalProgram"),
+                  browse: t("browse"),
+                  autoRecordSessions: t("autoRecordSessions"),
+                }}
+                onUpdateDraft={updateDraft}
+                onPickDirectory={(field) => void pickDirectory(field)}
+              />
+            </div>
+          </section>
+
+          <section className="settings-group" id="settings-appearance">
+            <header><h2>{t("settingsAppearance")}</h2><p>{t("settingsAppearanceHint")}</p></header>
+            <div className="form-grid">
+              <AppearanceSection
+                draft={draft}
+                labels={{
+                  language: t("language"),
+                  backgroundColor: t("backgroundColor"),
+                  backgroundAuto: t("backgroundAuto"),
+                  backgroundDark: t("backgroundDark"),
+                  backgroundLight: t("backgroundLight"),
+                  theme: t("theme"),
+                }}
+                t={t}
+                onUpdateAndSave={updateAndSave}
+                onBackgroundColorChange={handleBackgroundColorChange}
+                onThemeChange={handleThemeChange}
+              />
+            </div>
+          </section>
+
+          <section className="settings-group settings-group-actions" id="settings-application">
+            <header><h2>{t("settingsApplication")}</h2><p>{t("settingsApplicationHint")}</p></header>
+            <div className="form-grid">
+              <SettingsActionsSection
+                appVersion={__APP_VERSION__}
+                labels={{
+                  appVersion: t("appVersion"),
+                  openReleases: t("openReleases"),
+                  guideSettingsTitle: t("guideSettingsTitle"),
+                  guideSettingsButton: t("guideSettingsButton"),
+                  saveSettings: t("saveSettings"),
+                }}
+                canSave
+                onOpenReleases={() => void openReleases()}
+                onOpenGuide={onOpenGuide}
+                onSave={() => void onSave(draft)}
+              />
+            </div>
+          </section>
         </div>
       </article>
     </section>

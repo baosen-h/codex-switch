@@ -10,6 +10,7 @@ interface ProviderListProps {
   providers: ApiProvider[];
   balanceMap: Record<string, ProviderBalanceState>;
   loadingBalanceId: string | null;
+  selectedProviderId: string | null;
   labels: {
     providers: string;
     apiProviders: string;
@@ -20,6 +21,7 @@ interface ProviderListProps {
     noApiProviders: string;
   };
   onAddProvider: () => void;
+  onSelectProvider: (provider: ApiProvider) => void;
   onEditProvider: (provider: ApiProvider) => void;
   onDeleteProvider: (id: string) => void;
   onOpenWebsite: (url: string) => void;
@@ -30,16 +32,17 @@ export function ProviderList({
   providers,
   balanceMap,
   loadingBalanceId,
+  selectedProviderId,
   labels,
   onAddProvider,
+  onSelectProvider,
   onEditProvider,
   onDeleteProvider,
   onOpenWebsite,
   onRefreshBalance,
 }: ProviderListProps) {
   return (
-    <section className="page providers-page">
-      <article className="card provider-connected-card">
+    <aside className="provider-master-panel">
         <div className="provider-toolbar">
           <div className="toolbar-title-block">
             <div>
@@ -53,15 +56,20 @@ export function ProviderList({
           </button>
         </div>
 
-        <div className="provider-list">
+        <div className="provider-list" role="list">
           {providers.length ? (
             providers.map((provider) => {
               const balance = balanceMap[provider.id];
               return (
-                <div className={`provider-row api-provider-row ${provider.enabled ? "provider-row-current" : ""}`} key={provider.id}>
+                <div
+                  className={`provider-row api-provider-row ${selectedProviderId === provider.id ? "provider-row-selected" : ""}`}
+                  key={provider.id}
+                  onClick={() => onSelectProvider(provider)}
+                  role="listitem"
+                >
                   <div className="provider-info">
                     <div className="provider-title">
-                      <ProviderAvatar provider={provider} size={56} />
+                      <ProviderAvatar provider={provider} size={24} />
                       <div className="provider-title-text">
                         <strong>{provider.name}</strong>
                         <small>{providerTypeLabel(inferProviderType(provider))}</small>
@@ -83,10 +91,10 @@ export function ProviderList({
                     <span className="provider-model-count">
                       {provider.models.length} {labels.models}
                     </span>
-                    <button className="secondary-button icon-action-button" onClick={() => onEditProvider(provider)} type="button" title={labels.edit}>
+                    <button className="secondary-button icon-action-button" onClick={(event) => { event.stopPropagation(); onEditProvider(provider); }} type="button" title={labels.edit}>
                       <EditIcon />
                     </button>
-                    <button className="danger-button icon-action-button" onClick={() => onDeleteProvider(provider.id)} type="button" title={labels.del}>
+                    <button className="danger-button icon-action-button" onClick={(event) => { event.stopPropagation(); onDeleteProvider(provider.id); }} type="button" title={labels.del}>
                       <DeleteIcon />
                     </button>
                   </div>
@@ -97,7 +105,6 @@ export function ProviderList({
             <p className="empty-state">{labels.noApiProviders}</p>
           )}
         </div>
-      </article>
-    </section>
+    </aside>
   );
 }

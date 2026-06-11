@@ -372,7 +372,6 @@ impl Database {
             auto_record_sessions: self.setting("auto_record_sessions")? == "true",
             language: self.setting("language")?,
             background_color: self.setting("background_color")?,
-            background_scene: self.setting("background_scene")?,
             theme: self.setting("theme")?,
             vision_fallback_enabled: self.setting("vision_fallback_enabled")? == "true",
             vision_api_provider_id: self.setting("vision_api_provider_id")?,
@@ -402,7 +401,6 @@ impl Database {
         )?;
         self.set_setting("language", settings.language.clone())?;
         self.set_setting("background_color", settings.background_color.clone())?;
-        self.set_setting("background_scene", settings.background_scene.clone())?;
         self.set_setting("theme", settings.theme.clone())?;
         self.set_setting(
             "vision_fallback_enabled",
@@ -603,8 +601,7 @@ impl Database {
         self.ensure_setting("auto_record_sessions", "true".to_string())?;
         self.ensure_setting("language", "en".to_string())?;
         self.ensure_setting("background_color", "system".to_string())?;
-        self.ensure_setting("background_scene", "none".to_string())?;
-        self.ensure_setting("theme", "anime".to_string())?;
+        self.ensure_setting("theme", "professional".to_string())?;
         self.ensure_setting("vision_fallback_enabled", "false".to_string())?;
         self.ensure_setting("vision_api_provider_id", String::new())?;
         self.ensure_setting("vision_model", String::new())?;
@@ -620,14 +617,13 @@ impl Database {
         let theme = self.setting("theme")?;
         if matches!(theme.as_str(), "system" | "dark" | "light") {
             self.set_setting("background_color", theme.clone())?;
-            self.set_setting("theme", "anime".to_string())?;
-        }
-        if theme == "anime" {
-            if self.setting("background_scene")? == "none" {
-                self.set_setting("background_scene", "anime".to_string())?;
-            }
             self.set_setting("theme", "professional".to_string())?;
         }
+        if theme == "anime" {
+            self.set_setting("theme", "professional".to_string())?;
+        }
+        self.connection
+            .execute("DELETE FROM settings WHERE key = 'background_scene'", [])?;
 
         Ok(())
     }

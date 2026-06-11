@@ -350,37 +350,72 @@ test("sidebar expands from hoverable brand control", async ({ page }) => {
 });
 
 test("main pages render usable layouts", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "codex-switch-ui-test-settings",
+      JSON.stringify({
+        webSearch: {
+          searchProviderId: "tavily",
+          searchApiUrl: "https://api.tavily.com/search",
+          searchApiKeys: ["tvly-test-key"],
+          fetchProviderId: "direct",
+          fetchApiUrl: "",
+          fetchApiKeys: [],
+          maxResults: 5,
+          excludeDomains: [],
+          cutoffTokens: 4000,
+        },
+      }),
+    );
+  });
   await waitForApp(page);
 
   await expect(page.getByText("chat_completions")).toHaveCount(0);
   await expect(page.getByText("responses")).toHaveCount(0);
   const openAiRow = page.locator(".api-provider-row").filter({ hasText: "codex official" }).first();
-  await openAiRow.locator(".balance-refresh-button").click();
-  await expect(openAiRow.locator(".provider-balance-value")).toHaveCount(0);
-  await expect(openAiRow.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
+  await openAiRow.click();
+  await expect(page.locator(".provider-detail-panel")).toBeVisible();
+  await expect(openAiRow).toHaveClass(/provider-row-selected/);
   await capture(page, "10-providers");
 
   await page.getByTitle("Agents").click();
   await expect(page.locator(".provider-toolbar")).toBeVisible();
   await expect(page.locator(".agent-balance-row")).toHaveCount(0);
+  await expect(page.locator(".agent-provider-row .provider-avatar").first()).toHaveCSS("width", "28px");
+  await expect(page.locator(".agent-provider-row .provider-avatar").first()).toHaveCSS("height", "28px");
   await capture(page, "11-agents");
 
   await page.getByTitle("Talking").click();
   await expect(page.locator(".chat-shell")).toBeVisible();
+  await expect(page.locator(".rail-header h2")).toHaveCount(0);
+  await expect(page.locator(".conversation-topic strong").first()).toHaveCSS("font-size", "12px");
   await capture(page, "12-talking");
 
   await page.getByTitle("Drawing").click();
   await expect(page.locator(".drawing-workspace")).toBeVisible();
   await expect(page.locator(".drawing-prompt-bar textarea")).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".drawing-empty-artboard svg")).toHaveCount(0);
+  await expect(page.locator(".drawing-empty-artboard")).toHaveCSS("justify-content", "center");
   await capture(page, "13-drawing");
 
   await page.getByTitle("Sessions").click();
   await expect(page.locator(".sessions-layout")).toBeVisible();
   await capture(page, "14-sessions");
   await page.locator(".session-list-item").first().click();
-  await expect(page.locator(".session-chat-header")).toBeHidden();
+  await expect(page.locator(".session-chat-header")).toBeVisible();
   await expect(page.locator(".session-ai-message-list .ai-message")).toHaveCount(2);
   await capture(page, "14b-session-selected");
+
+  await page.getByTitle("Capabilities").click();
+  await expect(page.locator(".capabilities-page")).toBeVisible();
+  await capture(page, "15-capabilities");
+  await page.getByRole("button", { name: /Web search/ }).click();
+  await expect(page.getByText("Search provider", { exact: true })).toBeVisible();
+  await expect(page.locator(".web-search-provider-icon img")).toHaveCount(1);
+  await expect(page.locator(".capability-form-stack .field")).toHaveCount(2);
+  await expect(page.locator(".capability-form-stack input[type='password']")).toHaveCount(1);
+  await expect(page.locator(".capability-form-stack textarea")).toHaveCount(0);
+  await capture(page, "15b-capabilities-search");
 
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
@@ -462,7 +497,7 @@ test("talking prompt kit stays readable in light mode", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(
       "codex-switch-ui-test-settings",
-      JSON.stringify({ backgroundColor: "light", backgroundScene: "none", theme: "professional" }),
+      JSON.stringify({ backgroundColor: "light", theme: "professional" }),
     );
     window.localStorage.setItem(
       "codex-switch-talking-topics-v1",
@@ -542,6 +577,12 @@ test("drawing prompt keeps compact typography", async ({ page }) => {
 });
 
 test("session transcript keeps compact role identity and copy controls", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "codex-switch-ui-test-settings",
+      JSON.stringify({ backgroundColor: "light", theme: "professional" }),
+    );
+  });
   await page.setViewportSize({ width: 1440, height: 960 });
   await waitForApp(page);
   await page.getByTitle("Sessions").click();
@@ -555,107 +596,48 @@ test("session transcript keeps compact role identity and copy controls", async (
   await expect(page.locator(".session-ai-message-list .ai-message-user-content")).toHaveCSS("font-size", "13.44px");
   await expect(page.locator(".session-ai-message-list .prompt-kit-code-block").first()).toHaveCSS("font-size", "13.44px");
   await expect(page.locator(".session-ai-message-list .prompt-kit-code-block pre").first()).toHaveCSS("font-family", await page.locator(".session-ai-message-list .ai-message-assistant-content").first().evaluate((element) => getComputedStyle(element).fontFamily));
+  await expect(page.locator(".session-chat-layout")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(page.locator(".session-message-pane")).toHaveCSS("background-color", "rgb(255, 255, 255)");
   const paneBox = await page.locator(".session-message-pane").boundingBox();
   const userBox = await page.locator(".session-ai-message-list .ai-message-user-content").boundingBox();
   expect((userBox?.x ?? 0) + (userBox?.width ?? 0)).toBeLessThanOrEqual((paneBox?.x ?? 0) + (paneBox?.width ?? 0) + 1);
   await capture(page, "19c-session-compact-messages");
 });
 
-test("expanded provider quota stays inside the row", async ({ page }) => {
+test("provider master rows stay compact inside the list", async ({ page }) => {
   await waitForApp(page);
   await page.locator(".brand-action-collapsed").click();
   await expect(page.locator(".app-shell")).not.toHaveClass(/app-shell-sidebar-collapsed/);
 
   const openAiRow = page.locator(".api-provider-row").filter({ hasText: "codex official" }).first();
-  await openAiRow.locator(".balance-refresh-button").click();
-  await expect(openAiRow.locator(".provider-quota-grid .quota-mini-card")).toHaveCount(2);
-
-  const layout = await openAiRow.evaluate((row) => {
-    const rowRect = row.getBoundingClientRect();
-    const panelRect = row.querySelector(".provider-balance-panel")!.getBoundingClientRect();
-    const actionsRect = row.querySelector(".provider-actions")!.getBoundingClientRect();
-    const cards = [...row.querySelectorAll(".quota-mini-card")].map((card) => {
-      const element = card as HTMLElement;
-      return {
-        width: element.getBoundingClientRect().width,
-        scrollWidth: element.scrollWidth,
-        clientWidth: element.clientWidth,
-      };
-    });
-    return {
-      rowRight: rowRect.right,
-      panelRight: panelRect.right,
-      actionsLeft: actionsRect.left,
-      cards,
-    };
-  });
-  expect(layout.panelRight).toBeLessThan(layout.actionsLeft);
-  expect(layout.panelRight).toBeLessThan(layout.rowRight);
-  for (const card of layout.cards) {
-    expect(card.width).toBeGreaterThan(90);
-    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
-  }
-  await capture(page, "20-expanded-provider-quota");
+  const rowBox = await openAiRow.boundingBox();
+  const listBox = await page.locator(".provider-master-panel").boundingBox();
+  expect(rowBox?.height ?? 0).toBeLessThanOrEqual(74);
+  expect(rowBox?.width ?? 0).toBeLessThanOrEqual(listBox?.width ?? 0);
+  await expect(openAiRow.locator(".provider-title-text strong")).toHaveCSS("font-size", "12px");
+  await expect(openAiRow.locator(".provider-avatar")).toHaveCSS("width", "24px");
+  await expect(openAiRow.locator(".provider-avatar")).toHaveCSS("height", "24px");
+  await openAiRow.click();
+  await expect(page.locator(".provider-detail-panel")).toBeVisible();
+  await capture(page, "20-compact-provider-master");
 });
 
-test("real background in light mode keeps content readable", async ({ page }) => {
+test("light appearance uses opaque readable surfaces", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(
       "codex-switch-ui-test-settings",
-      JSON.stringify({ backgroundColor: "light", backgroundScene: "raidenShogun", theme: "professional" }),
+      JSON.stringify({ backgroundColor: "light", theme: "professional" }),
     );
   });
   await waitForApp(page);
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();
-  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "raidenShogun");
-  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(15, 23, 42)");
-  await capture(page, "16-real-background-light-settings");
-});
-
-test("settings only lists image-backed background scenes", async ({ page }) => {
-  await waitForApp(page);
-  await page.getByTitle("Settings").click();
-
-  const backgroundSceneSelect = page.locator(".field").filter({ hasText: "Background scene" }).locator("select");
-  const options = await backgroundSceneSelect.locator("option").evaluateAll((items) =>
-    items.map((item) => ({ value: item.getAttribute("value"), text: item.textContent })),
-  );
-
-  expect(options.map((option) => option.value)).toEqual([
-    "none",
-    "raidenShogun",
-    "lumineGold",
-    "hutaoLantern",
-    "ayakaSnow",
-    "yaeSakura",
-    "nahidaDream",
-    "furinaStage",
-    "keqingViolet",
-  ]);
-  expect(options.map((option) => option.text).join(" ")).not.toContain("Anime night");
-});
-
-test("character background scenes use bundled image assets", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem(
-      "codex-switch-ui-test-settings",
-      JSON.stringify({ backgroundColor: "dark", backgroundScene: "raidenShogun", theme: "professional" }),
-    );
-  });
-  await waitForApp(page);
-  await expect(page.locator("html")).toHaveAttribute("data-background-scene", "raidenShogun");
-
-  const wallpaper = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue("--wallpaper"),
-  );
-  expect(wallpaper).toContain("raiden-shogun");
-  expect(wallpaper).toContain(".jpg");
-  expect(wallpaper).not.toContain("data:image/svg+xml");
-
-  const renderedBackground = await page.evaluate(() => getComputedStyle(document.body, "::before").backgroundImage);
-  expect(renderedBackground).toContain("raiden-shogun");
-  await capture(page, "18-raiden-background");
+  await expect(page.locator("html")).toHaveAttribute("data-background-color", "light");
+  await expect(page.getByText("Background scene")).toHaveCount(0);
+  await expect(page.locator("label").first()).toHaveCSS("color", "rgb(32, 33, 36)");
+  const bodyBackground = await page.evaluate(() => getComputedStyle(document.body).backgroundImage);
+  expect(bodyBackground).toBe("none");
+  await capture(page, "16-light-settings");
 });
 
 test("update notice appears when a newer release exists", async ({ page }) => {

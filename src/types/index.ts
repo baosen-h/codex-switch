@@ -177,27 +177,6 @@ export interface HandoffPreview {
 }
 
 export type BackgroundColorMode = "system" | "dark" | "light";
-export type BackgroundScene =
-  | "none"
-  | "anime"
-  | "animeSakura"
-  | "animeNight"
-  | "mikuStage"
-  | "raidenShogun"
-  | "lumineGold"
-  | "hutaoLantern"
-  | "ayakaSnow"
-  | "yaeSakura"
-  | "nahidaDream"
-  | "furinaStage"
-  | "keqingViolet"
-  | "animeCyberGirl"
-  | "animeIdolPink"
-  | "animeMaidCafe"
-  | "animeWitchNight"
-  | "animeSchoolRooftop"
-  | "animeKimonoFestival"
-  | "animeMechaPilot";
 export type AppTheme = "professional" | "graphite" | "indigo" | "teal" | "amber" | "slate" | "rose" | "violet";
 
 export type WebSearchCapability = "searchKeywords" | "fetchUrls";
@@ -237,7 +216,6 @@ export interface AppSettings {
   autoRecordSessions: boolean;
   language: string;
   backgroundColor: BackgroundColorMode;
-  backgroundScene: BackgroundScene;
   theme: AppTheme;
   visionFallbackEnabled: boolean;
   visionApiProviderId: string;
@@ -256,7 +234,14 @@ export interface DashboardState {
   settings: AppSettings;
 }
 
-export type PageKey = "providers" | "agents" | "talking" | "drawing" | "sessions" | "settings";
+export type PageKey =
+  | "providers"
+  | "agents"
+  | "talking"
+  | "drawing"
+  | "sessions"
+  | "capabilities"
+  | "settings";
 
 export interface LaunchRequest {
   workspacePath: string;

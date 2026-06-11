@@ -71,7 +71,7 @@ export function AgentProviderList({
               <div className={`provider-row agent-provider-row ${provider.isCurrent ? "provider-row-current" : ""}`} key={provider.id}>
                 <div className="provider-info">
                   <div className="provider-title">
-                    <ProviderAvatar provider={avatarSourceForProvider(provider, apiProviders)} size={56} />
+                    <ProviderAvatar provider={avatarSourceForProvider(provider, apiProviders)} size={28} />
                     <div className="provider-title-text">
                       <strong>{provider.name}</strong>
                     </div>

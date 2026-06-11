@@ -67,8 +67,7 @@ export function ProviderForm({
   const providerType = normalizeProviderType(draft.providerType);
 
   return (
-    <section className="page providers-page">
-      <article className="card provider-edit-card">
+    <section className="provider-detail-panel">
         <div className="card-heading provider-edit-heading">
           <div>
             <span className="eyebrow">{isEditing ? labels.edit : labels.newProvider}</span>
@@ -163,7 +162,6 @@ export function ProviderForm({
             </button>
           </div>
         </div>
-      </article>
     </section>
   );
 }

@@ -196,7 +196,7 @@ export function SessionsPage({
   };
 
   return (
-    <section className="page">
+    <section className="page sessions-page">
       <article className="card session-connected-card">
         <SessionFilters
           query={query}

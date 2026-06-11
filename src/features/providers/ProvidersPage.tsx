@@ -16,7 +16,7 @@ import type { ProvidersPageProps } from "./types";
 
 export function ProvidersPage({ providers, onSave, onDelete, onNotify }: ProvidersPageProps) {
   const { t } = useI18n();
-  const [view, setView] = useState<"list" | "form">("list");
+  const [view, setView] = useState<"empty" | "form">("empty");
   const [draft, setDraft] = useState<ApiProvider>(emptyApiProvider);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
@@ -36,6 +36,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       }),
     [providers],
   );
+  const selectedProviderId = draft.id || null;
 
   const resetTransientState = () => {
     setModelListError(null);
@@ -55,7 +56,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const closeForm = () => {
     setDraft(emptyApiProvider);
     resetTransientState();
-    setView("list");
+    setView("empty");
   };
 
   useEffect(() => {
@@ -213,9 +214,32 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     }
   };
 
-  if (view === "form") {
-    return (
-      <ProviderForm
+  return (
+    <section className="page providers-page">
+      <div className="provider-workspace">
+        <ProviderList
+          providers={sortedProviders}
+          balanceMap={balanceMap}
+          loadingBalanceId={loadingBalanceId}
+          selectedProviderId={selectedProviderId}
+          labels={{
+            providers: t("providers"),
+            apiProviders: t("apiProviders"),
+            addProvider: t("addProvider"),
+            models: t("models"),
+            edit: t("edit"),
+            del: t("del"),
+            noApiProviders: t("noApiProviders"),
+          }}
+          onAddProvider={() => openForm()}
+          onSelectProvider={openForm}
+          onEditProvider={openForm}
+          onDeleteProvider={(id) => void onDelete(id)}
+          onOpenWebsite={(url) => void openWebsite(url)}
+          onRefreshBalance={(provider) => void refreshBalance(provider)}
+        />
+        {view === "form" ? (
+          <ProviderForm
         draft={draft}
         isLoadingModels={isLoadingModels}
         modelListError={modelListError}
@@ -255,29 +279,18 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         onStartOauthLogin={() => void startOfficialOpenAiOauth()}
         onGenerateOauthUrl={() => void copyOfficialOpenAiOauthUrl()}
         onSubmitOauthCallback={() => void submitOfficialOpenAiCallback()}
-      />
-    );
-  }
-
-  return (
-    <ProviderList
-      providers={sortedProviders}
-      balanceMap={balanceMap}
-      loadingBalanceId={loadingBalanceId}
-      labels={{
-        providers: t("providers"),
-        apiProviders: t("apiProviders"),
-        addProvider: t("addProvider"),
-        models: t("models"),
-        edit: t("edit"),
-        del: t("del"),
-        noApiProviders: t("noApiProviders"),
-      }}
-      onAddProvider={() => openForm()}
-      onEditProvider={openForm}
-      onDeleteProvider={(id) => void onDelete(id)}
-      onOpenWebsite={(url) => void openWebsite(url)}
-      onRefreshBalance={(provider) => void refreshBalance(provider)}
-    />
+          />
+        ) : (
+          <div className="provider-detail-empty">
+            <div className="provider-detail-empty-mark">CS</div>
+            <h2>{t("apiProviders")}</h2>
+            <p>{t("selectProvider")}</p>
+            <button className="primary-button" onClick={() => openForm()} type="button">
+              {t("addProvider")}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

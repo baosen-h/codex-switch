@@ -107,7 +107,6 @@ export function DrawingMainPanel({
           </div>
         ) : (
           <div className="drawing-empty-artboard">
-            <SparkIcon />
             <span>{labels.drawingEmpty}</span>
           </div>
         )}

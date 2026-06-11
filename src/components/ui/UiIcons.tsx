@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { BrainCircuit } from "lucide-react";
 import appLogo from "../../../src-tauri/icons/icon.png";
 import {
   IconChevronLeft,
@@ -95,6 +96,10 @@ export function SessionsIcon({ size, style, ...props }: IconProps = {}) {
 
 export function SettingsIcon({ size, style, ...props }: IconProps = {}) {
   return <IconSettingStroked {...props} style={semiIconStyle(size, style)} />;
+}
+
+export function CapabilitiesIcon({ size = 18, style, ...props }: IconProps = {}) {
+  return <BrainCircuit {...props} style={semiIconStyle(size, style)} />;
 }
 
 export function SwitchLogoIcon({ size = 22, style, ...props }: IconProps = {}) {

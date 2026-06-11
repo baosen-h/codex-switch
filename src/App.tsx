@@ -4,6 +4,7 @@ import { FloatingToast, OnboardingGuide, Sidebar, TitleBar, UpdateNotice, type T
 import { I18nProvider } from "./i18n/context";
 import type { Lang } from "./i18n/translations";
 import { AgentsPage } from "./features/agents";
+import { CapabilitiesPage } from "./features/capabilities";
 import { DrawingPage } from "./features/drawing";
 import { ProvidersPage } from "./features/providers";
 import { SessionsPage } from "./features/sessions";
@@ -11,7 +12,7 @@ import { SettingsPage } from "./features/settings";
 import { TalkingPage } from "./features/talking";
 import type { ApiProvider, AppSettings, AppUpdateInfo, DashboardState, PageKey, Provider, SessionRecord } from "./types";
 import { DISMISSED_UPDATE_KEY, GUIDE_SEEN_KEY } from "./utils/appConstants";
-import { applyBackgroundColor, applyBackgroundScene, applyTheme, normalizeAppTheme, normalizeBackgroundScene } from "./utils/theme";
+import { applyBackgroundColor, applyTheme, normalizeAppTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
   apiProviders: [],
@@ -26,7 +27,6 @@ const emptyState: DashboardState = {
     autoRecordSessions: true,
     language: "en",
     backgroundColor: "system",
-    backgroundScene: "none",
     theme: "professional",
     visionFallbackEnabled: false,
     visionApiProviderId: "",
@@ -90,7 +90,6 @@ function App() {
 
   const lang: Lang = (data.settings.language as Lang) || "en";
   const backgroundColorMode = data.settings.backgroundColor || "system";
-  const backgroundScene = normalizeBackgroundScene(data.settings.backgroundScene);
   const theme = normalizeAppTheme(data.settings.theme);
 
   const refresh = useCallback(async (nextMessage?: string) => {
@@ -157,10 +156,6 @@ function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
-
-  useEffect(() => {
-    applyBackgroundScene(backgroundScene);
-  }, [backgroundScene]);
 
   useEffect(() => {
     applyBackgroundColor(backgroundColorMode);
@@ -333,9 +328,14 @@ function App() {
       onRefresh={() => refresh("Sessions refreshed.")}
       onNotify={(message, type) => showToast.current(message, type)}
     />
+  ) : activePage === "capabilities" ? (
+    <CapabilitiesPage
+      apiProviders={data.apiProviders}
+      settings={data.settings}
+      onSave={handleSaveSettings}
+    />
   ) : activePage === "settings" ? (
     <SettingsPage
-      apiProviders={data.apiProviders}
       settings={data.settings}
       onOpenGuide={() => setGuideOpen(true)}
       onSave={handleSaveSettings}
