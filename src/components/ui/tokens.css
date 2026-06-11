@@ -1,0 +1,24 @@
+:root {
+  --cs-ui-bg: var(--bg);
+  --cs-ui-surface: var(--p1);
+  --cs-ui-surface-muted: var(--p2);
+  --cs-ui-row: var(--row);
+  --cs-ui-border-subtle: var(--b0);
+  --cs-ui-border: var(--b1);
+  --cs-ui-border-active: var(--b-a);
+  --cs-ui-text: var(--t1);
+  --cs-ui-text-muted: var(--t2);
+  --cs-ui-accent: var(--a);
+  --cs-ui-accent-strong: var(--a-dk);
+  --cs-ui-accent-muted: var(--a-d);
+  --cs-ui-accent-rgb: var(--accent-rgb);
+  --cs-ui-success: var(--g);
+  --cs-ui-success-muted: var(--g-d);
+  --cs-ui-danger: var(--err);
+  --cs-ui-radius-sm: var(--radius-sm);
+  --cs-ui-radius-md: var(--radius-md);
+  --cs-ui-radius-lg: var(--radius-lg);
+  --cs-ui-shadow: var(--shadow-soft);
+  --cs-ui-font-sans: var(--sans);
+  --cs-ui-font-mono: var(--mono);
+}

@@ -134,6 +134,11 @@ npm run build
 npm run tauri -- build
 ```
 
+## Development
+
+- Frontend architecture and contribution rules: [docs/frontend-architecture.md](docs/frontend-architecture.md)
+- Feature ownership rules: [src/features/README.md](src/features/README.md)
+
 ## Notes
 
 - Windows-first.

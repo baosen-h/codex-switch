@@ -293,8 +293,12 @@ async function installTauriMock(page: Page) {
         if (cmd === "launch_session") return Promise.resolve(true);
         if (cmd === "get_session_messages") {
           return Promise.resolve([
-            { role: "user", content: "Review the UI layout." },
-            { role: "assistant", content: "Captured screenshots and checked the sidebar behavior." },
+            {
+              role: "user",
+              content:
+                "> Please analyze the project located at the following path: F:\\Desktop\\Draft\\codex-switch. Provide the following in a structured format: 1. Functions, classes, or files and what each does. 2. Workflow from start to finish. 3. Data storage details and formats. 4. Programming language, frameworks, libraries, and tools used.",
+            },
+            { role: "assistant", content: "Captured screenshots and checked the sidebar behavior.\n\n```ts\nconst compact = true;\n```" },
           ]);
         }
         if (cmd === "build_session_handoff") {
@@ -367,6 +371,7 @@ test("main pages render usable layouts", async ({ page }) => {
 
   await page.getByTitle("Drawing").click();
   await expect(page.locator(".drawing-workspace")).toBeVisible();
+  await expect(page.locator(".drawing-prompt-bar textarea")).toHaveCSS("font-size", "13.44px");
   await capture(page, "13-drawing");
 
   await page.getByTitle("Sessions").click();
@@ -374,7 +379,7 @@ test("main pages render usable layouts", async ({ page }) => {
   await capture(page, "14-sessions");
   await page.locator(".session-list-item").first().click();
   await expect(page.locator(".session-chat-header")).toBeHidden();
-  await expect(page.locator(".message-card")).toHaveCount(2);
+  await expect(page.locator(".session-ai-message-list .ai-message")).toHaveCount(2);
   await capture(page, "14b-session-selected");
 
   await page.getByTitle("Settings").click();
@@ -431,7 +436,7 @@ test("talking messages render markdown, roles, and copy actions", async ({ page 
         draftAttachments: [],
         messages: [
           { role: "user", content: "Explain this style." },
-          { role: "assistant", content: "**Wiggle style** is a vintage fashion trend.\n\n- Compact\n- Readable\n\nUse `copy` when needed." },
+          { role: "assistant", content: "**Wiggle style** is a vintage fashion trend.\n\n- Compact\n- Readable\n\n```ts\nconst compact = true;\n```\n\nUse `copy` when needed." },
         ],
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -441,25 +446,118 @@ test("talking messages render markdown, roles, and copy actions", async ({ page 
   await waitForApp(page);
   await page.getByTitle("Talking").click();
 
-  await expect(page.locator(".chat-message-avatar")).toHaveCount(2);
-  await expect(page.locator(".chat-message-ai .message-content strong")).toHaveText("Wiggle style");
-  await expect(page.locator(".chat-message-ai .message-content li")).toHaveCount(2);
-  await expect(page.locator(".chat-message-ai .message-copy-button")).toBeAttached();
-  await expect(page.locator(".chat-message-ai .message-content")).not.toContainText("**");
-  await page.locator(".chat-message-ai .message-copy-button").click();
+  await expect(page.locator(".ai-message-avatar")).toHaveCount(1);
+  await expect(page.locator(".ai-message-assistant-content strong")).toHaveText("Wiggle style");
+  await expect(page.locator(".ai-message-assistant-content li")).toHaveCount(2);
+  await expect(page.locator(".ai-message-assistant-content .prompt-kit-code-block")).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".ai-message-assistant-content .prompt-kit-code-block pre").first()).toHaveCSS("font-family", await page.locator(".ai-message-assistant-content").evaluate((element) => getComputedStyle(element).fontFamily));
+  await expect(page.locator(".ai-message-assistant .ai-message-action")).toHaveCount(1);
+  await expect(page.locator(".ai-message-assistant-content")).not.toContainText("**");
+  await page.locator(".ai-message-assistant .ai-message-action").first().click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("**Wiggle style**");
   await capture(page, "19b-talking-rich-messages");
 });
 
+test("talking prompt kit stays readable in light mode", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "codex-switch-ui-test-settings",
+      JSON.stringify({ backgroundColor: "light", backgroundScene: "none", theme: "professional" }),
+    );
+    window.localStorage.setItem(
+      "codex-switch-talking-topics-v1",
+      JSON.stringify([{
+        id: "topic-light-prompt-kit",
+        title: "Light mode prompt kit",
+        providerId: "api-openai",
+        model: "gpt-5.1-codex",
+        draft: "Ask a concise follow up",
+        draftAttachments: [],
+        messages: [
+          { role: "user", content: "Can you summarize the UI change?" },
+          { role: "assistant", content: "The prompt input is compact, markdown renders cleanly, and only copy actions remain." },
+        ],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }]),
+    );
+  });
+  await waitForApp(page);
+  await page.getByTitle("Talking").click();
+
+  await expect(page.locator("html")).toHaveAttribute("data-background-color", "light");
+  await expect(page.locator(".talking-prompt-input")).toBeVisible();
+  await expect(page.locator(".ai-message-assistant .ai-message-action")).toHaveCount(1);
+  await expect(page.locator(".ai-message-assistant-content")).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".talking-prompt-input textarea")).toHaveCSS("font-size", "13.44px");
+  await page.locator(".prompt-kit-upload-label input[type='file']").setInputFiles({
+    name: "2026-06-11 screenshot.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'><rect width='48' height='48' rx='10' fill='#7c3aed'/><circle cx='16' cy='24' r='4' fill='#fff'/><circle cx='24' cy='24' r='4' fill='#fff'/><circle cx='32' cy='24' r='4' fill='#fff'/></svg>"),
+  });
+  await expect(page.locator(".draft-attachment-chip")).toContainText("2026-06-11 screenshot.svg");
+  await expect(page.locator(".draft-attachment-preview")).toBeVisible();
+  await expect(page.locator(".draft-attachment-preview")).toHaveCSS("width", "24px");
+  await expect(page.locator(".draft-attachment-preview")).toHaveCSS("height", "24px");
+  await page.locator(".draft-attachment-preview-button").click();
+  await expect(page.locator(".image-zoom-modal")).toBeVisible();
+  await page.locator(".image-zoom-close").click();
+  await expect(page.locator(".image-zoom-modal")).toHaveCount(0);
+  const attachmentBox = await page.locator(".draft-attachment-list").boundingBox();
+  const textareaBox = await page.locator(".talking-prompt-input textarea").boundingBox();
+  const uploadBox = await page.locator(".prompt-kit-upload-label").boundingBox();
+  const sendBox = await page.locator(".chat-send-button").boundingBox();
+  expect((attachmentBox?.y ?? 0) + (attachmentBox?.height ?? 0)).toBeLessThanOrEqual((textareaBox?.y ?? 0) + 1);
+  const textareaCenter = (textareaBox?.y ?? 0) + (textareaBox?.height ?? 0) / 2;
+  expect(Math.abs(((uploadBox?.y ?? 0) + (uploadBox?.height ?? 0) / 2) - textareaCenter)).toBeLessThanOrEqual(2);
+  expect(Math.abs(((sendBox?.y ?? 0) + (sendBox?.height ?? 0) / 2) - textareaCenter)).toBeLessThanOrEqual(2);
+  const promptBox = await page.locator(".talking-prompt-input").boundingBox();
+  expect(promptBox?.height ?? 0).toBeLessThanOrEqual(76);
+  await capture(page, "19d-talking-light-prompt-kit");
+});
+
+test("drawing prompt keeps compact typography", async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 780 });
+  await waitForApp(page);
+  await page.getByTitle("Drawing").click();
+
+  await expect(page.locator(".drawing-workspace")).toBeVisible();
+  await expect(page.locator(".drawing-prompt-bar textarea")).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".drawing-mode-switch")).toHaveCount(0);
+  await page.locator(".drawing-prompt-bar .prompt-kit-upload-label input[type='file']").setInputFiles({
+    name: "input-reference.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'><rect width='48' height='48' fill='#0ea5e9'/></svg>"),
+  });
+  await expect(page.locator(".drawing-input-attachment-list .draft-attachment-preview")).toBeVisible();
+  await expect(page.locator(".drawing-input-attachment-list .draft-attachment-preview")).toHaveCSS("width", "24px");
+  await expect(page.locator(".drawing-input-attachment-list .draft-attachment-preview")).toHaveCSS("height", "24px");
+  const drawingPromptBox = await page.locator(".drawing-prompt-input").boundingBox();
+  expect(drawingPromptBox?.height ?? 0).toBeLessThanOrEqual(76);
+  const drawingBarBox = await page.locator(".drawing-prompt-bar").boundingBox();
+  expect(drawingBarBox?.height ?? 0).toBeLessThanOrEqual(104);
+  await capture(page, "19e-drawing-compact-prompt");
+  await page.locator(".drawing-input-attachment-list .draft-attachment-preview-button").click();
+  await expect(page.locator(".image-zoom-modal")).toBeVisible();
+});
+
 test("session transcript keeps compact role identity and copy controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 960 });
   await waitForApp(page);
   await page.getByTitle("Sessions").click();
   await page.locator(".session-list-item").first().click();
 
-  await expect(page.locator(".message-role-avatar")).toHaveCount(2);
-  await expect(page.locator(".message-row-user .message-role-avatar-user")).toHaveCount(1);
-  await expect(page.locator(".message-card .message-copy-button")).toHaveCount(2);
-  await expect(page.locator(".message-card .message-content")).toHaveCount(2);
+  await expect(page.locator(".session-ai-message-list .ai-message")).toHaveCount(2);
+  await expect(page.locator(".session-ai-message-list .ai-message-avatar")).toHaveCount(1);
+  await expect(page.locator(".session-ai-message-list .ai-message-user-content")).toHaveCount(1);
+  await expect(page.locator(".session-ai-message-list .ai-message-assistant-content")).toHaveCount(1);
+  await expect(page.locator(".session-ai-message-list .ai-message-assistant .ai-message-action")).toHaveCount(1);
+  await expect(page.locator(".session-ai-message-list .ai-message-user-content")).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".session-ai-message-list .prompt-kit-code-block").first()).toHaveCSS("font-size", "13.44px");
+  await expect(page.locator(".session-ai-message-list .prompt-kit-code-block pre").first()).toHaveCSS("font-family", await page.locator(".session-ai-message-list .ai-message-assistant-content").first().evaluate((element) => getComputedStyle(element).fontFamily));
+  const paneBox = await page.locator(".session-message-pane").boundingBox();
+  const userBox = await page.locator(".session-ai-message-list .ai-message-user-content").boundingBox();
+  expect((userBox?.x ?? 0) + (userBox?.width ?? 0)).toBeLessThanOrEqual((paneBox?.x ?? 0) + (paneBox?.width ?? 0) + 1);
   await capture(page, "19c-session-compact-messages");
 });
 

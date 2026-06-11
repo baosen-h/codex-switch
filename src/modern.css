@@ -2019,6 +2019,22 @@ select:focus {
   background: color-mix(in srgb, var(--p1) 82%, transparent);
 }
 
+.drawing-prompt-bar textarea {
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.drawing-prompt-bar .talking-prompt-input textarea {
+  height: 28px !important;
+  min-height: 28px;
+  max-height: 88px;
+  padding: 0 0.26rem;
+  border: 0 !important;
+  background: transparent !important;
+  font-size: 0.84rem;
+  line-height: 28px;
+}
+
 .chat-send-button,
 .drawing-generate-button {
   box-shadow: 0 10px 22px rgb(var(--accent-rgb) / 0.2);
@@ -2179,6 +2195,20 @@ select:focus {
   align-self: end;
 }
 
+.chat-inputbar .talking-prompt-input {
+  min-height: 42px;
+  padding: 0.32rem;
+}
+
+.chat-inputbar .talking-prompt-input textarea {
+  height: 28px !important;
+  min-height: 28px;
+  max-height: 88px;
+  padding: 0 0.26rem;
+  font-size: 0.84rem;
+  line-height: 28px;
+}
+
 .session-chat-header {
   display: none;
 }
@@ -2202,11 +2232,7 @@ select:focus {
 }
 
 .chat-thinking::after {
-  content: "";
-  display: inline-block;
-  width: 1.4em;
-  text-align: left;
-  animation: thinking-dots 1.2s steps(4, end) infinite;
+  content: none;
 }
 
 @keyframes thinking-dots {
@@ -2321,8 +2347,8 @@ select:focus {
 .message-content {
   min-width: 0;
   color: var(--t1);
-  font-size: 0.86rem;
-  line-height: 1.55;
+  font-size: 0.84rem;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -2354,23 +2380,29 @@ select:focus {
   border: 1px solid var(--b0);
   border-radius: 4px;
   background: color-mix(in srgb, var(--p2) 82%, transparent);
-  font-family: var(--mono);
-  font-size: 0.82em;
+  font-family: inherit;
+  font-size: 1em;
 }
 
 .message-content pre {
   margin: 0.5rem 0 0;
-  padding: 0.65rem 0.75rem;
+  padding: 0.55rem 0.65rem;
   overflow-x: auto;
   border: 1px solid var(--b0);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--p0) 82%, transparent);
+  font-size: 0.84rem;
+  font-family: inherit;
+  line-height: 1.45;
 }
 
 .message-content pre code {
   padding: 0;
   border: 0;
   background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: inherit;
 }
 
 .message-content a {

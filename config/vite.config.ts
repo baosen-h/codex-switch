@@ -11,6 +11,11 @@ const packageJson = JSON.parse(
 export default defineConfig({
   root: projectRoot,
   plugins: [react()],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("../src", import.meta.url)),
+    },
+  },
   clearScreen: false,
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
