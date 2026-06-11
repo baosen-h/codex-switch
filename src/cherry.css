@@ -1044,6 +1044,12 @@ h3 { font-size: 15px; }
   color: var(--t2);
   font-size: 11px;
 }
+.capability-scope-option > svg,
+.capability-target-label > svg,
+.capability-source-badges svg {
+  width: 15px;
+  height: 15px;
+}
 .capability-scope-option input { width: 15px; height: 15px; }
 .capability-form-grid {
   display: grid;
@@ -1197,6 +1203,9 @@ h3 { font-size: 15px; }
   gap: 3px;
 }
 .capability-source-badges em {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   max-width: 64px;
   overflow: hidden;
   padding: 1px 5px;
@@ -1269,6 +1278,15 @@ h3 { font-size: 15px; }
   background: var(--p1);
   color: var(--t2);
   font-size: 10px;
+}
+.capability-target-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .capability-targets > label.unavailable { opacity: 0.42; }
 .capability-subhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1360,6 +1378,75 @@ h3 { font-size: 15px; }
 .model-modality-chip svg,
 .model-capability-tag svg {
   color: currentColor;
+}
+
+.model-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--b0);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p2) 76%, white);
+  color: var(--t1);
+}
+
+.model-avatar img {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3px;
+  object-fit: contain;
+}
+
+.model-avatar svg {
+  width: 60%;
+  height: 60%;
+}
+
+.model-avatar span {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.model-select-control {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.model-select-control select {
+  min-width: 0;
+  width: 100%;
+}
+
+.model-picker-option {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.model-picker-option .model-capability-row {
+  grid-column: 2;
+}
+
+.model-picker-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.api-model-pill {
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+}
+
+.api-model-pill .model-capability-row {
+  grid-column: 2;
 }
 
 .model-modality-text,

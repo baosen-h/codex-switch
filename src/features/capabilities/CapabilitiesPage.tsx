@@ -4,15 +4,13 @@ import {
   Boxes,
   CheckCircle2,
   Eye,
-  Globe2,
   Link,
   MessageSquare,
   Search,
-  Terminal,
   Wrench,
 } from "lucide-react";
 import { appApi } from "../../api/tauri";
-import { ModelCapabilityBadges, ProviderAvatar } from "../../components/domain";
+import { iconForAgent, ModelCapabilityBadges, ProviderAvatar } from "../../components/domain";
 import { useI18n } from "../../i18n/context";
 import type { AppSettings, CapabilitiesState } from "../../types";
 import { modelSupportsVisionText } from "../../utils/modelCapabilities";
@@ -112,19 +110,19 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
     },
     {
       key: "mcp" as const,
-      label: "MCP",
+      label: t("capabilityMcp"),
       hint: capabilityState
-        ? `Codex ${capabilityState.mcpCounts.codex} · Claude ${capabilityState.mcpCounts.claude} · Gemini ${capabilityState.mcpCounts.gemini}`
-        : "Model Context Protocol servers",
+        ? `${t("agentCodex")} ${capabilityState.mcpCounts.codex} · ${t("agentClaude")} ${capabilityState.mcpCounts.claude} · ${t("agentGemini")} ${capabilityState.mcpCounts.gemini}`
+        : t("capabilityMcpHint"),
       configured: Boolean(capabilityState?.mcpServers.length),
       Icon: Boxes,
     },
     {
       key: "skills" as const,
-      label: "Skills",
+      label: t("capabilitySkills"),
       hint: capabilityState
-        ? `Codex ${capabilityState.skillCounts.codex} · Claude ${capabilityState.skillCounts.claude} · Gemini ${capabilityState.skillCounts.gemini}`
-        : "Reusable agent instructions",
+        ? `${t("agentCodex")} ${capabilityState.skillCounts.codex} · ${t("agentClaude")} ${capabilityState.skillCounts.claude} · ${t("agentGemini")} ${capabilityState.skillCounts.gemini}`
+        : t("capabilitySkillsHint"),
       configured: Boolean(capabilityState?.skills.length),
       Icon: Wrench,
     },
@@ -237,12 +235,12 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 <div className="capability-scope-grid">
                   {[
                     ["visionChatEnabled", t("talking"), MessageSquare],
-                    ["visionCodexEnabled", "Codex", Terminal],
-                    ["visionClaudeEnabled", "Claude Code", Bot],
-                    ["visionGeminiEnabled", "Gemini", Globe2],
+                    ["visionCodexEnabled", t("agentCodex"), "codex"],
+                    ["visionClaudeEnabled", t("agentClaude"), "claude"],
+                    ["visionGeminiEnabled", t("agentGemini"), "gemini"],
                   ].map(([field, label, Icon]) => (
                     <label className="capability-scope-option" key={field as string}>
-                      <Icon size={17} />
+                      {typeof Icon === "string" ? iconForAgent(Icon as "codex" | "claude" | "gemini") : <Icon size={17} />}
                       <span>{label as string}</span>
                       <input
                         checked={Boolean(draft[field as keyof AppSettings])}

@@ -1,4 +1,4 @@
-import { ModelCapabilityBadges } from "../../../components/domain";
+import { ModelAvatar, ModelCapabilityBadges } from "../../../components/domain";
 import type { AgentKind, RemoteModel } from "../../../types";
 import { defaultModelForAgent } from "../../../utils/providerConfig";
 import { ChevronDownIcon, RefreshIcon } from "./AgentIcons";
@@ -89,9 +89,12 @@ export function AgentModelPicker({
                   onClick={() => onSelectModel(option.id)}
                   type="button"
                 >
-                  <span className="model-picker-option-title">{option.name || option.id}</span>
-                  <span className="model-picker-option-meta">
-                    {option.name && option.name !== option.id ? option.id : option.ownedBy || option.description || labels.modelFromProvider}
+                  <ModelAvatar model={option} size={26} />
+                  <span className="model-picker-option-copy">
+                    <span className="model-picker-option-title">{option.name || option.id}</span>
+                    <span className="model-picker-option-meta">
+                      {option.name && option.name !== option.id ? option.id : option.ownedBy || option.description || labels.modelFromProvider}
+                    </span>
                   </span>
                   <ModelCapabilityBadges model={option} />
                 </button>

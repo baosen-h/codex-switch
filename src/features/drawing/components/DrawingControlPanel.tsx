@@ -1,4 +1,4 @@
-import { ProviderAvatar } from "../../../components/domain";
+import { ModelAvatar, ProviderAvatar } from "../../../components/domain";
 import type { ApiProvider, RemoteModel } from "../../../types";
 import { backgroundOptions, imageSizes, qualityOptions } from "../constants";
 import type { DrawingRecord } from "../types";
@@ -34,6 +34,8 @@ export function DrawingControlPanel({
   onSelectProvider,
   onPatchRecord,
 }: DrawingControlPanelProps) {
+  const selectedModel = models.find((item) => item.id === activeModel);
+
   return (
     <aside className="drawing-control-panel">
       <div className="drawing-heading">
@@ -61,13 +63,16 @@ export function DrawingControlPanel({
 
       <label className="field">
         <span>{labels.model}</span>
-        <select value={activeModel} onChange={(event) => onPatchRecord({ model: event.target.value })}>
-          {models.length ? (
-            models.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)
-          ) : (
-            <option value="">{labels.noModelsFound}</option>
-          )}
-        </select>
+        <span className="model-select-control">
+          {selectedModel ? <ModelAvatar model={selectedModel} size={26} /> : null}
+          <select value={activeModel} onChange={(event) => onPatchRecord({ model: event.target.value })}>
+            {models.length ? (
+              models.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)
+            ) : (
+              <option value="">{labels.noModelsFound}</option>
+            )}
+          </select>
+        </span>
       </label>
 
       <label className="field">

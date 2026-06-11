@@ -1273,6 +1273,8 @@ select:focus {
 
 .api-model-pill {
   display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
   gap: 0.28rem;
   padding: 0.7rem 0.78rem;
   border: 1px solid var(--b1);
@@ -1301,6 +1303,54 @@ select:focus {
 .api-model-pill span {
   color: var(--t2);
   font-size: 0.74rem;
+}
+
+.api-model-pill .model-capability-row {
+  grid-column: 2;
+}
+
+.model-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--b1);
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgb(var(--accent-rgb) / 0.12), color-mix(in srgb, var(--p2) 88%, transparent));
+  color: var(--t1);
+}
+
+.model-avatar img {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  object-fit: contain;
+}
+
+.model-avatar svg {
+  width: 60%;
+  height: 60%;
+}
+
+.model-avatar span {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.model-select-control {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.model-select-control select {
+  min-width: 0;
+  width: 100%;
 }
 
 .model-capability-row {
@@ -1578,8 +1628,22 @@ select:focus {
 }
 
 .model-picker-option {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
   border-radius: 8px;
   transition: background-color 160ms ease, color 160ms ease;
+}
+
+.model-picker-option .model-capability-row {
+  grid-column: 2;
+}
+
+.model-picker-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
 }
 
 .model-picker-option:hover,

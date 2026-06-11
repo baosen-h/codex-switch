@@ -1,45 +1,57 @@
-import type { ApiProvider, ApiProviderType } from "../../types";
-import anthropicLogo from "../../assets/provider-icons/anthropic.png";
+import type { ApiProvider, ApiProviderType, RemoteModel } from "../../types";
 import deepSeekLogo from "../../assets/provider-icons/deepseek.png";
-import geminiLogo from "../../assets/provider-icons/google.png";
 import huggingFaceLogo from "../../assets/provider-icons/huggingface.webp";
 import newApiLogo from "../../assets/provider-icons/newapi.png";
 import ollamaLogo from "../../assets/provider-icons/ollama.png";
-import openAiLogo from "../../assets/provider-icons/openai.png";
 import openRouterLogo from "../../assets/provider-icons/openrouter.png";
 import xiaomiLogo from "../../assets/provider-icons/xiaomi.png";
 import zhipuLogo from "../../assets/provider-icons/zhipu.png";
+import { iconForAgent } from "./BrandIcons";
 
-const providerTypeLogos: Partial<Record<ApiProviderType, string>> = {
-  openai_oauth: openAiLogo,
-  openai_apikey: openAiLogo,
-  anthropic: anthropicLogo,
-  "anthropic-compatible": anthropicLogo,
-  gemini: geminiLogo,
-  ollama: ollamaLogo,
-  openrouter: openRouterLogo,
-  huggingface: huggingFaceLogo,
-  "openai-compatible": newApiLogo,
-  "new-api": newApiLogo,
+type IconSource =
+  | { kind: "agent"; agent: "codex" | "claude" | "gemini" }
+  | { kind: "image"; src: string }
+  | { kind: "letter"; letter: string };
+
+const providerTypeIcons: Partial<Record<ApiProviderType, IconSource>> = {
+  openai_oauth: { kind: "agent", agent: "codex" },
+  openai_apikey: { kind: "agent", agent: "codex" },
+  anthropic: { kind: "agent", agent: "claude" },
+  "anthropic-compatible": { kind: "agent", agent: "claude" },
+  gemini: { kind: "agent", agent: "gemini" },
+  ollama: { kind: "image", src: ollamaLogo },
+  openrouter: { kind: "image", src: openRouterLogo },
+  huggingface: { kind: "image", src: huggingFaceLogo },
+  "openai-compatible": { kind: "image", src: newApiLogo },
+  "new-api": { kind: "image", src: newApiLogo },
 };
 
-const keywordLogos: Array<[RegExp, string]> = [
-  [/deepseek|deepseek\.com|deepseek-ai|deepseek[_-]/i, deepSeekLogo],
-  [/\bmimo\b|xiaomi|mi\.com|mimo-v/i, xiaomiLogo],
-  [/zhipu|bigmodel|glm/i, zhipuLogo],
-  [/openrouter/i, openRouterLogo],
-  [/anthropic/i, anthropicLogo],
-  [/gemini|google/i, geminiLogo],
-  [/hugging\s*face|huggingface/i, huggingFaceLogo],
-  [/ollama/i, ollamaLogo],
-  [/openai|chatgpt/i, openAiLogo],
+const keywordIcons: Array<[RegExp, IconSource]> = [
+  [/claude|anthropic/i, { kind: "agent", agent: "claude" }],
+  [/\bgpt\b|gpt-|openai|chatgpt|\bo[134]\b|o1-|o3-|o4-/i, { kind: "agent", agent: "codex" }],
+  [/gemini|google|palm|bison/i, { kind: "agent", agent: "gemini" }],
+  [/deepseek|deepseek\.com|deepseek-ai|deepseek[_-]/i, { kind: "image", src: deepSeekLogo }],
+  [/\bmimo\b|xiaomi|mi\.com|mimo-v/i, { kind: "image", src: xiaomiLogo }],
+  [/zhipu|bigmodel|glm/i, { kind: "image", src: zhipuLogo }],
+  [/openrouter/i, { kind: "image", src: openRouterLogo }],
+  [/hugging\s*face|huggingface/i, { kind: "image", src: huggingFaceLogo }],
+  [/ollama/i, { kind: "image", src: ollamaLogo }],
+  [/new-api|newapi/i, { kind: "image", src: newApiLogo }],
 ];
 
 type ProviderAvatarSource = Pick<ApiProvider, "name" | "providerType" | "baseUrl">;
 
-function providerLogo(provider: ProviderAvatarSource): string {
+function providerIcon(provider: ProviderAvatarSource): IconSource {
   const haystack = `${provider.name} ${provider.providerType} ${provider.baseUrl}`;
-  return keywordLogos.find(([pattern]) => pattern.test(haystack))?.[1] ?? providerTypeLogos[provider.providerType] ?? "";
+  return keywordIcons.find(([pattern]) => pattern.test(haystack))?.[1]
+    ?? providerTypeIcons[provider.providerType]
+    ?? { kind: "letter", letter: fallbackLetter(provider.name) };
+}
+
+function modelIcon(model: RemoteModel): IconSource {
+  const haystack = `${model.id} ${model.name ?? ""} ${model.ownedBy ?? ""} ${model.description ?? ""}`;
+  return keywordIcons.find(([pattern]) => pattern.test(haystack))?.[1]
+    ?? { kind: "letter", letter: fallbackLetter(model.name || model.id || model.ownedBy || "M") };
 }
 
 function fallbackLetter(name: string): string {
@@ -53,22 +65,38 @@ function providerTypeLetter(providerType: ApiProviderType): string {
   return providerType.trim().charAt(0).toUpperCase() || "P";
 }
 
+function IconBody({ icon }: { icon: IconSource }) {
+  if (icon.kind === "agent") return iconForAgent(icon.agent);
+  if (icon.kind === "image") return <img src={icon.src} alt="" draggable={false} />;
+  return <span>{icon.letter}</span>;
+}
+
 export function ProviderAvatar({ provider, size = 34 }: { provider: ProviderAvatarSource; size?: number }) {
-  const logo = providerLogo(provider);
+  const icon = providerIcon(provider);
 
   return (
     <span className="provider-avatar" style={{ width: size, height: size }} aria-hidden="true">
-      {logo ? <img src={logo} alt="" draggable={false} /> : <span>{fallbackLetter(provider.name)}</span>}
+      <IconBody icon={icon} />
     </span>
   );
 }
 
 export function ProviderTypeAvatar({ providerType, size = 30 }: { providerType: ApiProviderType; size?: number }) {
-  const logo = providerTypeLogos[providerType] ?? "";
+  const icon = providerTypeIcons[providerType] ?? { kind: "letter" as const, letter: providerTypeLetter(providerType) };
 
   return (
     <span className="provider-avatar" style={{ width: size, height: size }} aria-hidden="true">
-      {logo ? <img src={logo} alt="" draggable={false} /> : <span>{providerTypeLetter(providerType)}</span>}
+      <IconBody icon={icon} />
+    </span>
+  );
+}
+
+export function ModelAvatar({ model, size = 28 }: { model: RemoteModel; size?: number }) {
+  const icon = modelIcon(model);
+
+  return (
+    <span className="model-avatar" style={{ width: size, height: size }} aria-hidden="true">
+      <IconBody icon={icon} />
     </span>
   );
 }

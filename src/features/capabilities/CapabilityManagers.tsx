@@ -15,7 +15,9 @@ import {
   X,
 } from "lucide-react";
 import { appApi } from "../../api/tauri";
+import { iconForAgent } from "../../components/domain";
 import type {
+  AgentKind,
   CapabilitiesState,
   CapabilitySyncResult,
   CapabilityTargets,
@@ -25,6 +27,12 @@ import type {
   Skill,
   SkillMarketResult,
 } from "../../types";
+
+const agentLabels: Record<AgentKind, string> = {
+  codex: "Codex",
+  claude: "Claude",
+  gemini: "Gemini",
+};
 
 const emptyTargets = (): CapabilityTargets => ({ codex: false, claude: false, gemini: false });
 const emptyServer = (): McpServer => ({
@@ -86,7 +94,16 @@ function sourceLabels(targets: CapabilityTargets, sourcePath = "") {
 function SourceBadges({ labels }: { labels: string[] }) {
   return (
     <span className="capability-source-badges">
-      {labels.map((label) => <em key={label}>{label}</em>)}
+      {labels.map((label) => {
+        const agent = label.toLowerCase() as AgentKind;
+        const hasAgentIcon = agent === "codex" || agent === "claude" || agent === "gemini";
+        return (
+          <em key={label}>
+            {hasAgentIcon ? iconForAgent(agent) : null}
+            {label}
+          </em>
+        );
+      })}
     </span>
   );
 }
@@ -104,7 +121,10 @@ function TargetToggles({
     <div className="capability-targets">
       {(["codex", "claude", "gemini"] as const).map((agent) => (
         <label className={!available[agent] ? "unavailable" : ""} key={agent}>
-          <span>{agent[0].toUpperCase() + agent.slice(1)}</span>
+          <span className="capability-target-label">
+            {iconForAgent(agent)}
+            {agentLabels[agent]}
+          </span>
           <span className="switch-control">
             <input
               checked={value[agent]}

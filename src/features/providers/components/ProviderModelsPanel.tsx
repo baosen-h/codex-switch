@@ -1,4 +1,4 @@
-import { ModelCapabilityBadges } from "../../../components/domain";
+import { ModelAvatar, ModelCapabilityBadges } from "../../../components/domain";
 import type { RemoteModel } from "../../../types";
 import { RefreshIcon } from "./ProviderIcons";
 
@@ -46,6 +46,7 @@ export function ProviderModelsPanel({
         {models.length ? (
           models.map((model) => (
             <div className="api-model-pill" key={model.id}>
+              <ModelAvatar model={model} size={28} />
               <div className="api-model-pill-main">
                 <strong>{model.name || model.id}</strong>
                 <span>{model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || labels.modelFromProvider}</span>

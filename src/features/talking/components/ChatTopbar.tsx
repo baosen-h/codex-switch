@@ -1,4 +1,4 @@
-import { ProviderAvatar } from "../../../components/domain";
+import { ModelAvatar, ProviderAvatar } from "../../../components/domain";
 import type { ApiProvider, RemoteModel } from "../../../types";
 
 interface ChatTopbarProps {
@@ -24,6 +24,8 @@ export function ChatTopbar({
   onSelectProvider,
   onSelectModel,
 }: ChatTopbarProps) {
+  const selectedModel = modelOptions.find((item) => item.id === activeModel);
+
   return (
     <header className="chat-topbar">
       <label className="chat-select">
@@ -36,13 +38,16 @@ export function ChatTopbar({
       </label>
       <label className="chat-select">
         <span>{modelLabel}</span>
-        <select value={activeModel} onChange={(event) => onSelectModel(event.target.value)}>
-          {modelOptions.length ? (
-            modelOptions.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)
-          ) : (
-            <option value="">{noModelsFoundLabel}</option>
-          )}
-        </select>
+        <span className="model-select-control">
+          {selectedModel ? <ModelAvatar model={selectedModel} size={26} /> : null}
+          <select value={activeModel} onChange={(event) => onSelectModel(event.target.value)}>
+            {modelOptions.length ? (
+              modelOptions.map((item) => <option key={item.id} value={item.id}>{item.name || item.id}</option>)
+            ) : (
+              <option value="">{noModelsFoundLabel}</option>
+            )}
+          </select>
+        </span>
       </label>
       {selectedProvider ? <ProviderAvatar provider={selectedProvider} size={38} /> : null}
     </header>
