@@ -1,5 +1,5 @@
 import { ProviderAvatar } from "../../../components/domain";
-import { DeleteIcon, EditIcon } from "../../../components/ui";
+import { DeleteIcon } from "../../../components/ui";
 import type { ApiProvider } from "../../../types";
 import type { ProviderBalanceState } from "../balanceStorage";
 import { inferProviderType, providerTypeLabel, websiteLabel } from "../providerConfig";
@@ -16,13 +16,11 @@ interface ProviderListProps {
     apiProviders: string;
     addProvider: string;
     models: string;
-    edit: string;
     del: string;
     noApiProviders: string;
   };
   onAddProvider: () => void;
   onSelectProvider: (provider: ApiProvider) => void;
-  onEditProvider: (provider: ApiProvider) => void;
   onDeleteProvider: (id: string) => void;
   onOpenWebsite: (url: string) => void;
   onRefreshBalance: (provider: ApiProvider) => void;
@@ -36,7 +34,6 @@ export function ProviderList({
   labels,
   onAddProvider,
   onSelectProvider,
-  onEditProvider,
   onDeleteProvider,
   onOpenWebsite,
   onRefreshBalance,
@@ -89,9 +86,6 @@ export function ProviderList({
                     <span className="provider-model-count">
                       {provider.models.length} {labels.models}
                     </span>
-                    <button className="secondary-button icon-action-button" onClick={(event) => { event.stopPropagation(); onEditProvider(provider); }} type="button" title={labels.edit}>
-                      <EditIcon />
-                    </button>
                     <button className="danger-button icon-action-button" onClick={(event) => { event.stopPropagation(); onDeleteProvider(provider.id); }} type="button" title={labels.del}>
                       <DeleteIcon />
                     </button>

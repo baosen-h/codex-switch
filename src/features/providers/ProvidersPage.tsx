@@ -227,13 +227,11 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
             apiProviders: t("apiProviders"),
             addProvider: t("addProvider"),
             models: t("models"),
-            edit: t("edit"),
             del: t("del"),
             noApiProviders: t("noApiProviders"),
           }}
           onAddProvider={() => openForm()}
           onSelectProvider={openForm}
-          onEditProvider={openForm}
           onDeleteProvider={(id) => void onDelete(id)}
           onOpenWebsite={(url) => void openWebsite(url)}
           onRefreshBalance={(provider) => void refreshBalance(provider)}
