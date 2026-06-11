@@ -244,6 +244,30 @@ async function installTauriMock(page: Page) {
       },
       invoke(cmd: string, args: Record<string, unknown> = {}) {
         if (cmd === "get_dashboard") return Promise.resolve(dashboard);
+        if (cmd === "get_capabilities_state") {
+          return Promise.resolve({
+            mcpServers: [],
+            mcpPresets: [
+              {
+                id: "builtin-filesystem",
+                name: "Filesystem",
+                description: "Access selected local files.",
+                builtIn: true,
+                transport: "stdio",
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-filesystem", "${WORKSPACE}"],
+                workingDirectory: "",
+                url: "",
+                env: {},
+                headers: {},
+              },
+            ],
+            skills: [],
+            mcpCounts: { codex: 0, claude: 0, gemini: 0, status: "ok" },
+            skillCounts: { codex: 0, claude: 0, gemini: 0, status: "ok" },
+            availableTargets: { codex: true, claude: true, gemini: true },
+          });
+        }
         if (cmd === "save_provider") return Promise.resolve(args.provider);
         if (cmd === "save_api_provider") return Promise.resolve(args.provider);
         if (cmd === "activate_provider") {
@@ -416,6 +440,12 @@ test("main pages render usable layouts", async ({ page }) => {
   await expect(page.locator(".capability-form-stack input[type='password']")).toHaveCount(1);
   await expect(page.locator(".capability-form-stack textarea")).toHaveCount(0);
   await capture(page, "15b-capabilities-search");
+  await page.getByRole("button", { name: /^MCP/ }).click();
+  await expect(page.locator(".capability-manager")).toBeVisible();
+  await page.getByRole("button", { name: /Filesystem/ }).click();
+  await expect(page.getByRole("button", { name: "Test server" })).toBeVisible();
+  await expect(page.getByText("MCP servers", { exact: true })).toHaveCount(0);
+  await capture(page, "15c-capabilities-mcp");
 
   await page.getByTitle("Settings").click();
   await expect(page.locator(".settings-page")).toBeVisible();

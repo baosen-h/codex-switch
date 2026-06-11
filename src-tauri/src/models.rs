@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -351,6 +352,157 @@ pub struct DashboardState {
 #[serde(rename_all = "camelCase")]
 pub struct LaunchRequest {
     pub workspace_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityTargets {
+    pub codex: bool,
+    pub claude: bool,
+    pub gemini: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigValue {
+    pub value: String,
+    #[serde(default)]
+    pub secret: bool,
+    #[serde(default)]
+    pub credential_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServer {
+    pub id: String,
+    pub target_key: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub transport: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub working_directory: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub env: BTreeMap<String, ConfigValue>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, ConfigValue>,
+    #[serde(default)]
+    pub targets: CapabilityTargets,
+    #[serde(default)]
+    pub last_test_status: String,
+    #[serde(default)]
+    pub last_test_error: String,
+    #[serde(default)]
+    pub last_test_at: String,
+    #[serde(default)]
+    pub cached_tools: Vec<McpTool>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpTool {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub input_schema: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpTestResult {
+    pub status: String,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub output: String,
+    #[serde(default)]
+    pub tools: Vec<McpTool>,
+    pub tested_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpPreset {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub built_in: bool,
+    pub transport: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub working_directory: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub env: BTreeMap<String, ConfigValue>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, ConfigValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub instructions: String,
+    pub source_path: String,
+    pub source_kind: String,
+    pub sync_mode: String,
+    #[serde(default)]
+    pub targets: CapabilityTargets,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTargetResult {
+    pub agent: String,
+    pub status: String,
+    #[serde(default)]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitySyncResult {
+    pub results: Vec<SyncTargetResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityCounts {
+    pub codex: usize,
+    pub claude: usize,
+    pub gemini: usize,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitiesState {
+    pub mcp_servers: Vec<McpServer>,
+    pub mcp_presets: Vec<McpPreset>,
+    pub skills: Vec<Skill>,
+    pub mcp_counts: CapabilityCounts,
+    pub skill_counts: CapabilityCounts,
+    pub available_targets: CapabilityTargets,
 }
 
 #[cfg(test)]

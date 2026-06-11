@@ -4,8 +4,8 @@ use crate::agent_writer::{
 use crate::app_config::{APP_HOME_DIR, DB_FILE, LEGACY_APP_HOME_DIR, LEGACY_DB_FILE};
 use crate::error::AppError;
 use crate::models::{
-    ApiProvider, AppSettings, DashboardState, Provider, RemoteModel, SessionRecord,
-    WebSearchSettings,
+    ApiProvider, AppSettings, DashboardState, McpPreset, McpServer, McpTool,
+    Provider, RemoteModel, SessionRecord, Skill, WebSearchSettings,
 };
 use crate::session_manager;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -515,6 +515,74 @@ impl Database {
               id TEXT PRIMARY KEY,
               deleted_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS mcp_servers (
+              id TEXT PRIMARY KEY,
+              target_key TEXT NOT NULL UNIQUE,
+              name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+              description TEXT NOT NULL DEFAULT '',
+              transport TEXT NOT NULL DEFAULT 'stdio',
+              command TEXT NOT NULL DEFAULT '',
+              args_json TEXT NOT NULL DEFAULT '[]',
+              working_directory TEXT NOT NULL DEFAULT '',
+              url TEXT NOT NULL DEFAULT '',
+              env_json TEXT NOT NULL DEFAULT '{}',
+              headers_json TEXT NOT NULL DEFAULT '{}',
+              targets_json TEXT NOT NULL DEFAULT '{}',
+              last_test_status TEXT NOT NULL DEFAULT '',
+              last_test_error TEXT NOT NULL DEFAULT '',
+              last_test_at TEXT NOT NULL DEFAULT '',
+              cached_tools_json TEXT NOT NULL DEFAULT '[]',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mcp_presets (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+              description TEXT NOT NULL DEFAULT '',
+              transport TEXT NOT NULL DEFAULT 'stdio',
+              command TEXT NOT NULL DEFAULT '',
+              args_json TEXT NOT NULL DEFAULT '[]',
+              working_directory TEXT NOT NULL DEFAULT '',
+              url TEXT NOT NULL DEFAULT '',
+              env_json TEXT NOT NULL DEFAULT '{}',
+              headers_json TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS skills (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+              description TEXT NOT NULL DEFAULT '',
+              instructions TEXT NOT NULL,
+              source_path TEXT NOT NULL,
+              source_kind TEXT NOT NULL DEFAULT 'external',
+              sync_mode TEXT NOT NULL DEFAULT 'reference',
+              targets_json TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS capability_sync_state (
+              capability_type TEXT NOT NULL,
+              target_agent TEXT NOT NULL,
+              last_synced_hash TEXT NOT NULL DEFAULT '',
+              last_synced_at TEXT NOT NULL DEFAULT '',
+              last_status TEXT NOT NULL DEFAULT '',
+              last_error TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY(capability_type, target_agent)
+            );
+
+            CREATE TABLE IF NOT EXISTS capability_delete_backups (
+              id TEXT PRIMARY KEY,
+              capability_type TEXT NOT NULL,
+              capability_id TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              trash_path TEXT NOT NULL DEFAULT '',
+              deleted_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -628,6 +696,213 @@ impl Database {
         Ok(())
     }
 
+    pub fn mcp_servers(&self) -> Result<Vec<McpServer>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"SELECT id, target_key, name, description, transport, command, args_json,
+            working_directory, url, env_json, headers_json, targets_json, last_test_status,
+            last_test_error, last_test_at, cached_tools_json, created_at, updated_at
+            FROM mcp_servers ORDER BY name COLLATE NOCASE"#,
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(McpServer {
+                id: row.get(0)?,
+                target_key: row.get(1)?,
+                name: row.get(2)?,
+                description: row.get(3)?,
+                transport: row.get(4)?,
+                command: row.get(5)?,
+                args: json_column(row.get(6)?),
+                working_directory: row.get(7)?,
+                url: row.get(8)?,
+                env: json_column(row.get(9)?),
+                headers: json_column(row.get(10)?),
+                targets: json_column(row.get(11)?),
+                last_test_status: row.get(12)?,
+                last_test_error: row.get(13)?,
+                last_test_at: row.get(14)?,
+                cached_tools: json_column(row.get(15)?),
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
+            })
+        })?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn save_mcp_server(&self, mut server: McpServer) -> Result<McpServer, AppError> {
+        let now = current_time_string();
+        if server.id.trim().is_empty() {
+            server.id = Uuid::new_v4().to_string();
+        }
+        if server.target_key.trim().is_empty() {
+            server.target_key = capability_target_key(&server.name, &server.id);
+        }
+        let created_at = self.connection.query_row(
+            "SELECT created_at FROM mcp_servers WHERE id = ?1",
+            params![server.id],
+            |row| row.get::<_, String>(0),
+        ).optional()?.unwrap_or_else(|| now.clone());
+        self.connection.execute(
+            r#"INSERT INTO mcp_servers (
+              id, target_key, name, description, transport, command, args_json,
+              working_directory, url, env_json, headers_json, targets_json,
+              last_test_status, last_test_error, last_test_at, cached_tools_json,
+              created_at, updated_at
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+            ON CONFLICT(id) DO UPDATE SET
+              name=excluded.name, description=excluded.description, transport=excluded.transport,
+              command=excluded.command, args_json=excluded.args_json,
+              working_directory=excluded.working_directory, url=excluded.url,
+              env_json=excluded.env_json, headers_json=excluded.headers_json,
+              targets_json=excluded.targets_json, updated_at=excluded.updated_at"#,
+            params![
+                server.id, server.target_key, server.name.trim(), server.description.trim(),
+                server.transport, server.command.trim(), serde_json::to_string(&server.args)?,
+                server.working_directory.trim(), server.url.trim(), serde_json::to_string(&server.env)?,
+                serde_json::to_string(&server.headers)?, serde_json::to_string(&server.targets)?,
+                server.last_test_status, server.last_test_error, server.last_test_at,
+                serde_json::to_string(&server.cached_tools)?, created_at, now,
+            ],
+        )?;
+        self.mcp_servers()?.into_iter().find(|item| item.id == server.id)
+            .ok_or_else(|| AppError::message("Saved MCP server was not found"))
+    }
+
+    pub fn update_mcp_test(&self, id: &str, status: &str, error: &str, tools: &[McpTool]) -> Result<(), AppError> {
+        self.connection.execute(
+            "UPDATE mcp_servers SET last_test_status=?2,last_test_error=?3,last_test_at=?4,cached_tools_json=?5 WHERE id=?1",
+            params![id, status, error, current_time_string(), serde_json::to_string(tools)?],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_mcp_server_record(&self, id: &str) -> Result<Option<McpServer>, AppError> {
+        let server = self.mcp_servers()?.into_iter().find(|item| item.id == id);
+        if let Some(ref item) = server {
+            self.save_capability_backup("mcp", id, &serde_json::to_string(item)?, "")?;
+            self.connection.execute("DELETE FROM mcp_servers WHERE id=?1", params![id])?;
+        }
+        Ok(server)
+    }
+
+    pub fn mcp_presets(&self) -> Result<Vec<McpPreset>, AppError> {
+        let mut presets = builtin_mcp_presets();
+        let mut statement = self.connection.prepare(
+            r#"SELECT id,name,description,transport,command,args_json,working_directory,url,
+            env_json,headers_json FROM mcp_presets ORDER BY name COLLATE NOCASE"#,
+        )?;
+        let rows = statement.query_map([], |row| Ok(McpPreset {
+            id: row.get(0)?, name: row.get(1)?, description: row.get(2)?, built_in: false,
+            transport: row.get(3)?, command: row.get(4)?, args: json_column(row.get(5)?),
+            working_directory: row.get(6)?, url: row.get(7)?, env: json_column(row.get(8)?),
+            headers: json_column(row.get(9)?),
+        }))?;
+        presets.extend(rows.filter_map(Result::ok));
+        Ok(presets)
+    }
+
+    pub fn save_mcp_preset(&self, mut preset: McpPreset) -> Result<McpPreset, AppError> {
+        if preset.built_in {
+            return Err(AppError::message("Built-in presets are read-only"));
+        }
+        if preset.id.trim().is_empty() {
+            preset.id = Uuid::new_v4().to_string();
+        }
+        let now = current_time_string();
+        self.connection.execute(
+            r#"INSERT INTO mcp_presets (id,name,description,transport,command,args_json,
+            working_directory,url,env_json,headers_json,created_at,updated_at)
+            VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?11)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,
+            transport=excluded.transport,command=excluded.command,args_json=excluded.args_json,
+            working_directory=excluded.working_directory,url=excluded.url,env_json=excluded.env_json,
+            headers_json=excluded.headers_json,updated_at=excluded.updated_at"#,
+            params![preset.id,preset.name.trim(),preset.description.trim(),preset.transport,
+                preset.command.trim(),serde_json::to_string(&preset.args)?,preset.working_directory.trim(),
+                preset.url.trim(),serde_json::to_string(&preset.env)?,serde_json::to_string(&preset.headers)?,now],
+        )?;
+        preset.built_in = false;
+        Ok(preset)
+    }
+
+    pub fn delete_mcp_preset(&self, id: &str) -> Result<(), AppError> {
+        self.connection.execute("DELETE FROM mcp_presets WHERE id=?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn skills(&self) -> Result<Vec<Skill>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"SELECT id,name,description,instructions,source_path,source_kind,sync_mode,
+            targets_json,created_at,updated_at FROM skills ORDER BY name COLLATE NOCASE"#,
+        )?;
+        let rows = statement.query_map([], |row| Ok(Skill {
+            id: row.get(0)?, name: row.get(1)?, description: row.get(2)?,
+            instructions: row.get(3)?, source_path: row.get(4)?, source_kind: row.get(5)?,
+            sync_mode: row.get(6)?, targets: json_column(row.get(7)?),
+            created_at: row.get(8)?, updated_at: row.get(9)?,
+        }))?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn save_skill(&self, mut skill: Skill) -> Result<Skill, AppError> {
+        let now = current_time_string();
+        if skill.id.trim().is_empty() {
+            skill.id = Uuid::new_v4().to_string();
+        }
+        let created_at = self.connection.query_row(
+            "SELECT created_at FROM skills WHERE id=?1", params![skill.id],
+            |row| row.get::<_, String>(0),
+        ).optional()?.unwrap_or_else(|| now.clone());
+        self.connection.execute(
+            r#"INSERT INTO skills (id,name,description,instructions,source_path,source_kind,
+            sync_mode,targets_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+            ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,
+            instructions=excluded.instructions,source_path=excluded.source_path,
+            source_kind=excluded.source_kind,sync_mode=excluded.sync_mode,
+            targets_json=excluded.targets_json,updated_at=excluded.updated_at"#,
+            params![skill.id,skill.name.trim(),skill.description.trim(),skill.instructions,
+                skill.source_path,skill.source_kind,skill.sync_mode,serde_json::to_string(&skill.targets)?,
+                created_at,now],
+        )?;
+        self.skills()?.into_iter().find(|item| item.id == skill.id)
+            .ok_or_else(|| AppError::message("Saved skill was not found"))
+    }
+
+    pub fn delete_skill_record(&self, id: &str, trash_path: &str) -> Result<Option<Skill>, AppError> {
+        let skill = self.skills()?.into_iter().find(|item| item.id == id);
+        if let Some(ref item) = skill {
+            self.save_capability_backup("skill", id, &serde_json::to_string(item)?, trash_path)?;
+            self.connection.execute("DELETE FROM skills WHERE id=?1", params![id])?;
+        }
+        Ok(skill)
+    }
+
+    pub fn set_sync_state(&self, capability_type: &str, agent: &str, hash: &str, status: &str, error: &str) -> Result<(), AppError> {
+        self.connection.execute(
+            r#"INSERT INTO capability_sync_state (capability_type,target_agent,last_synced_hash,last_synced_at,last_status,last_error)
+            VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(capability_type,target_agent) DO UPDATE SET
+            last_synced_hash=excluded.last_synced_hash,last_synced_at=excluded.last_synced_at,
+            last_status=excluded.last_status,last_error=excluded.last_error"#,
+            params![capability_type,agent,hash,current_time_string(),status,error],
+        )?;
+        Ok(())
+    }
+
+    pub fn sync_state(&self, capability_type: &str, agent: &str) -> Result<Option<(String,String,String)>, AppError> {
+        Ok(self.connection.query_row(
+            "SELECT last_synced_hash,last_status,last_error FROM capability_sync_state WHERE capability_type=?1 AND target_agent=?2",
+            params![capability_type,agent],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
+        ).optional()?)
+    }
+
+    fn save_capability_backup(&self, capability_type: &str, capability_id: &str, payload: &str, trash_path: &str) -> Result<(), AppError> {
+        self.connection.execute(
+            "INSERT INTO capability_delete_backups (id,capability_type,capability_id,payload_json,trash_path,deleted_at) VALUES (?1,?2,?3,?4,?5,?6)",
+            params![Uuid::new_v4().to_string(), capability_type, capability_id, payload, trash_path, current_time_string()],
+        )?;
+        Ok(())
+    }
+
     fn seed_api_providers_from_agent_configs(&self) -> Result<(), AppError> {
         self.connection.execute_batch(
             r#"
@@ -725,6 +1000,35 @@ fn current_time_string() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string())
+}
+
+fn json_column<T: serde::de::DeserializeOwned + Default>(value: String) -> T {
+    serde_json::from_str(&value).unwrap_or_default()
+}
+
+fn capability_target_key(name: &str, id: &str) -> String {
+    let slug = name.chars().map(|ch| {
+        if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' }
+    }).collect::<String>();
+    let slug = slug.split('-').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("-");
+    let prefix = if slug.is_empty() { "mcp" } else { slug.as_str() };
+    format!("{}-{}", prefix, id.chars().filter(|ch| ch.is_ascii_hexdigit()).take(6).collect::<String>())
+}
+
+fn builtin_mcp_presets() -> Vec<McpPreset> {
+    use std::collections::BTreeMap;
+    let preset = |id: &str, name: &str, description: &str, command: &str, args: Vec<&str>| McpPreset {
+        id: id.to_string(), name: name.to_string(), description: description.to_string(),
+        built_in: true, transport: "stdio".to_string(), command: command.to_string(),
+        args: args.into_iter().map(str::to_string).collect(), working_directory: String::new(),
+        url: String::new(), env: BTreeMap::new(), headers: BTreeMap::new(),
+    };
+    vec![
+        preset("builtin-filesystem", "Filesystem", "Read and manage selected local files.", "npx", vec!["-y", "@modelcontextprotocol/server-filesystem", "${WORKSPACE}"]),
+        preset("builtin-git", "Git", "Inspect and operate on a Git repository.", "uvx", vec!["mcp-server-git", "--repository", "${WORKSPACE}"]),
+        preset("builtin-memory", "Memory", "Local knowledge graph memory server.", "npx", vec!["-y", "@modelcontextprotocol/server-memory"]),
+        preset("builtin-fetch", "Fetch", "Retrieve and transform web content.", "uvx", vec!["mcp-server-fetch"]),
+    ]
 }
 
 fn map_provider(row: &rusqlite::Row<'_>) -> Result<Provider, rusqlite::Error> {

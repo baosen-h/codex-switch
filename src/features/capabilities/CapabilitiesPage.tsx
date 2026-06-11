@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bot,
+  Boxes,
   CheckCircle2,
   Eye,
   Globe2,
@@ -8,10 +9,12 @@ import {
   MessageSquare,
   Search,
   Terminal,
+  Wrench,
 } from "lucide-react";
+import { appApi } from "../../api/tauri";
 import { ModelCapabilityBadges, ProviderAvatar } from "../../components/domain";
 import { useI18n } from "../../i18n/context";
-import type { AppSettings } from "../../types";
+import type { AppSettings, CapabilitiesState } from "../../types";
 import { modelSupportsVisionText } from "../../utils/modelCapabilities";
 import {
   defaultWebSearchSettings,
@@ -21,16 +24,31 @@ import {
   splitMultilineList,
 } from "../settings/settingsConfig";
 import type { CapabilitiesPageProps } from "./types";
+import { CapabilityManager } from "./CapabilityManagers";
 import { WebSearchProviderIcon } from "./WebSearchProviderIcon";
 
-type CapabilityKey = "vision" | "search";
+type CapabilityKey = "vision" | "search" | "mcp" | "skills";
 
 export function CapabilitiesPage({ apiProviders, settings, onSave }: CapabilitiesPageProps) {
   const { t } = useI18n();
   const [activeCapability, setActiveCapability] = useState<CapabilityKey>("vision");
+  const [capabilityState, setCapabilityState] = useState<CapabilitiesState | null>(null);
+  const [capabilityError, setCapabilityError] = useState("");
   const [draft, setDraft] = useState(settings);
 
   useEffect(() => setDraft(settings), [settings]);
+  const reloadCapabilities = async () => {
+    try {
+      setCapabilityState(await appApi.getCapabilitiesState());
+      setCapabilityError("");
+    } catch (error) {
+      setCapabilityError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useEffect(() => {
+    void reloadCapabilities();
+  }, []);
 
   const visionProviders = useMemo(
     () => apiProviders
@@ -92,6 +110,24 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
       configured: webSearchValid && Boolean(webSearch.searchProviderId),
       Icon: Search,
     },
+    {
+      key: "mcp" as const,
+      label: "MCP",
+      hint: capabilityState
+        ? `Codex ${capabilityState.mcpCounts.codex} · Claude ${capabilityState.mcpCounts.claude} · Gemini ${capabilityState.mcpCounts.gemini}`
+        : "Model Context Protocol servers",
+      configured: Boolean(capabilityState?.mcpServers.length),
+      Icon: Boxes,
+    },
+    {
+      key: "skills" as const,
+      label: "Skills",
+      hint: capabilityState
+        ? `Codex ${capabilityState.skillCounts.codex} · Claude ${capabilityState.skillCounts.claude} · Gemini ${capabilityState.skillCounts.gemini}`
+        : "Reusable agent instructions",
+      configured: Boolean(capabilityState?.skills.length),
+      Icon: Wrench,
+    },
   ];
 
   return (
@@ -117,11 +153,16 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 <span className={`capability-status-dot ${configured ? "configured" : ""}`} />
               </button>
             ))}
+            {capabilityError ? <p className="capability-nav-error">{capabilityError}</p> : null}
           </div>
         </aside>
 
-        <div className="capabilities-content">
-          {activeCapability === "vision" ? (
+        <div className={`capabilities-content ${activeCapability === "mcp" || activeCapability === "skills" ? "capability-manager-content" : ""}`}>
+          {activeCapability === "mcp" && capabilityState ? (
+            <CapabilityManager kind="mcp" state={capabilityState} onReload={reloadCapabilities} />
+          ) : activeCapability === "skills" && capabilityState ? (
+            <CapabilityManager kind="skills" state={capabilityState} onReload={reloadCapabilities} />
+          ) : activeCapability === "vision" ? (
             <>
               <header className="capability-header">
                 <span className="capability-header-icon"><Eye size={22} /></span>
@@ -387,16 +428,18 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
             </>
           )}
 
-          <footer className="capabilities-footer">
-            <button
-              className="primary-button"
-              disabled={!canSave}
-              onClick={() => void onSave(draft)}
-              type="button"
-            >
-              {t("saveCapabilities")}
-            </button>
-          </footer>
+          {activeCapability === "vision" || activeCapability === "search" ? (
+            <footer className="capabilities-footer">
+              <button
+                className="primary-button"
+                disabled={!canSave}
+                onClick={() => void onSave(draft)}
+                type="button"
+              >
+                {t("saveCapabilities")}
+              </button>
+            </footer>
+          ) : null}
         </div>
       </article>
     </section>

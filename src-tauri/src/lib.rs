@@ -1,6 +1,7 @@
 mod agent_writer;
 mod app_config;
 mod commands;
+mod capabilities;
 mod compatibility_proxy;
 mod database;
 mod error;
@@ -15,10 +16,13 @@ mod web_search;
 use agent_writer::{AGENT_CLAUDE, AGENT_CODEX, AGENT_GEMINI};
 use commands::{
     activate_provider, build_session_handoff, check_app_update, delete_api_provider,
-    delete_provider, delete_session, download_and_install_update, fetch_web_urls, generate_image,
-    get_dashboard, get_provider_balance, get_session_messages, launch_codex, launch_provider,
-    launch_session, list_provider_models, open_external_url, pick_directory, save_api_provider,
-    save_provider, save_settings, search_web, send_chat_message, AppState,
+    delete_mcp_preset, delete_mcp_server, delete_provider, delete_session, delete_skill,
+    download_and_install_update, fetch_web_urls, generate_image, get_capabilities_state,
+    get_dashboard, get_provider_balance, get_session_messages, import_skill, launch_codex,
+    launch_provider, launch_session, list_provider_models, open_external_url, pick_directory,
+    preview_mcp_config, preview_skill, save_api_provider, save_mcp_preset, save_mcp_server,
+    save_provider, save_settings, save_skill, search_web, send_chat_message,
+    sync_mcp_capabilities, sync_skill_capabilities, test_mcp_server, AppState,
 };
 use models::Provider;
 use oauth::{complete_openai_oauth, start_openai_oauth, submit_openai_oauth_callback};
@@ -121,6 +125,19 @@ pub fn run() {
             save_settings,
             search_web,
             fetch_web_urls,
+            get_capabilities_state,
+            save_mcp_server,
+            delete_mcp_server,
+            test_mcp_server,
+            preview_mcp_config,
+            sync_mcp_capabilities,
+            save_mcp_preset,
+            delete_mcp_preset,
+            import_skill,
+            save_skill,
+            delete_skill,
+            preview_skill,
+            sync_skill_capabilities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Codex Switch");

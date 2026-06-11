@@ -10,10 +10,11 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::handoff;
 use crate::models::{
-    ApiProvider, AppSettings, AppUpdateInfo, ChatAttachment, ChatMessage, ChatRequest,
-    ChatResponse, DashboardState, HandoffPreview, ImageGenerationRequest, ImageGenerationResponse,
-    LaunchRequest, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
-    SessionRecord, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
+    ApiProvider, AppSettings, AppUpdateInfo, CapabilitiesState, CapabilitySyncResult,
+    ChatAttachment, ChatMessage, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
+    ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, McpPreset, McpServer,
+    McpTestResult, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
+    SessionRecord, Skill, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -1410,6 +1411,114 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
 #[tauri::command]
 pub fn pick_directory(_initial_path: Option<String>) -> Result<Option<String>, String> {
     Err("Folder picker is only implemented on Windows in this build.".to_string())
+}
+
+#[tauri::command]
+pub fn get_capabilities_state(state: State<'_, AppState>) -> Result<CapabilitiesState, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::state(&db).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_mcp_server(
+    state: State<'_, AppState>,
+    server: McpServer,
+) -> Result<(McpServer, CapabilitySyncResult), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::save_server(&db, server).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_mcp_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<CapabilitySyncResult, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::delete_server(&db, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn test_mcp_server(
+    state: State<'_, AppState>,
+    server: McpServer,
+) -> Result<McpTestResult, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::test_server(&db, server).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_mcp_config(
+    state: State<'_, AppState>,
+    server: McpServer,
+    agent: String,
+) -> Result<String, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::preview_mcp(&db, server, &agent)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn sync_mcp_capabilities(
+    state: State<'_, AppState>,
+    id: Option<String>,
+) -> Result<CapabilitySyncResult, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::sync_mcp(&db, id.as_deref()).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_mcp_preset(
+    state: State<'_, AppState>,
+    preset: McpPreset,
+) -> Result<McpPreset, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::save_preset(&db, preset).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_mcp_preset(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::delete_preset(&db, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn import_skill(
+    state: State<'_, AppState>,
+    source_path: String,
+) -> Result<(Skill, CapabilitySyncResult), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::import_skill(&db, &source_path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_skill(
+    state: State<'_, AppState>,
+    skill: Skill,
+) -> Result<(Skill, CapabilitySyncResult), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::save_skill(&db, skill).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_skill(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<CapabilitySyncResult, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::delete_skill(&db, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_skill(skill: Skill) -> Result<String, String> {
+    crate::capabilities::preview_skill(&skill).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn sync_skill_capabilities(
+    state: State<'_, AppState>,
+) -> Result<CapabilitySyncResult, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::capabilities::sync_skills(&db).map_err(|error| error.to_string())
 }
 
 fn normalized_provider_type(provider_type: &str) -> String {

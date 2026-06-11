@@ -3,6 +3,8 @@ import type {
   ApiProvider,
   AppUpdateInfo,
   AppSettings,
+  CapabilitiesState,
+  CapabilitySyncResult,
   ChatRequest,
   ChatResponse,
   CompleteOpenAiOauthResult,
@@ -12,6 +14,9 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
   LaunchRequest,
+  McpPreset,
+  McpServer,
+  McpTestResult,
   ModelListRequest,
   ProviderBalance,
   Provider,
@@ -19,6 +24,7 @@ import type {
   SessionMessage,
   SessionRecord,
   StartOpenAiOauthResult,
+  Skill,
   WebSearchResponse,
 } from "../types";
 
@@ -100,5 +106,44 @@ export const appApi = {
   },
   fetchWebUrls(urls: string[]): Promise<WebSearchResponse> {
     return invoke("fetch_web_urls", { urls });
+  },
+  getCapabilitiesState(): Promise<CapabilitiesState> {
+    return invoke("get_capabilities_state");
+  },
+  saveMcpServer(server: McpServer): Promise<[McpServer, CapabilitySyncResult]> {
+    return invoke("save_mcp_server", { server });
+  },
+  deleteMcpServer(id: string): Promise<CapabilitySyncResult> {
+    return invoke("delete_mcp_server", { id });
+  },
+  testMcpServer(server: McpServer): Promise<McpTestResult> {
+    return invoke("test_mcp_server", { server });
+  },
+  previewMcpConfig(server: McpServer, agent: string): Promise<string> {
+    return invoke("preview_mcp_config", { server, agent });
+  },
+  syncMcpCapabilities(id?: string): Promise<CapabilitySyncResult> {
+    return invoke("sync_mcp_capabilities", { id });
+  },
+  saveMcpPreset(preset: McpPreset): Promise<McpPreset> {
+    return invoke("save_mcp_preset", { preset });
+  },
+  deleteMcpPreset(id: string): Promise<void> {
+    return invoke("delete_mcp_preset", { id });
+  },
+  importSkill(sourcePath: string): Promise<[Skill, CapabilitySyncResult]> {
+    return invoke("import_skill", { sourcePath });
+  },
+  saveSkill(skill: Skill): Promise<[Skill, CapabilitySyncResult]> {
+    return invoke("save_skill", { skill });
+  },
+  deleteSkill(id: string): Promise<CapabilitySyncResult> {
+    return invoke("delete_skill", { id });
+  },
+  previewSkill(skill: Skill): Promise<string> {
+    return invoke("preview_skill", { skill });
+  },
+  syncSkillCapabilities(): Promise<CapabilitySyncResult> {
+    return invoke("sync_skill_capabilities");
   },
 };

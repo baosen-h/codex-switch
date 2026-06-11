@@ -258,3 +258,103 @@ export interface CompleteOpenAiOauthResult {
   configText: string;
   authJson: string;
 }
+
+export interface CapabilityTargets {
+  codex: boolean;
+  claude: boolean;
+  gemini: boolean;
+}
+
+export interface ConfigValue {
+  value: string;
+  secret: boolean;
+  credentialId: string;
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+}
+
+export interface McpServer {
+  id: string;
+  targetKey: string;
+  name: string;
+  description: string;
+  transport: "stdio" | "http" | "sse";
+  command: string;
+  args: string[];
+  workingDirectory: string;
+  url: string;
+  env: Record<string, ConfigValue>;
+  headers: Record<string, ConfigValue>;
+  targets: CapabilityTargets;
+  lastTestStatus: string;
+  lastTestError: string;
+  lastTestAt: string;
+  cachedTools: McpTool[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpTestResult {
+  status: string;
+  error: string;
+  output: string;
+  tools: McpTool[];
+  testedAt: string;
+}
+
+export interface McpPreset {
+  id: string;
+  name: string;
+  description: string;
+  builtIn: boolean;
+  transport: "stdio" | "http" | "sse";
+  command: string;
+  args: string[];
+  workingDirectory: string;
+  url: string;
+  env: Record<string, ConfigValue>;
+  headers: Record<string, ConfigValue>;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  instructions: string;
+  sourcePath: string;
+  sourceKind: "app" | "external";
+  syncMode: "copy" | "reference";
+  targets: CapabilityTargets;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SyncTargetResult {
+  agent: AgentKind;
+  status: string;
+  error: string;
+}
+
+export interface CapabilitySyncResult {
+  results: SyncTargetResult[];
+}
+
+export interface CapabilityCounts {
+  codex: number;
+  claude: number;
+  gemini: number;
+  status: string;
+}
+
+export interface CapabilitiesState {
+  mcpServers: McpServer[];
+  mcpPresets: McpPreset[];
+  skills: Skill[];
+  mcpCounts: CapabilityCounts;
+  skillCounts: CapabilityCounts;
+  availableTargets: CapabilityTargets;
+}
