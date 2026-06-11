@@ -2,7 +2,7 @@ import { ProviderAvatar } from "../../../components/domain";
 import { DeleteIcon } from "../../../components/ui";
 import type { ApiProvider } from "../../../types";
 import type { ProviderBalanceState } from "../balanceStorage";
-import { inferProviderType, providerTypeLabel, websiteLabel } from "../providerConfig";
+import { websiteLabel } from "../providerConfig";
 import { AddIcon } from "./ProviderIcons";
 import { ProviderBalancePanel } from "./ProviderBalancePanel";
 
@@ -67,7 +67,6 @@ export function ProviderList({
                       <ProviderAvatar provider={provider} size={24} />
                       <div className="provider-title-text">
                         <strong>{provider.name}</strong>
-                        <small>{providerTypeLabel(inferProviderType(provider))}</small>
                       </div>
                     </div>
                     {provider.websiteUrl.trim() ? (

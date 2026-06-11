@@ -1148,6 +1148,7 @@ h3 { font-size: 15px; }
   gap: 6px;
   margin-bottom: 10px;
 }
+.capability-list-actions-three { grid-template-columns: minmax(0, 1fr) 30px 30px; }
 .capability-search {
   display: flex;
   min-width: 0;
@@ -1171,7 +1172,8 @@ h3 { font-size: 15px; }
 }
 .capability-list-item,
 .capability-preset-list button,
-.capability-discovery-list button {
+.capability-discovery-list button,
+.capability-search-results button {
   display: flex;
   width: 100%;
   min-height: 48px;
@@ -1187,15 +1189,18 @@ h3 { font-size: 15px; }
 }
 .capability-list-item:hover,
 .capability-preset-list button:hover,
-.capability-discovery-list button:hover { background: var(--p2); color: var(--t1); }
+.capability-discovery-list button:hover,
+.capability-search-results button:hover { background: var(--p2); color: var(--t1); }
 .capability-list-item.active { border-color: color-mix(in srgb, var(--a) 25%, var(--b0)); background: var(--a-d); }
 .capability-list-item > span,
 .capability-preset-list button > span:first-child { display: grid; min-width: 0; gap: 2px; }
 .capability-discovery-list button > span:first-child { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
+.capability-search-results button > span:first-child { display: inline-flex; min-width: 0; align-items: center; gap: 6px; }
 .capability-list-item strong { overflow: hidden; color: currentColor; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .capability-list-item small,
 .capability-preset-list small,
-.capability-discovery-list small { color: var(--t3); font-size: 9px; }
+.capability-discovery-list small,
+.capability-search-results small { color: var(--t3); font-size: 9px; }
 .capability-source-badges {
   display: flex;
   min-width: 0;
@@ -1230,6 +1235,23 @@ h3 { font-size: 15px; }
 .capability-discovery-list > strong { padding: 0 8px 5px; color: var(--t3); font-size: 9px; text-transform: uppercase; }
 .capability-preset-list button,
 .capability-discovery-list button { min-height: 36px; font-size: 10px; }
+.capability-search-results {
+  display: grid;
+  gap: 2px;
+  margin: -3px 0 10px;
+  padding: 6px 0 9px;
+  border-bottom: 1px solid var(--b0);
+}
+.capability-search-results p {
+  margin: 0 8px 4px;
+  color: var(--t3);
+  font-size: 9px;
+  line-height: 1.45;
+}
+.capability-search-results button {
+  min-height: 38px;
+  font-size: 10px;
+}
 .capability-discovery-list p {
   margin: 6px 8px 0;
   color: var(--t3);

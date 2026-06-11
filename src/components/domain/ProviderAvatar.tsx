@@ -1,8 +1,11 @@
 import type { ApiProvider, ApiProviderType, RemoteModel } from "../../types";
+import anthropicLogo from "../../assets/provider-icons/anthropic.png";
 import deepSeekLogo from "../../assets/provider-icons/deepseek.png";
+import googleLogo from "../../assets/provider-icons/google.png";
 import huggingFaceLogo from "../../assets/provider-icons/huggingface.webp";
 import newApiLogo from "../../assets/provider-icons/newapi.png";
 import ollamaLogo from "../../assets/provider-icons/ollama.png";
+import openAiLogo from "../../assets/provider-icons/openai.png";
 import openRouterLogo from "../../assets/provider-icons/openrouter.png";
 import xiaomiLogo from "../../assets/provider-icons/xiaomi.png";
 import zhipuLogo from "../../assets/provider-icons/zhipu.png";
@@ -14,11 +17,11 @@ type IconSource =
   | { kind: "letter"; letter: string };
 
 const providerTypeIcons: Partial<Record<ApiProviderType, IconSource>> = {
-  openai_oauth: { kind: "agent", agent: "codex" },
-  openai_apikey: { kind: "agent", agent: "codex" },
-  anthropic: { kind: "agent", agent: "claude" },
-  "anthropic-compatible": { kind: "agent", agent: "claude" },
-  gemini: { kind: "agent", agent: "gemini" },
+  openai_oauth: { kind: "image", src: openAiLogo },
+  openai_apikey: { kind: "image", src: openAiLogo },
+  anthropic: { kind: "image", src: anthropicLogo },
+  "anthropic-compatible": { kind: "image", src: newApiLogo },
+  gemini: { kind: "image", src: googleLogo },
   ollama: { kind: "image", src: ollamaLogo },
   openrouter: { kind: "image", src: openRouterLogo },
   huggingface: { kind: "image", src: huggingFaceLogo },
@@ -41,9 +44,20 @@ const keywordIcons: Array<[RegExp, IconSource]> = [
 
 type ProviderAvatarSource = Pick<ApiProvider, "name" | "providerType" | "baseUrl">;
 
+const officialUrlIcons: Array<[RegExp, IconSource]> = [
+  [/^https?:\/\/api\.deepseek\.com(?:\/|$)/i, { kind: "image", src: deepSeekLogo }],
+  [/^https?:\/\/openrouter\.ai\/api\/v1(?:\/|$)/i, { kind: "image", src: openRouterLogo }],
+  [/^https?:\/\/api\.xiaomimimo\.com(?:\/|$)/i, { kind: "image", src: xiaomiLogo }],
+  [/^https?:\/\/(?:api\.)?openai\.com(?:\/|$)/i, { kind: "image", src: openAiLogo }],
+  [/^https?:\/\/api\.anthropic\.com(?:\/|$)/i, { kind: "image", src: anthropicLogo }],
+  [/^https?:\/\/generativelanguage\.googleapis\.com(?:\/|$)/i, { kind: "image", src: googleLogo }],
+  [/^https?:\/\/(?:open\.)?bigmodel\.cn(?:\/|$)/i, { kind: "image", src: zhipuLogo }],
+  [/^https?:\/\/api-inference\.huggingface\.co(?:\/|$)/i, { kind: "image", src: huggingFaceLogo }],
+];
+
 function providerIcon(provider: ProviderAvatarSource): IconSource {
-  const haystack = `${provider.name} ${provider.providerType} ${provider.baseUrl}`;
-  return keywordIcons.find(([pattern]) => pattern.test(haystack))?.[1]
+  const normalizedBaseUrl = provider.baseUrl.trim().toLowerCase().replace(/\/+$/, "");
+  return officialUrlIcons.find(([pattern]) => pattern.test(normalizedBaseUrl))?.[1]
     ?? providerTypeIcons[provider.providerType]
     ?? { kind: "letter", letter: fallbackLetter(provider.name) };
 }

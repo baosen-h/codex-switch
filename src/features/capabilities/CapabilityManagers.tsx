@@ -373,7 +373,7 @@ function SkillManager({
     <div className="capability-manager">
       <div className="capability-manager-body">
         <aside className="capability-manager-list">
-          <div className="capability-list-actions">
+          <div className="capability-list-actions capability-list-actions-three">
             <label className="capability-search">
               <Search size={15} />
               <input
@@ -385,8 +385,20 @@ function SkillManager({
                 }}
               />
             </label>
+            <button className="secondary-button icon-action-button" disabled={busy} onClick={searchMarket} title="Search market" type="button"><Search size={16} /></button>
             <button className="primary-button icon-action-button" onClick={() => setDraft(emptySkill())} title="New skill" type="button"><Plus size={16} /></button>
           </div>
+          {marketResults.length || marketMessage ? (
+            <div className="capability-search-results">
+              {marketMessage ? <p>{marketMessage}</p> : null}
+              {marketResults.map((skill) => (
+                <button key={skill.id} onClick={() => void appApi.openExternalUrl(skill.url)} type="button">
+                  <span><ExternalLink size={14} /> {skill.name}</span>
+                  <small>{skill.source || "skills.sh"} · {skill.installs.toLocaleString()} installs</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {state.skills.map((skill) => (
             <button className={`capability-list-item ${skill.id === draft.id ? "active" : ""}`} key={skill.id} onClick={() => { setDraft(structuredClone(skill)); setPreview(""); }} type="button">
               <span>
@@ -398,22 +410,11 @@ function SkillManager({
             </button>
           ))}
           <div className="capability-discovery-list">
-            <strong>Market</strong>
-            <button disabled={busy} onClick={searchMarket} type="button">
-              <span><Search size={14} /> Search market</span>
-              <small>skills.sh</small>
-            </button>
+            <strong>Discover</strong>
             <button disabled={busy} onClick={() => void act(async () => { const path = await appApi.pickDirectory(); if (!path) return; const [skill, sync] = await appApi.importSkill(path); setDraft(skill); setMessage(syncText(sync)); await onReload(); })} type="button">
               <span><FileInput size={14} /> Import folder</span>
               <small>Use external folder</small>
             </button>
-            {marketMessage ? <p>{marketMessage}</p> : null}
-            {marketResults.map((skill) => (
-              <button key={skill.id} onClick={() => void appApi.openExternalUrl(skill.url)} type="button">
-                <span><ExternalLink size={14} /> {skill.name}</span>
-                <small>{skill.source || "skills.sh"} · {skill.installs.toLocaleString()} installs</small>
-              </button>
-            ))}
           </div>
         </aside>
         <main className="capability-editor">
