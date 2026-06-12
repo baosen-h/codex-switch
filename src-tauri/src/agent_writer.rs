@@ -96,6 +96,19 @@ pub fn render_gemini(provider: &Provider) -> String {
     format!("// ── ~/.gemini/settings.json ──\n{settings}\n\n# ── ~/.gemini/.env ──\n{env}\n")
 }
 
+fn uses_native_cli_model(provider: &Provider) -> bool {
+    let model = provider.model.trim().to_ascii_lowercase();
+    if model.is_empty() {
+        return false;
+    }
+
+    match provider.agent.as_str() {
+        AGENT_CLAUDE => model.contains("claude"),
+        AGENT_GEMINI => model.contains("gemini"),
+        _ => model.contains("gpt") || model.contains("codex"),
+    }
+}
+
 fn build_codex_toml(provider: &Provider) -> String {
     let upstream_base_url = provider.base_url.trim();
     let base_url = if uses_codex_proxy(provider) {
@@ -236,7 +249,7 @@ fn write_codex_with_gateway(
 
     let mut effective_provider = provider.clone();
     let uses_oauth = saved_codex_text_uses_oauth(&effective_provider.config_text);
-    if use_gateway && !uses_oauth {
+    if use_gateway && !uses_oauth && !uses_native_cli_model(&effective_provider) {
         effective_provider.wire_api = "chat".to_string();
     }
     let text = if uses_oauth {
@@ -272,7 +285,7 @@ fn write_codex_with_gateway(
 }
 
 fn uses_codex_proxy(provider: &Provider) -> bool {
-    provider.wire_api.trim() == "chat"
+    provider.wire_api.trim() == "chat" && !uses_native_cli_model(provider)
 }
 
 fn saved_codex_text_uses_proxy(text: &str) -> bool {
@@ -302,7 +315,7 @@ fn write_claude_with_gateway(
     ensure_dir(config_dir)?;
     let path = config_dir.join("settings.json");
     let mut effective_provider = provider.clone();
-    if use_gateway {
+    if use_gateway && !uses_native_cli_model(&effective_provider) {
         effective_provider.base_url = format!(
             "http://{}:{}/anthropic",
             crate::compatibility_proxy::PROXY_HOST,
@@ -337,7 +350,7 @@ fn write_gemini_with_gateway(
     let env_path = config_dir.join(".env");
 
     let mut effective_provider = provider.clone();
-    if use_gateway {
+    if use_gateway && !uses_native_cli_model(&effective_provider) {
         effective_provider.base_url = format!(
             "http://{}:{}/gemini",
             crate::compatibility_proxy::PROXY_HOST,
@@ -590,12 +603,21 @@ mod tests {
     }
 
     #[test]
-    fn render_codex_uses_proxy_only_for_chat_wire_api() {
-        let chat = codex_provider("chat", "");
+    fn render_codex_uses_proxy_only_for_chat_wire_api_on_non_native_models() {
+        let mut chat = codex_provider("chat", "");
+        chat.model = "deepseek-chat".to_string();
         let responses = codex_provider("responses", "");
 
         assert!(render_codex(&chat).contains("http://127.0.0.1:47632/v1"));
         assert!(render_codex(&responses).contains("https://www.packyapi.com/v1"));
+    }
+
+    #[test]
+    fn render_codex_keeps_gpt_models_direct_even_for_chat_wire_api() {
+        let chat = codex_provider("chat", "");
+
+        assert!(render_codex(&chat).contains("https://www.packyapi.com/v1"));
+        assert!(!render_codex(&chat).contains("http://127.0.0.1:47632/v1"));
     }
 
     #[test]

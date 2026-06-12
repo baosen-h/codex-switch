@@ -30,9 +30,18 @@ function isCodexProxyEndpoint(baseUrl: string): boolean {
   return normalized === CODEX_COMPAT_PROXY_BASE_URL || normalized === "http://localhost:47632/v1";
 }
 
-export function shouldUseCodexCompatibilityProxy(provider: Pick<Provider, "baseUrl" | "wireApi">): boolean {
+function usesNativeCliModel(provider: Pick<Provider, "agent" | "model">): boolean {
+  const model = provider.model.trim().toLowerCase();
+  if (!model) return false;
+  if (provider.agent === "claude") return model.includes("claude");
+  if (provider.agent === "gemini") return model.includes("gemini");
+  return model.includes("gpt") || model.includes("codex");
+}
+
+export function shouldUseCodexCompatibilityProxy(provider: Pick<Provider, "agent" | "baseUrl" | "model" | "wireApi">): boolean {
   const baseUrl = provider.baseUrl.trim();
   if (!baseUrl || isCodexProxyEndpoint(baseUrl)) return false;
+  if (usesNativeCliModel(provider)) return false;
   return provider.wireApi === "chat";
 }
 
@@ -270,7 +279,9 @@ function replaceCodexWireApi(preview: string, wireApi: string): string {
 function replaceCodexBaseUrl(preview: string, baseUrl: string, wireApi: string): string {
   const selectedWireApi = normalizedWireApi(wireApi);
   const value = shouldUseCodexCompatibilityProxy({
+    agent: "codex",
     baseUrl,
+    model: "",
     wireApi: selectedWireApi,
   })
     ? CODEX_COMPAT_PROXY_BASE_URL
@@ -471,7 +482,12 @@ function parseCodexPreview(preview: string, current: Provider): Partial<Provider
   const previewWireApi = normalizedWireApi(matchQuotedValue(preview, "wire_api"));
   const isProxyBaseUrl = normalizedEndpoint(previewBaseUrl) === normalizedEndpoint(CODEX_COMPAT_PROXY_BASE_URL);
   const shouldProxy =
-    isProxyBaseUrl || shouldUseCodexCompatibilityProxy({ baseUrl: previewBaseUrl, wireApi: previewWireApi });
+    isProxyBaseUrl || shouldUseCodexCompatibilityProxy({
+      agent: current.agent,
+      baseUrl: previewBaseUrl,
+      model: current.model,
+      wireApi: previewWireApi,
+    });
 
   return {
     model: matchQuotedValue(preview, "model"),
