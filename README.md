@@ -30,6 +30,7 @@ Codex Switch is a Windows desktop app for managing Codex, Claude Code, and Gemin
 - Vision model support: let text-only models, such as text-only DeepSeek and GLM variants, understand images through a configurable vision model in Talking, Codex CLI, Claude Code, and Gemini CLI.
 - Drawing: generate and edit images with supported models.
 - Sessions: inspect local sessions, preview transcripts, copy resume commands, and generate handoff text.
+- Capabilities: discover, review, install, and sync Skills and MCP servers across Codex, Claude Code, and Gemini. Marketplace sources are configurable, credentials use the operating system keychain, and installs remain pinned until explicitly updated.
 - Settings: switch theme, background, directories, terminal, and release page access.
 
 ## Screenshots
@@ -151,7 +152,6 @@ npm run tauri -- build
 Codex Switch was inspired by the following open-source projects:
 
 - [CC Switch](https://github.com/farion1231/cc-switch) - Cross-platform manager for Claude Code, Codex, Gemini CLI, and other AI coding tools.
-- [Cherry Studio](https://github.com/CherryHQ/cherry-studio) - Cross-platform desktop client with unified access to multiple LLM providers.
 - [Codex Switcher](https://github.com/xtftbwvfp/codex-switcher) - Desktop account, quota, relay, and local proxy manager for Codex CLI and Codex App.
 - [mimo2codex](https://github.com/7as0nch/mimo2codex) - Local proxy that connects Codex clients to OpenAI-compatible and Responses API providers.
 - [deepseek-vision](https://github.com/ErlichLiu/deepseek-vision) - Proxy that adds vision understanding, web search, and compatible APIs to DeepSeek models.
@@ -165,4 +165,4 @@ Thanks to these projects and their contributors for their open-source work.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -370,6 +370,8 @@ pub struct ConfigValue {
     pub secret: bool,
     #[serde(default)]
     pub credential_id: String,
+    #[serde(default)]
+    pub template: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -482,6 +484,143 @@ pub struct SkillMarketResult {
     #[serde(default)]
     pub installs: u64,
     pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceSource {
+    pub id: String,
+    pub capability_type: String,
+    pub name: String,
+    pub source_type: String,
+    pub base_url: String,
+    pub enabled: bool,
+    pub sort_order: i64,
+    pub built_in: bool,
+    #[serde(default)]
+    pub credential_id: String,
+    #[serde(default)]
+    pub has_credential: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceInstallSpec {
+    #[serde(default)]
+    pub transport: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub package_type: String,
+    #[serde(default)]
+    pub package_name: String,
+    #[serde(default)]
+    pub env_keys: Vec<String>,
+    #[serde(default)]
+    pub header_keys: Vec<String>,
+    #[serde(default)]
+    pub header_templates: BTreeMap<String, String>,
+    #[serde(default)]
+    pub required_header_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceResult {
+    pub id: String,
+    pub capability_type: String,
+    pub canonical_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub version: String,
+    pub source_id: String,
+    pub source_name: String,
+    #[serde(default)]
+    pub source_ids: Vec<String>,
+    #[serde(default)]
+    pub source_url: String,
+    #[serde(default)]
+    pub artifact_url: String,
+    #[serde(default)]
+    pub artifact_sha256: String,
+    #[serde(default)]
+    pub install_reference: String,
+    #[serde(default)]
+    pub downloads: u64,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub install_spec: MarketplaceInstallSpec,
+    #[serde(default)]
+    pub installed_id: String,
+    #[serde(default)]
+    pub update_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceSourceStatus {
+    pub source_id: String,
+    pub source_name: String,
+    pub status: String,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub result_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceSearchResponse {
+    pub results: Vec<MarketplaceResult>,
+    pub sources: Vec<MarketplaceSourceStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillMarketPreview {
+    pub result: MarketplaceResult,
+    pub instructions: String,
+    pub files: Vec<String>,
+    #[serde(default)]
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketplaceInstallRequest {
+    pub result: MarketplaceResult,
+    #[serde(default)]
+    pub targets: CapabilityTargets,
+    #[serde(default)]
+    pub env: BTreeMap<String, ConfigValue>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, ConfigValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeAvailability {
+    pub node: bool,
+    pub npx: bool,
+    pub uv: bool,
+    pub uvx: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpImportPreview {
+    pub servers: Vec<McpServer>,
+    #[serde(default)]
+    pub errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -109,6 +109,19 @@ fn uses_native_cli_model(provider: &Provider) -> bool {
     }
 }
 
+fn should_proxy_gemini(provider: &Provider, use_gateway: bool) -> bool {
+    let base_url = provider.base_url.trim();
+    let custom_endpoint = !base_url.is_empty() && !is_official_gemini_base_url(base_url);
+    custom_endpoint || (use_gateway && !uses_native_cli_model(provider))
+}
+
+fn is_official_gemini_base_url(base_url: &str) -> bool {
+    url::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == "generativelanguage.googleapis.com")
+}
+
 fn build_codex_toml(provider: &Provider) -> String {
     let upstream_base_url = provider.base_url.trim();
     let base_url = if uses_codex_proxy(provider) {
@@ -350,7 +363,7 @@ fn write_gemini_with_gateway(
     let env_path = config_dir.join(".env");
 
     let mut effective_provider = provider.clone();
-    if use_gateway && !uses_native_cli_model(&effective_provider) {
+    if should_proxy_gemini(&effective_provider, use_gateway) {
         effective_provider.base_url = format!(
             "http://{}:{}/gemini",
             crate::compatibility_proxy::PROXY_HOST,
@@ -786,8 +799,8 @@ base_url = "http://127.0.0.1:47632/v1"
 
         let env = std::fs::read_to_string(dir.join(".env")).expect("read env");
         assert!(env.contains("KEEP_ME=yes"));
-        assert!(env.contains("GEMINI_API_KEY=sk-test"));
-        assert!(env.contains("GOOGLE_GEMINI_BASE_URL=https://api.gemai.cc"));
+        assert!(env.contains("GEMINI_API_KEY=codex-switch-local"));
+        assert!(env.contains("GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:47632/gemini"));
         assert!(env.contains("GEMINI_API_KEY_AUTH_MECHANISM=bearer"));
         assert!(env.contains("GEMINI_CLI_CUSTOM_HEADERS=User-Agent:CodexSwitch-GeminiCLI"));
         assert!(!env.contains("GEMINI_API_KEY=old"));
@@ -856,5 +869,22 @@ GOOGLE_GEMINI_BASE_URL=https://api.gemai.cc
             gemini_cli_base_url("https://gateway.example.com"),
             "https://gateway.example.com"
         );
+    }
+
+    #[test]
+    fn custom_gemini_endpoints_use_the_local_proxy() {
+        let provider = gemini_provider("https://api.gemai.cc", "gemini-3.5-flash");
+
+        assert!(should_proxy_gemini(&provider, false));
+    }
+
+    #[test]
+    fn official_gemini_endpoint_stays_direct() {
+        let provider = gemini_provider(
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.5-pro",
+        );
+
+        assert!(!should_proxy_gemini(&provider, false));
     }
 }

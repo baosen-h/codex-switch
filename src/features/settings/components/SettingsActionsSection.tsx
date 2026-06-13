@@ -27,7 +27,7 @@ export function SettingsActionsSection({
         <span>{labels.appVersion}</span>
         <div className="update-row">
           <button className="secondary-button" onClick={onOpenReleases} type="button">
-            {labels.openReleases} v{appVersion}
+            v{appVersion}
           </button>
         </div>
       </label>

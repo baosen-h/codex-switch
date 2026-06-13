@@ -15,17 +15,23 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const CREDENTIAL_SERVICE: &str = "codex-switch-mcp";
-const MCP_TIMEOUT: Duration = Duration::from_secs(10);
+const MCP_TIMEOUT: Duration = Duration::from_secs(45);
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 const BUILTIN_SKILL_NAMES: &[&str] = &[
     "imagegen",
     "openai-docs",
@@ -56,8 +62,12 @@ fn discover_local_capabilities(db: &Database) -> Result<(), AppError> {
     let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
     let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
     let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
-    let claude_config = if claude_dir.file_name().and_then(|name| name.to_str()) == Some(".claude") {
-        claude_dir.parent().unwrap_or(&claude_dir).join(".claude.json")
+    let claude_config = if claude_dir.file_name().and_then(|name| name.to_str()) == Some(".claude")
+    {
+        claude_dir
+            .parent()
+            .unwrap_or(&claude_dir)
+            .join(".claude.json")
     } else {
         claude_dir.join(".claude.json")
     };
@@ -120,24 +130,45 @@ fn read_mcp_map(path: &Path, agent: &str) -> Result<Option<Map<String, Value>>, 
 
 fn mcp_from_spec(target_key: &str, spec: &Value, agent: &str) -> Option<McpServer> {
     let object = spec.as_object()?;
-    let command = object.get("command").and_then(Value::as_str).unwrap_or("").to_string();
-    let url = object.get("httpUrl").or_else(|| object.get("url"))
-        .and_then(Value::as_str).unwrap_or("").to_string();
+    let command = object
+        .get("command")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let url = object
+        .get("httpUrl")
+        .or_else(|| object.get("url"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let transport = match object.get("type").and_then(Value::as_str) {
         Some("sse") => "sse",
         Some("http") | Some("streamable-http") => "http",
         _ if !command.is_empty() => "stdio",
         _ if !url.is_empty() => "http",
         _ => return None,
-    }.to_string();
+    }
+    .to_string();
     let config_values = |value: Option<&Value>| {
-        value.and_then(Value::as_object).map(|items| items.iter().filter_map(|(key, value)| {
-            Some((key.clone(), ConfigValue {
-                value: value.as_str()?.to_string(),
-                secret: false,
-                credential_id: String::new(),
-            }))
-        }).collect()).unwrap_or_default()
+        value
+            .and_then(Value::as_object)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        Some((
+                            key.clone(),
+                            ConfigValue {
+                                value: value.as_str()?.to_string(),
+                                secret: false,
+                                credential_id: String::new(),
+                                template: String::new(),
+                            },
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let mut targets = CapabilityTargets::default();
     set_target(&mut targets, agent);
@@ -148,10 +179,22 @@ fn mcp_from_spec(target_key: &str, spec: &Value, agent: &str) -> Option<McpServe
         description: "Imported from local agent configuration".to_string(),
         transport,
         command,
-        args: object.get("args").and_then(Value::as_array).map(|items| {
-            items.iter().filter_map(Value::as_str).map(str::to_string).collect()
-        }).unwrap_or_default(),
-        working_directory: object.get("cwd").and_then(Value::as_str).unwrap_or("").to_string(),
+        args: object
+            .get("args")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        working_directory: object
+            .get("cwd")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         url,
         env: config_values(object.get("env")),
         headers: config_values(object.get("http_headers").or_else(|| object.get("headers"))),
@@ -179,7 +222,10 @@ fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), Ap
         if is_shadow_builtin_skill(&path, &name) {
             continue;
         }
-        if let Some(skill) = existing.iter_mut().find(|item| item.name.eq_ignore_ascii_case(&name)) {
+        if let Some(skill) = existing
+            .iter_mut()
+            .find(|item| item.name.eq_ignore_ascii_case(&name))
+        {
             let changed = !agent.is_empty() && set_target(&mut skill.targets, agent);
             if changed {
                 *skill = db.save_skill(skill.clone())?;
@@ -236,12 +282,17 @@ fn set_target(targets: &mut CapabilityTargets, agent: &str) -> bool {
     changed
 }
 
-pub fn save_server(db: &Database, server: McpServer) -> Result<(McpServer, CapabilitySyncResult), AppError> {
+pub fn save_server(
+    db: &Database,
+    server: McpServer,
+) -> Result<(McpServer, CapabilitySyncResult), AppError> {
     validate_server(db, &server)?;
     let existing = if server.id.trim().is_empty() {
         None
     } else {
-        db.mcp_servers()?.into_iter().find(|item| item.id == server.id)
+        db.mcp_servers()?
+            .into_iter()
+            .find(|item| item.id == server.id)
     };
     let mut secured = server;
     secure_config_values(&mut secured, existing.as_ref())?;
@@ -262,7 +313,9 @@ pub fn delete_preset(db: &Database, id: &str) -> Result<(), AppError> {
 
 pub fn delete_server(db: &Database, id: &str) -> Result<CapabilitySyncResult, AppError> {
     let Some(server) = db.delete_mcp_server_record(id)? else {
-        return Ok(CapabilitySyncResult { results: Vec::new() });
+        return Ok(CapabilitySyncResult {
+            results: Vec::new(),
+        });
     };
     let result = sync_mcp(db, None)?;
     // Credentials intentionally remain while the deletion backup exists.
@@ -270,21 +323,32 @@ pub fn delete_server(db: &Database, id: &str) -> Result<CapabilitySyncResult, Ap
     Ok(result)
 }
 
-pub fn test_server(db: &Database, mut server: McpServer) -> Result<McpTestResult, AppError> {
+pub fn prepare_server_test(db: &Database, mut server: McpServer) -> Result<McpServer, AppError> {
     validate_server(db, &server)?;
     resolve_config_secrets(&mut server)?;
     expand_server(db, &mut server)?;
+    Ok(server)
+}
+
+pub fn run_server_test(server: &McpServer) -> Result<McpTestResult, AppError> {
     let tested_at = now_string();
-    let result = match server.transport.as_str() {
-        "stdio" => test_stdio(&server, &tested_at),
-        "http" => test_http(&server, false, &tested_at),
-        "sse" => test_http(&server, true, &tested_at),
+    match server.transport.as_str() {
+        "stdio" => test_stdio(server, &tested_at),
+        "http" => test_http(server, false, &tested_at),
+        "sse" => test_http(server, true, &tested_at),
         _ => Err(AppError::message("Unsupported MCP transport")),
-    }?;
-    if !server.id.trim().is_empty() {
-        db.update_mcp_test(&server.id, &result.status, &result.error, &result.tools)?;
     }
-    Ok(result)
+}
+
+pub fn record_server_test(
+    db: &Database,
+    server_id: &str,
+    result: &McpTestResult,
+) -> Result<(), AppError> {
+    if !server_id.trim().is_empty() {
+        db.update_mcp_test(server_id, &result.status, &result.error, &result.tools)?;
+    }
+    Ok(())
 }
 
 pub fn preview_mcp(db: &Database, mut server: McpServer, agent: &str) -> Result<String, AppError> {
@@ -304,7 +368,10 @@ pub fn preview_mcp(db: &Database, mut server: McpServer, agent: &str) -> Result<
     }
 }
 
-pub fn import_skill(db: &Database, source_path: &str) -> Result<(Skill, CapabilitySyncResult), AppError> {
+pub fn import_skill(
+    db: &Database,
+    source_path: &str,
+) -> Result<(Skill, CapabilitySyncResult), AppError> {
     let path = PathBuf::from(source_path);
     let (name, description, instructions) = read_skill_md(&path)?;
     if is_shadow_builtin_skill(&path, &name) {
@@ -327,7 +394,10 @@ pub fn import_skill(db: &Database, source_path: &str) -> Result<(Skill, Capabili
     save_skill(db, skill)
 }
 
-pub fn save_skill(db: &Database, mut skill: Skill) -> Result<(Skill, CapabilitySyncResult), AppError> {
+pub fn save_skill(
+    db: &Database,
+    mut skill: Skill,
+) -> Result<(Skill, CapabilitySyncResult), AppError> {
     validate_skill(db, &skill)?;
     if skill.id.trim().is_empty() {
         skill.id = Uuid::new_v4().to_string();
@@ -392,7 +462,11 @@ pub fn sync_mcp(db: &Database, only_id: Option<&str>) -> Result<CapabilitySyncRe
                 ("error".to_string(), error.to_string())
             }
         };
-        results.push(SyncTargetResult { agent: agent.to_string(), status, error });
+        results.push(SyncTargetResult {
+            agent: agent.to_string(),
+            status,
+            error,
+        });
     }
     Ok(CapabilitySyncResult { results })
 }
@@ -413,7 +487,11 @@ pub fn sync_skills(db: &Database) -> Result<CapabilitySyncResult, AppError> {
                 ("error".to_string(), error.to_string())
             }
         };
-        results.push(SyncTargetResult { agent: agent.to_string(), status, error });
+        results.push(SyncTargetResult {
+            agent: agent.to_string(),
+            status,
+            error,
+        });
     }
     Ok(CapabilitySyncResult { results })
 }
@@ -432,12 +510,22 @@ fn validate_server(db: &Database, server: &McpServer) -> Result<(), AppError> {
     if name.is_empty() {
         return Err(AppError::message("MCP server name is required"));
     }
-    if db.mcp_servers()?.iter().any(|item| item.id != server.id && item.name.eq_ignore_ascii_case(name)) {
-        return Err(AppError::message("An MCP server with this name already exists"));
+    if db
+        .mcp_servers()?
+        .iter()
+        .any(|item| item.id != server.id && item.name.eq_ignore_ascii_case(name))
+    {
+        return Err(AppError::message(
+            "An MCP server with this name already exists",
+        ));
     }
     match server.transport.as_str() {
-        "stdio" if server.command.trim().is_empty() => Err(AppError::message("Command is required for stdio MCP servers")),
-        "http" | "sse" if server.url.trim().is_empty() => Err(AppError::message("URL is required for remote MCP servers")),
+        "stdio" if server.command.trim().is_empty() => Err(AppError::message(
+            "Command is required for stdio MCP servers",
+        )),
+        "http" | "sse" if server.url.trim().is_empty() => {
+            Err(AppError::message("URL is required for remote MCP servers"))
+        }
         "stdio" | "http" | "sse" => Ok(()),
         _ => Err(AppError::message("Transport must be stdio, http, or sse")),
     }
@@ -445,7 +533,11 @@ fn validate_server(db: &Database, server: &McpServer) -> Result<(), AppError> {
 
 fn validate_skill(db: &Database, skill: &Skill) -> Result<(), AppError> {
     validate_skill_shape(skill)?;
-    if db.skills()?.iter().any(|item| item.id != skill.id && item.name.eq_ignore_ascii_case(skill.name.trim())) {
+    if db
+        .skills()?
+        .iter()
+        .any(|item| item.id != skill.id && item.name.eq_ignore_ascii_case(skill.name.trim()))
+    {
         return Err(AppError::message("A Skill with this name already exists"));
     }
     Ok(())
@@ -460,21 +552,30 @@ fn validate_skill_shape(skill: &Skill) -> Result<(), AppError> {
         return Err(AppError::message("Skill instructions are required"));
     }
     if !filesystem_safe_name(name) {
-        return Err(AppError::message("Skill name is not safe for a folder name"));
+        return Err(AppError::message(
+            "Skill name is not safe for a folder name",
+        ));
     }
     Ok(())
 }
 
 fn filesystem_safe_name(name: &str) -> bool {
-    let reserved = ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2", "LPT3"];
+    let reserved = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "LPT1", "LPT2", "LPT3",
+    ];
     !name.is_empty()
         && name == name.trim()
         && !name.ends_with('.')
-        && !name.chars().any(|ch| matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        && !name
+            .chars()
+            .any(|ch| matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
         && !reserved.iter().any(|item| item.eq_ignore_ascii_case(name))
 }
 
-fn secure_config_values(server: &mut McpServer, existing: Option<&McpServer>) -> Result<(), AppError> {
+fn secure_config_values(
+    server: &mut McpServer,
+    existing: Option<&McpServer>,
+) -> Result<(), AppError> {
     for (scope, values) in [("env", &mut server.env), ("header", &mut server.headers)] {
         for (key, item) in values {
             if !item.secret {
@@ -485,16 +586,28 @@ fn secure_config_values(server: &mut McpServer, existing: Option<&McpServer>) ->
                 item.credential_id = format!("mcp:{}:{}:{}", server.id, scope, key);
             }
             if item.value.is_empty() {
-                if existing.and_then(|old| {
-                    let map = if scope == "env" { &old.env } else { &old.headers };
-                    map.get(key)
-                }).is_none() {
-                    return Err(AppError::message(format!("Secret value is required for {key}")));
+                if existing
+                    .and_then(|old| {
+                        let map = if scope == "env" {
+                            &old.env
+                        } else {
+                            &old.headers
+                        };
+                        map.get(key)
+                    })
+                    .is_none()
+                {
+                    return Err(AppError::message(format!(
+                        "Secret value is required for {key}"
+                    )));
                 }
                 continue;
             }
-            credential_entry(&item.credential_id)?.set_password(&item.value)
-                .map_err(|error| AppError::message(format!("Secure credential storage is unavailable: {error}")))?;
+            credential_entry(&item.credential_id)?
+                .set_password(&item.value)
+                .map_err(|error| {
+                    AppError::message(format!("Secure credential storage is unavailable: {error}"))
+                })?;
             item.value.clear();
         }
     }
@@ -506,7 +619,8 @@ fn resolve_config_secrets(server: &mut McpServer) -> Result<(), AppError> {
         for (key, item) in values {
             if item.secret {
                 if item.value.is_empty() {
-                    item.value = credential_entry(&item.credential_id)?.get_password()
+                    item.value = credential_entry(&item.credential_id)?
+                        .get_password()
                         .map_err(|_| AppError::message(format!("Secret required: {key}")))?;
                 }
             }
@@ -543,7 +657,8 @@ fn redact_server(mut server: McpServer) -> McpServer {
 
 fn expand_server(db: &Database, server: &mut McpServer) -> Result<(), AppError> {
     let settings = db.settings()?;
-    let home = dirs::home_dir().ok_or_else(|| AppError::message("Unable to determine home directory"))?;
+    let home =
+        dirs::home_dir().ok_or_else(|| AppError::message("Unable to determine home directory"))?;
     let app_data = app_data_dir()?;
     let expand = |value: &str| -> Result<String, AppError> {
         let mut output = value
@@ -551,7 +666,9 @@ fn expand_server(db: &Database, server: &mut McpServer) -> Result<(), AppError> 
             .replace("${APP_DATA}", &app_data.to_string_lossy());
         if output.contains("${WORKSPACE}") {
             if settings.default_workspace.trim().is_empty() {
-                return Err(AppError::message("${WORKSPACE} requires a default workspace in Settings"));
+                return Err(AppError::message(
+                    "${WORKSPACE} requires a default workspace in Settings",
+                ));
             }
             output = output.replace("${WORKSPACE}", &settings.default_workspace);
         }
@@ -561,7 +678,11 @@ fn expand_server(db: &Database, server: &mut McpServer) -> Result<(), AppError> 
         Ok(output)
     };
     server.command = expand(&server.command)?;
-    server.args = server.args.iter().map(|item| expand(item)).collect::<Result<_, _>>()?;
+    server.args = server
+        .args
+        .iter()
+        .map(|item| expand(item))
+        .collect::<Result<_, _>>()?;
     server.working_directory = expand(&server.working_directory)?;
     server.url = expand(&server.url)?;
     for values in [&mut server.env, &mut server.headers] {
@@ -574,33 +695,76 @@ fn expand_server(db: &Database, server: &mut McpServer) -> Result<(), AppError> 
 
 fn server_spec(server: &McpServer, agent: &str, redact: bool) -> Result<Value, AppError> {
     let values = |source: &BTreeMap<String, ConfigValue>| {
-        source.iter().map(|(key, value)| {
-            (key.clone(), Value::String(if value.secret && redact { "••••••••".to_string() } else { value.value.clone() }))
-        }).collect::<Map<_, _>>()
+        source
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    Value::String(render_config_value(value, redact)),
+                )
+            })
+            .collect::<Map<_, _>>()
     };
     let mut spec = Map::new();
     match server.transport.as_str() {
         "stdio" => {
             spec.insert("command".to_string(), json!(server.command));
-            if !server.args.is_empty() { spec.insert("args".to_string(), json!(server.args)); }
-            if !server.env.is_empty() { spec.insert("env".to_string(), Value::Object(values(&server.env))); }
-            if !server.working_directory.trim().is_empty() {
-                spec.insert(if agent == AGENT_GEMINI { "cwd" } else { "cwd" }.to_string(), json!(server.working_directory));
+            if !server.args.is_empty() {
+                spec.insert("args".to_string(), json!(server.args));
             }
-            if agent == AGENT_CODEX { spec.insert("type".to_string(), json!("stdio")); }
+            if !server.env.is_empty() {
+                spec.insert("env".to_string(), Value::Object(values(&server.env)));
+            }
+            if !server.working_directory.trim().is_empty() {
+                spec.insert(
+                    if agent == AGENT_GEMINI { "cwd" } else { "cwd" }.to_string(),
+                    json!(server.working_directory),
+                );
+            }
+            if agent == AGENT_CODEX {
+                spec.insert("type".to_string(), json!("stdio"));
+            }
         }
         "http" => {
-            spec.insert(if agent == AGENT_GEMINI { "httpUrl" } else { "url" }.to_string(), json!(server.url));
-            if agent == AGENT_CODEX { spec.insert("type".to_string(), json!("http")); }
+            spec.insert(
+                if agent == AGENT_GEMINI {
+                    "httpUrl"
+                } else {
+                    "url"
+                }
+                .to_string(),
+                json!(server.url),
+            );
+            if agent == AGENT_CODEX {
+                spec.insert("type".to_string(), json!("http"));
+            }
             if !server.headers.is_empty() {
-                spec.insert(if agent == AGENT_CODEX { "http_headers" } else { "headers" }.to_string(), Value::Object(values(&server.headers)));
+                spec.insert(
+                    if agent == AGENT_CODEX {
+                        "http_headers"
+                    } else {
+                        "headers"
+                    }
+                    .to_string(),
+                    Value::Object(values(&server.headers)),
+                );
             }
         }
         "sse" => {
             spec.insert("url".to_string(), json!(server.url));
-            if agent == AGENT_CODEX { spec.insert("type".to_string(), json!("sse")); }
+            if agent == AGENT_CODEX {
+                spec.insert("type".to_string(), json!("sse"));
+            }
             if !server.headers.is_empty() {
-                spec.insert(if agent == AGENT_CODEX { "http_headers" } else { "headers" }.to_string(), Value::Object(values(&server.headers)));
+                spec.insert(
+                    if agent == AGENT_CODEX {
+                        "http_headers"
+                    } else {
+                        "headers"
+                    }
+                    .to_string(),
+                    Value::Object(values(&server.headers)),
+                );
             }
         }
         _ => return Err(AppError::message("Unsupported MCP transport")),
@@ -620,7 +784,9 @@ fn sync_mcp_agent(
         _ => resolve_gemini_dir(&settings.gemini_config_dir),
     };
     if !dir.exists() {
-        return Err(AppError::message(format!("{agent} config directory is unavailable")));
+        return Err(AppError::message(format!(
+            "{agent} config directory is unavailable"
+        )));
     }
     let mut output = Map::new();
     for original in servers {
@@ -629,12 +795,17 @@ fn sync_mcp_agent(
             AGENT_CLAUDE => original.targets.claude,
             _ => original.targets.gemini,
         };
-        if !enabled { continue; }
+        if !enabled {
+            continue;
+        }
         let mut server = original.clone();
         resolve_config_secrets(&mut server)?;
         // Expansion does not need DB after settings are known.
         expand_server_with_settings(settings, &mut server)?;
-        output.insert(server.target_key.clone(), server_spec(&server, agent, false)?);
+        output.insert(
+            server.target_key.clone(),
+            server_spec(&server, agent, false)?,
+        );
     }
     if agent == AGENT_CODEX {
         sync_codex_mcp(&dir.join("config.toml"), &output)?;
@@ -651,26 +822,42 @@ fn sync_mcp_agent(
     Ok(hash_value(&Value::Object(output)))
 }
 
-fn expand_server_with_settings(settings: &crate::models::AppSettings, server: &mut McpServer) -> Result<(), AppError> {
-    let home = dirs::home_dir().ok_or_else(|| AppError::message("Unable to determine home directory"))?;
+fn expand_server_with_settings(
+    settings: &crate::models::AppSettings,
+    server: &mut McpServer,
+) -> Result<(), AppError> {
+    let home =
+        dirs::home_dir().ok_or_else(|| AppError::message("Unable to determine home directory"))?;
     let app_data = app_data_dir()?;
     let expand = |value: &str| -> Result<String, AppError> {
-        let mut output = value.replace("${HOME}", &home.to_string_lossy()).replace("${APP_DATA}", &app_data.to_string_lossy());
+        let mut output = value
+            .replace("${HOME}", &home.to_string_lossy())
+            .replace("${APP_DATA}", &app_data.to_string_lossy());
         if output.contains("${WORKSPACE}") {
             if settings.default_workspace.trim().is_empty() {
-                return Err(AppError::message("${WORKSPACE} requires a default workspace in Settings"));
+                return Err(AppError::message(
+                    "${WORKSPACE} requires a default workspace in Settings",
+                ));
             }
             output = output.replace("${WORKSPACE}", &settings.default_workspace);
         }
-        if output.contains("${") { return Err(AppError::message(format!("Unknown variable in '{value}'"))); }
+        if output.contains("${") {
+            return Err(AppError::message(format!("Unknown variable in '{value}'")));
+        }
         Ok(output)
     };
     server.command = expand(&server.command)?;
-    server.args = server.args.iter().map(|item| expand(item)).collect::<Result<_, _>>()?;
+    server.args = server
+        .args
+        .iter()
+        .map(|item| expand(item))
+        .collect::<Result<_, _>>()?;
     server.working_directory = expand(&server.working_directory)?;
     server.url = expand(&server.url)?;
     for values in [&mut server.env, &mut server.headers] {
-        for item in values.values_mut() { item.value = expand(&item.value)?; }
+        for item in values.values_mut() {
+            item.value = expand(&item.value)?;
+        }
     }
     Ok(())
 }
@@ -680,7 +867,8 @@ fn sync_codex_mcp(path: &Path, servers: &Map<String, Value>) -> Result<(), AppEr
     let mut doc = if text.trim().is_empty() {
         toml_edit::DocumentMut::new()
     } else {
-        text.parse::<toml_edit::DocumentMut>().map_err(|error| AppError::message(format!("Invalid Codex TOML: {error}")))?
+        text.parse::<toml_edit::DocumentMut>()
+            .map_err(|error| AppError::message(format!("Invalid Codex TOML: {error}")))?
     };
     if servers.is_empty() {
         doc.as_table_mut().remove("mcp_servers");
@@ -695,20 +883,26 @@ fn sync_codex_mcp(path: &Path, servers: &Map<String, Value>) -> Result<(), AppEr
 }
 
 fn json_to_codex_table(spec: &Value) -> Result<toml_edit::Table, AppError> {
-    let object = spec.as_object().ok_or_else(|| AppError::message("MCP spec must be an object"))?;
+    let object = spec
+        .as_object()
+        .ok_or_else(|| AppError::message("MCP spec must be an object"))?;
     let mut table = toml_edit::Table::new();
     for (key, value) in object {
         match value {
             Value::String(text) => table[key] = toml_edit::value(text),
             Value::Array(items) => {
                 let mut array = toml_edit::Array::new();
-                for item in items.iter().filter_map(Value::as_str) { array.push(item); }
+                for item in items.iter().filter_map(Value::as_str) {
+                    array.push(item);
+                }
                 table[key] = toml_edit::Item::Value(toml_edit::Value::Array(array));
             }
             Value::Object(items) => {
                 let mut child = toml_edit::Table::new();
                 for (child_key, child_value) in items {
-                    if let Some(text) = child_value.as_str() { child[child_key] = toml_edit::value(text); }
+                    if let Some(text) = child_value.as_str() {
+                        child[child_key] = toml_edit::value(text);
+                    }
                 }
                 table[key] = toml_edit::Item::Table(child);
             }
@@ -719,10 +913,12 @@ fn json_to_codex_table(spec: &Value) -> Result<toml_edit::Table, AppError> {
 }
 
 fn sync_json_mcp(path: &Path, servers: &Map<String, Value>) -> Result<(), AppError> {
-    let mut root = fs::read_to_string(path).ok()
+    let mut root = fs::read_to_string(path)
+        .ok()
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .unwrap_or_else(|| json!({}));
-    root.as_object_mut().ok_or_else(|| AppError::message("Agent settings root must be a JSON object"))?
+    root.as_object_mut()
+        .ok_or_else(|| AppError::message("Agent settings root must be a JSON object"))?
         .insert("mcpServers".to_string(), Value::Object(servers.clone()));
     atomic_write(path, serde_json::to_string_pretty(&root)?.as_bytes())
 }
@@ -738,38 +934,58 @@ fn sync_skill_agent(
         _ => resolve_gemini_dir(&settings.gemini_config_dir),
     };
     if !base.exists() {
-        return Err(AppError::message(format!("{agent} config directory is unavailable")));
+        return Err(AppError::message(format!(
+            "{agent} config directory is unavailable"
+        )));
     }
     let skill_root = base.join("skills");
     fs::create_dir_all(&skill_root)?;
     let managed_index_path = skill_root.join(".codex-switch-managed.json");
-    let previous: Vec<String> = fs::read_to_string(&managed_index_path).ok()
-        .and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
-    let enabled = skills.iter().filter(|skill| match agent {
-        AGENT_CODEX => skill.targets.codex,
-        AGENT_CLAUDE => skill.targets.claude,
-        _ => skill.targets.gemini,
-    }).collect::<Vec<_>>();
-    let desired = enabled.iter().map(|skill| skill.name.clone()).collect::<Vec<_>>();
+    let previous: Vec<String> = fs::read_to_string(&managed_index_path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default();
+    let enabled = skills
+        .iter()
+        .filter(|skill| match agent {
+            AGENT_CODEX => skill.targets.codex,
+            AGENT_CLAUDE => skill.targets.claude,
+            _ => skill.targets.gemini,
+        })
+        .collect::<Vec<_>>();
+    let desired = enabled
+        .iter()
+        .map(|skill| skill.name.clone())
+        .collect::<Vec<_>>();
     for old in previous {
         if !desired.iter().any(|name| name.eq_ignore_ascii_case(&old)) {
             let target = skill_root.join(old);
-            if target.exists() { fs::remove_dir_all(target)?; }
+            if target.exists() {
+                fs::remove_dir_all(target)?;
+            }
         }
     }
     for skill in enabled {
         let source = PathBuf::from(&skill.source_path);
         if !source.join("SKILL.md").exists() {
-            return Err(AppError::message(format!("Skill source is missing: {}", skill.name)));
+            return Err(AppError::message(format!(
+                "Skill source is missing: {}",
+                skill.name
+            )));
         }
         let target = skill_root.join(&skill.name);
         if same_path(&source, &target) {
             continue;
         }
-        if target.exists() { fs::remove_dir_all(&target)?; }
+        if target.exists() {
+            fs::remove_dir_all(&target)?;
+        }
         copy_dir(&source, &target)?;
     }
-    atomic_write(&managed_index_path, serde_json::to_string_pretty(&desired)?.as_bytes())?;
+    atomic_write(
+        &managed_index_path,
+        serde_json::to_string_pretty(&desired)?.as_bytes(),
+    )?;
     Ok(hash_value(&json!(desired)))
 }
 
@@ -789,19 +1005,25 @@ fn remove_skill_targets(db: &Database, skill: &Skill) -> Result<(), AppError> {
 }
 
 fn remove_missing_external_skills(db: &Database) -> Result<(), AppError> {
-    let missing = db.skills()?.into_iter()
+    let missing = db
+        .skills()?
+        .into_iter()
         .filter(|skill| skill.source_kind == "external" && !Path::new(&skill.source_path).exists())
         .collect::<Vec<_>>();
     for skill in missing {
         remove_skill_targets(db, &skill)?;
         db.delete_skill_record(&skill.id, "")?;
     }
-    if !db.skills()?.is_empty() { let _ = sync_skills(db); }
+    if !db.skills()?.is_empty() {
+        let _ = sync_skills(db);
+    }
     Ok(())
 }
 
 fn remove_hidden_system_skills(db: &Database) -> Result<(), AppError> {
-    let hidden = db.skills()?.into_iter()
+    let hidden = db
+        .skills()?
+        .into_iter()
         .filter(|skill| is_hidden_system_skill_path(&skill.source_path))
         .collect::<Vec<_>>();
     for skill in hidden {
@@ -819,47 +1041,70 @@ fn is_hidden_system_skill_path(path: &str) -> bool {
 }
 
 fn is_shadow_builtin_skill(path: &Path, name: &str) -> bool {
-    if !BUILTIN_SKILL_NAMES.iter().any(|item| item.eq_ignore_ascii_case(name.trim())) {
+    if !BUILTIN_SKILL_NAMES
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case(name.trim()))
+    {
         return false;
     }
-    let normalized = path.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-    normalized.contains("/.codex-switcher/skills/")
-        && !is_hidden_system_skill_path(&normalized)
+    let normalized = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    normalized.contains("/.codex-switcher/skills/") && !is_hidden_system_skill_path(&normalized)
 }
 
 fn read_skill_md(dir: &Path) -> Result<(String, String, String), AppError> {
     let path = dir.join("SKILL.md");
-    let text = fs::read_to_string(&path).map_err(|_| AppError::message("Selected folder does not contain a readable SKILL.md"))?;
+    let text = fs::read_to_string(&path)
+        .map_err(|_| AppError::message("Selected folder does not contain a readable SKILL.md"))?;
     parse_skill_md(&text)
 }
 
 fn parse_skill_md(text: &str) -> Result<(String, String, String), AppError> {
     let normalized = text.replace("\r\n", "\n");
     if !normalized.starts_with("---\n") {
-        return Err(AppError::message("SKILL.md must start with YAML frontmatter"));
+        return Err(AppError::message(
+            "SKILL.md must start with YAML frontmatter",
+        ));
     }
     let remainder = &normalized[4..];
-    let end = remainder.find("\n---\n").ok_or_else(|| AppError::message("SKILL.md frontmatter is not closed"))?;
+    let end = remainder
+        .find("\n---\n")
+        .ok_or_else(|| AppError::message("SKILL.md frontmatter is not closed"))?;
     let frontmatter = &remainder[..end];
     let instructions = remainder[end + 5..].trim().to_string();
     let mut name = String::new();
     let mut description = String::new();
     for line in frontmatter.lines() {
-        if let Some(value) = line.strip_prefix("name:") { name = unquote(value.trim()); }
-        if let Some(value) = line.strip_prefix("description:") { description = unquote(value.trim()); }
+        if let Some(value) = line.strip_prefix("name:") {
+            name = unquote(value.trim());
+        }
+        if let Some(value) = line.strip_prefix("description:") {
+            description = unquote(value.trim());
+        }
     }
     let skill = Skill {
-        id: String::new(), name: name.clone(), description: description.clone(),
-        instructions: instructions.clone(), source_path: String::new(),
-        source_kind: "external".to_string(), sync_mode: "reference".to_string(),
-        targets: CapabilityTargets::default(), created_at: String::new(), updated_at: String::new(),
+        id: String::new(),
+        name: name.clone(),
+        description: description.clone(),
+        instructions: instructions.clone(),
+        source_path: String::new(),
+        source_kind: "external".to_string(),
+        sync_mode: "reference".to_string(),
+        targets: CapabilityTargets::default(),
+        created_at: String::new(),
+        updated_at: String::new(),
     };
     validate_skill_shape(&skill)?;
     Ok((name, description, instructions))
 }
 
 fn render_skill_md(skill: &Skill) -> String {
-    let mut lines = vec!["---".to_string(), format!("name: {}", yaml_string(&skill.name))];
+    let mut lines = vec![
+        "---".to_string(),
+        format!("name: {}", yaml_string(&skill.name)),
+    ];
     if !skill.description.trim().is_empty() {
         lines.push(format!("description: {}", yaml_string(&skill.description)));
     }
@@ -884,16 +1129,51 @@ fn unquote(value: &str) -> String {
 }
 
 fn test_stdio(server: &McpServer, tested_at: &str) -> Result<McpTestResult, AppError> {
-    let mut command = Command::new(&server.command);
-    command.args(&server.args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    if !server.working_directory.trim().is_empty() { command.current_dir(&server.working_directory); }
-    for (key, value) in &server.env { command.env(key, &value.value); }
-    let mut child = command.spawn().map_err(|error| AppError::message(format!("Failed to start MCP server: {error}")))?;
-    let mut stdin = child.stdin.take().ok_or_else(|| AppError::message("MCP stdin is unavailable"))?;
-    let stdout = child.stdout.take().ok_or_else(|| AppError::message("MCP stdout is unavailable"))?;
+    let executable = resolve_command(&server.command);
+    let mut command = stdio_command(&executable, &server.args);
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if !server.working_directory.trim().is_empty() {
+        command.current_dir(&server.working_directory);
+    }
+    for (key, value) in &server.env {
+        command.env(key, &value.value);
+    }
+    let mut child = command.spawn().map_err(|error| {
+        AppError::message(format!(
+            "Failed to start MCP server '{}': {error}",
+            executable.to_string_lossy()
+        ))
+    })?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::message("MCP stdin is unavailable"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::message("MCP stdout is unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::message("MCP stderr is unavailable"))?;
+    let stderr_text = Arc::new(Mutex::new(String::new()));
+    let stderr_capture = Arc::clone(&stderr_text);
+    thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut chunk = [0_u8; 4096];
+        while let Ok(count) = reader.read(&mut chunk) {
+            if count == 0 {
+                break;
+            }
+            if let Ok(mut captured) = stderr_capture.lock() {
+                captured.push_str(&String::from_utf8_lossy(&chunk[..count]));
+            }
+        }
+    });
     writeln!(stdin, "{}", initialize_request())?;
-    writeln!(stdin, "{}", json!({"jsonrpc":"2.0","method":"notifications/initialized"}))?;
-    writeln!(stdin, "{}", tools_request())?;
     stdin.flush()?;
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
@@ -901,56 +1181,256 @@ fn test_stdio(server: &McpServer, tested_at: &str) -> Result<McpTestResult, AppE
         let mut line = String::new();
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             if let Ok(value) = serde_json::from_str::<Value>(line.trim()) {
-                if value.get("id").and_then(Value::as_i64) == Some(2) {
+                if matches!(value.get("id").and_then(Value::as_i64), Some(1 | 2)) {
                     let _ = tx.send(value);
-                    return;
                 }
             }
             line.clear();
         }
     });
-    let response = rx.recv_timeout(MCP_TIMEOUT);
-    let _ = child.kill();
-    match response {
-        Ok(value) => Ok(success_test(value, tested_at)),
-        Err(_) => Ok(McpTestResult {
-            status: "error".to_string(), error: "Timed out after 10 seconds".to_string(),
-            output: String::new(), tools: Vec::new(), tested_at: tested_at.to_string(),
-        }),
+    let started = Instant::now();
+    let mut response = None;
+    while started.elapsed() < MCP_TIMEOUT {
+        let remaining = MCP_TIMEOUT.saturating_sub(started.elapsed());
+        let Ok(value) = rx.recv_timeout(remaining) else {
+            break;
+        };
+        match value.get("id").and_then(Value::as_i64) {
+            Some(1) => {
+                writeln!(
+                    stdin,
+                    "{}",
+                    json!({"jsonrpc":"2.0","method":"notifications/initialized"})
+                )?;
+                writeln!(stdin, "{}", tools_request())?;
+                stdin.flush()?;
+            }
+            Some(2) => {
+                response = Some(value);
+                break;
+            }
+            _ => {}
+        }
     }
+    terminate_process_tree(&mut child);
+    match response {
+        Some(value) => Ok(success_test(value, tested_at)),
+        None => {
+            let detail = stderr_text
+                .lock()
+                .ok()
+                .map(|text| text.trim().to_string())
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| "The server did not complete MCP initialization.".to_string());
+            Ok(McpTestResult {
+                status: "error".to_string(),
+                error: format!("Timed out after 45 seconds. {detail}"),
+                output: detail,
+                tools: Vec::new(),
+                tested_at: tested_at.to_string(),
+            })
+        }
+    }
+}
+
+fn render_config_value(value: &ConfigValue, redact: bool) -> String {
+    let raw = if value.secret && redact {
+        "••••••••"
+    } else {
+        value.value.trim()
+    };
+    let Some((prefix, suffix)) = value.template.split_once("{value}") else {
+        return raw.to_string();
+    };
+    if suffix.is_empty()
+        && !prefix.is_empty()
+        && raw
+            .get(..prefix.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+    {
+        return raw.to_string();
+    }
+    format!("{prefix}{raw}{suffix}")
+}
+
+fn terminate_process_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        let mut taskkill = Command::new("taskkill");
+        taskkill
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW);
+        let _ = taskkill.status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+fn stdio_command(executable: &Path, args: &[String]) -> Command {
+    #[cfg(windows)]
+    {
+        let extension = executable
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        let mut command =
+            if extension.eq_ignore_ascii_case("cmd") || extension.eq_ignore_ascii_case("bat") {
+                let mut shell =
+                    Command::new(env::var_os("COMSPEC").unwrap_or_else(|| "cmd.exe".into()));
+                shell.args(["/D", "/S", "/C"]).arg(executable).args(args);
+                shell
+            } else {
+                let mut direct = Command::new(executable);
+                direct.args(args);
+                direct
+            };
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = Command::new(executable);
+        command.args(args);
+        command
+    }
+}
+
+fn resolve_command(command: &str) -> PathBuf {
+    let path = PathBuf::from(command);
+    if path.components().count() > 1 || path.is_absolute() {
+        return path;
+    }
+    let extensions: &[&str] = if cfg!(windows) {
+        &[".exe", ".cmd", ".bat", ".com", ""]
+    } else {
+        &[""]
+    };
+    let mut directories = env::var_os("PATH")
+        .map(|value| env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    #[cfg(windows)]
+    {
+        for variable in ["NVM_SYMLINK", "CONDA_PREFIX", "LOCALAPPDATA", "APPDATA"] {
+            if let Some(value) = env::var_os(variable) {
+                let base = PathBuf::from(value);
+                directories.push(base.clone());
+                directories.push(base.join("Scripts"));
+                directories.push(base.join("npm"));
+            }
+        }
+        directories.push(PathBuf::from(r"C:\Program Files\nodejs"));
+        directories.push(PathBuf::from(r"C:\nvm4w\nodejs"));
+        if let Some(home) = dirs::home_dir() {
+            directories.push(home.join(".local").join("bin"));
+        }
+    }
+    for directory in directories {
+        for extension in extensions {
+            let candidate = directory.join(format!("{command}{extension}"));
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    path
 }
 
 fn test_http(server: &McpServer, sse: bool, tested_at: &str) -> Result<McpTestResult, AppError> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(ACCEPT, HeaderValue::from_static("application/json, text/event-stream"));
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
     for (key, value) in &server.headers {
         headers.insert(
-            HeaderName::from_bytes(key.as_bytes()).map_err(|error| AppError::message(error.to_string()))?,
-            HeaderValue::from_str(&value.value).map_err(|error| AppError::message(error.to_string()))?,
+            HeaderName::from_bytes(key.as_bytes())
+                .map_err(|error| AppError::message(error.to_string()))?,
+            HeaderValue::from_str(&render_config_value(value, false))
+                .map_err(|error| AppError::message(error.to_string()))?,
         );
     }
-    let client = Client::builder().timeout(MCP_TIMEOUT).build().map_err(|error| AppError::message(error.to_string()))?;
-    let init = client.post(&server.url).headers(headers.clone()).json(&initialize_request()).send()
+    let client = Client::builder()
+        .timeout(MCP_TIMEOUT)
+        .build()
+        .map_err(|error| AppError::message(error.to_string()))?;
+    let init = client
+        .post(&server.url)
+        .headers(headers.clone())
+        .json(&initialize_request())
+        .send()
         .map_err(|error| AppError::message(format!("MCP initialize failed: {error}")))?;
     if !init.status().is_success() {
-        return Ok(McpTestResult { status: "error".to_string(), error: format!("Initialize returned HTTP {}", init.status()), output: String::new(), tools: Vec::new(), tested_at: tested_at.to_string() });
+        let status = init.status();
+        let detail = init.text().unwrap_or_default();
+        let detail = http_error_detail(&detail);
+        let error = if detail.is_empty() {
+            format!("Initialize returned HTTP {status}")
+        } else {
+            format!("Initialize returned HTTP {status}: {detail}")
+        };
+        return Ok(McpTestResult {
+            status: "error".to_string(),
+            error,
+            output: detail,
+            tools: Vec::new(),
+            tested_at: tested_at.to_string(),
+        });
     }
-    let session_id = init.headers().get("mcp-session-id").and_then(|value| value.to_str().ok()).map(str::to_string);
+    let session_id = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
     if let Some(session) = session_id {
-        headers.insert("mcp-session-id", HeaderValue::from_str(&session).map_err(|error| AppError::message(error.to_string()))?);
+        headers.insert(
+            "mcp-session-id",
+            HeaderValue::from_str(&session)
+                .map_err(|error| AppError::message(error.to_string()))?,
+        );
     }
-    let response = client.post(&server.url).headers(headers).json(&tools_request()).send()
+    let response = client
+        .post(&server.url)
+        .headers(headers)
+        .json(&tools_request())
+        .send()
         .map_err(|error| AppError::message(format!("MCP tools/list failed: {error}")))?;
-    let body = response.text().map_err(|error| AppError::message(error.to_string()))?;
+    let body = response
+        .text()
+        .map_err(|error| AppError::message(error.to_string()))?;
     let value = if sse || body.trim_start().starts_with("event:") || body.contains("\ndata:") {
-        body.lines().find_map(|line| line.strip_prefix("data:").map(str::trim))
+        body.lines()
+            .find_map(|line| line.strip_prefix("data:").map(str::trim))
             .and_then(|line| serde_json::from_str::<Value>(line).ok())
             .ok_or_else(|| AppError::message("SSE response did not contain JSON data"))?
     } else {
         serde_json::from_str(&body)?
     };
     Ok(success_test(value, tested_at))
+}
+
+fn http_error_detail(body: &str) -> String {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        for key in ["error_description", "message", "error"] {
+            if let Some(detail) = value.get(key).and_then(Value::as_str) {
+                return detail.trim().chars().take(240).collect();
+            }
+        }
+    }
+    trimmed
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(240)
+        .collect()
 }
 
 fn initialize_request() -> Value {
@@ -962,14 +1442,36 @@ fn tools_request() -> Value {
 }
 
 fn success_test(value: Value, tested_at: &str) -> McpTestResult {
-    let tools: Vec<McpTool> = value.pointer("/result/tools").and_then(Value::as_array).map(|items| items.iter().filter_map(|tool| {
-        Some(McpTool {
-            name: tool.get("name")?.as_str()?.to_string(),
-            description: tool.get("description").and_then(Value::as_str).unwrap_or("").to_string(),
-            input_schema: tool.get("inputSchema").cloned().unwrap_or_else(|| json!({})),
+    let tools: Vec<McpTool> = value
+        .pointer("/result/tools")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|tool| {
+                    Some(McpTool {
+                        name: tool.get("name")?.as_str()?.to_string(),
+                        description: tool
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        input_schema: tool
+                            .get("inputSchema")
+                            .cloned()
+                            .unwrap_or_else(|| json!({})),
+                    })
+                })
+                .collect()
         })
-    }).collect()).unwrap_or_default();
-    McpTestResult { status: "ok".to_string(), error: String::new(), output: format!("{} tools", tools.len()), tools, tested_at: tested_at.to_string() }
+        .unwrap_or_default();
+    McpTestResult {
+        status: "ok".to_string(),
+        error: String::new(),
+        output: format!("{} tools", tools.len()),
+        tools,
+        tested_at: tested_at.to_string(),
+    }
 }
 
 fn counts_for_mcp(items: &[McpServer], db: &Database) -> Result<CapabilityCounts, AppError> {
@@ -980,8 +1482,17 @@ fn counts_for_skills(items: &[Skill], db: &Database) -> Result<CapabilityCounts,
     counts(items.iter().map(|item| &item.targets), "skill", db)
 }
 
-fn counts<'a>(targets: impl Iterator<Item = &'a CapabilityTargets>, capability_type: &str, db: &Database) -> Result<CapabilityCounts, AppError> {
-    let mut counts = CapabilityCounts { codex: 0, claude: 0, gemini: 0, status: "ok".to_string() };
+fn counts<'a>(
+    targets: impl Iterator<Item = &'a CapabilityTargets>,
+    capability_type: &str,
+    db: &Database,
+) -> Result<CapabilityCounts, AppError> {
+    let mut counts = CapabilityCounts {
+        codex: 0,
+        claude: 0,
+        gemini: 0,
+        status: "ok".to_string(),
+    };
     for target in targets {
         counts.codex += usize::from(target.codex);
         counts.claude += usize::from(target.claude);
@@ -989,25 +1500,36 @@ fn counts<'a>(targets: impl Iterator<Item = &'a CapabilityTargets>, capability_t
     }
     for agent in [AGENT_CODEX, AGENT_CLAUDE, AGENT_GEMINI] {
         if let Some((_, status, _)) = db.sync_state(capability_type, agent)? {
-            if status == "error" { counts.status = "error".to_string(); }
+            if status == "error" {
+                counts.status = "error".to_string();
+            }
         }
     }
     Ok(counts)
 }
 
 fn hash_value(value: &Value) -> String {
-    format!("{:x}", Sha256::digest(serde_json::to_vec(value).unwrap_or_default()))
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(value).unwrap_or_default())
+    )
 }
 
 fn app_data_dir() -> Result<PathBuf, AppError> {
-    Ok(dirs::home_dir().ok_or_else(|| AppError::message("Unable to determine home directory"))?.join(APP_HOME_DIR))
+    Ok(dirs::home_dir()
+        .ok_or_else(|| AppError::message("Unable to determine home directory"))?
+        .join(APP_HOME_DIR))
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
-    if let Some(parent) = path.parent() { fs::create_dir_all(parent)?; }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let temp = path.with_extension(format!("tmp-{}", Uuid::new_v4()));
     fs::write(&temp, bytes)?;
-    if path.exists() { fs::remove_file(path)?; }
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
     fs::rename(temp, path)?;
     Ok(())
 }
@@ -1018,22 +1540,38 @@ fn copy_dir(source: &Path, target: &Path) -> Result<(), AppError> {
         let entry = entry?;
         let source_path = entry.path();
         let target_path = target.join(entry.file_name());
-        if source_path.is_dir() { copy_dir(&source_path, &target_path)?; }
-        else { fs::copy(source_path, target_path)?; }
+        if source_path.is_dir() {
+            copy_dir(&source_path, &target_path)?;
+        } else {
+            fs::copy(source_path, target_path)?;
+        }
     }
     Ok(())
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
     let normalized = |path: &Path| {
-        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
-            .to_string_lossy().replace('\\', "/").trim_end_matches('/').to_ascii_lowercase()
+        path.canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
     };
     normalized(left) == normalized(right)
 }
 
 fn sanitize_segment(value: &str) -> String {
-    value.chars().map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') { ch } else { '-' }).collect()
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 fn now_string() -> String {
@@ -1046,7 +1584,10 @@ mod tests {
 
     #[test]
     fn parses_and_renders_skill_markdown() {
-        let (name, description, body) = parse_skill_md("---\nname: \"Code Review\"\ndescription: \"Find bugs\"\n---\nCheck behavior.\n").unwrap();
+        let (name, description, body) = parse_skill_md(
+            "---\nname: \"Code Review\"\ndescription: \"Find bugs\"\n---\nCheck behavior.\n",
+        )
+        .unwrap();
         assert_eq!(name, "Code Review");
         assert_eq!(description, "Find bugs");
         assert_eq!(body, "Check behavior.");
@@ -1061,7 +1602,9 @@ mod tests {
 
     #[test]
     fn hides_system_and_shadow_builtin_skills() {
-        assert!(is_hidden_system_skill_path("C:/Users/me/.codex-switcher/skills/.system/imagegen"));
+        assert!(is_hidden_system_skill_path(
+            "C:/Users/me/.codex-switcher/skills/.system/imagegen"
+        ));
         assert!(is_shadow_builtin_skill(
             Path::new("C:/Users/me/.codex-switcher/skills/imagegen"),
             "imagegen",
@@ -1082,10 +1625,43 @@ mod tests {
             "remote",
             &json!({"httpUrl":"https://example.test/mcp","headers":{"X-Test":"value"}}),
             AGENT_GEMINI,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(server.transport, "http");
         assert_eq!(server.url, "https://example.test/mcp");
         assert!(server.targets.gemini);
+    }
+
+    #[test]
+    fn renders_secret_header_templates() {
+        let value = ConfigValue {
+            value: "smithery-key".to_string(),
+            secret: true,
+            credential_id: String::new(),
+            template: "Bearer {value}".to_string(),
+        };
+        assert_eq!(render_config_value(&value, false), "Bearer smithery-key");
+        assert_eq!(render_config_value(&value, true), "Bearer ••••••••");
+        let already_prefixed = ConfigValue {
+            value: "  Bearer smithery-key  ".to_string(),
+            ..value
+        };
+        assert_eq!(
+            render_config_value(&already_prefixed, false),
+            "Bearer smithery-key"
+        );
+    }
+
+    #[test]
+    fn extracts_http_error_details() {
+        assert_eq!(
+            http_error_detail(r#"{"error":"invalid_token","error_description":"Invalid token"}"#),
+            "Invalid token"
+        );
+        assert_eq!(
+            http_error_detail("  gateway unavailable \n"),
+            "gateway unavailable"
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -1119,5 +1695,17 @@ mod tests {
         assert_eq!(result.status, "ok");
         assert_eq!(result.tools.len(), 1);
         assert_eq!(result.tools[0].name, "ping");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn command_resolution_prefers_windows_launchers_over_extensionless_shims() {
+        let resolved = resolve_command("npx");
+        assert_ne!(
+            resolved.extension().and_then(|value| value.to_str()),
+            None,
+            "npx should resolve to an executable Windows launcher, got {}",
+            resolved.display()
+        );
     }
 }

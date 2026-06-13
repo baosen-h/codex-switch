@@ -14,6 +14,12 @@ import type {
   ImageGenerationRequest,
   ImageGenerationResponse,
   LaunchRequest,
+  MarketplaceCapability,
+  MarketplaceInstallRequest,
+  MarketplaceResult,
+  MarketplaceSearchResponse,
+  MarketplaceSource,
+  McpImportPreview,
   McpPreset,
   McpServer,
   McpTestResult,
@@ -25,7 +31,9 @@ import type {
   SessionRecord,
   StartOpenAiOauthResult,
   Skill,
+  SkillMarketPreview,
   SkillMarketResult,
+  RuntimeAvailability,
   WebSearchResponse,
 } from "../types";
 
@@ -90,11 +98,11 @@ export const appApi = {
   startOpenAiOauth(openBrowser = true): Promise<StartOpenAiOauthResult> {
     return invoke("start_openai_oauth", { openBrowser });
   },
-  submitOpenAiOauthCallback(input: string): Promise<void> {
-    return invoke("submit_openai_oauth_callback", { input });
+  completeOpenAiOauth(code: string): Promise<CompleteOpenAiOauthResult> {
+    return invoke("complete_openai_oauth", { code });
   },
-  completeOpenAiOauth(code: string, model?: string): Promise<CompleteOpenAiOauthResult> {
-    return invoke("complete_openai_oauth", { code, model });
+  completeOpenAiOauthCallback(input: string): Promise<CompleteOpenAiOauthResult> {
+    return invoke("complete_openai_oauth_callback", { input });
   },
   pickDirectory(initialPath?: string): Promise<string | null> {
     return invoke("pick_directory", { initialPath });
@@ -149,5 +157,35 @@ export const appApi = {
   },
   syncSkillCapabilities(): Promise<CapabilitySyncResult> {
     return invoke("sync_skill_capabilities");
+  },
+  getMarketplaceSources(capabilityType: MarketplaceCapability): Promise<MarketplaceSource[]> {
+    return invoke("get_marketplace_sources", { capabilityType });
+  },
+  saveMarketplaceSource(source: MarketplaceSource, credential = ""): Promise<MarketplaceSource> {
+    return invoke("save_marketplace_source", { source, credential });
+  },
+  deleteMarketplaceSource(id: string): Promise<void> {
+    return invoke("delete_marketplace_source", { id });
+  },
+  testMarketplaceSource(source: MarketplaceSource, credential = ""): Promise<void> {
+    return invoke("test_marketplace_source", { source, credential });
+  },
+  searchMarketplace(capabilityType: MarketplaceCapability, query: string): Promise<MarketplaceSearchResponse> {
+    return invoke("search_marketplace", { capabilityType, query });
+  },
+  previewMarketplaceSkill(result: MarketplaceResult): Promise<SkillMarketPreview> {
+    return invoke("preview_marketplace_skill", { result });
+  },
+  installMarketplaceSkill(request: MarketplaceInstallRequest): Promise<[Skill, CapabilitySyncResult]> {
+    return invoke("install_marketplace_skill", { request });
+  },
+  installMarketplaceMcp(request: MarketplaceInstallRequest): Promise<[McpServer, CapabilitySyncResult]> {
+    return invoke("install_marketplace_mcp", { request });
+  },
+  detectMarketplaceRuntimes(): Promise<RuntimeAvailability> {
+    return invoke("detect_marketplace_runtimes");
+  },
+  previewMcpJson(input: string): Promise<McpImportPreview> {
+    return invoke("preview_mcp_json", { input });
   },
 };

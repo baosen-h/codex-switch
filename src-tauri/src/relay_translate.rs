@@ -6,12 +6,8 @@
 //! This module translates requests outbound and SSE / sync responses inbound,
 //! all in-process — no separate daemon.
 //!
-//! Ported 1:1 from `cornellsh/codex-proxy` (MIT) — see
-//! `reference/codex-proxy/{normalizer,zai_provider,zai_stream}.py`.
-//!
-//! Extension beyond the Python reference: GLM emits `delta.reasoning_content`
-//! chunks for thinking. We surface those as `response.reasoning_summary_text.delta`
-//! so codex CLI shows reasoning in real time.
+//! GLM emits `delta.reasoning_content` chunks for thinking. We surface those as
+//! `response.reasoning_summary_text.delta` so Codex CLI shows reasoning in real time.
 
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1391,7 +1387,7 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
         }
     }
 
-    // 2) Reasoning content (GLM extension; not in Python reference)
+    // 2) Reasoning content for GLM streams
     if let Some(rc) = delta.get("reasoning_content").and_then(Value::as_str) {
         if !rc.is_empty() {
             state.full_reasoning_content.push_str(rc);

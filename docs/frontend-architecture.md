@@ -7,7 +7,7 @@ This project uses feature folders for screen-level code. The goal is to make UI 
 - `src/features/*`: route-level product features. Put screen orchestration, feature-local components, hooks, storage helpers, and feature docs here.
 - `src/components/app`: reusable app shell pieces such as title bar, sidebar, onboarding, updates, and toast.
 - `src/components/domain`: reusable product/domain components such as provider avatars, message rendering, brand icons, and capability badges.
-- `src/components/ui`: stable generic primitives and icons. Do not put experimental imported designs here first.
+- `src/components/ui`: stable generic primitives and icons. Do not put experimental feature designs here first.
 - `src/utils`: product-independent helpers and shared business logic.
 - `src/pages`: retired. Do not add new files here.
 
@@ -37,7 +37,7 @@ When importing a new UI design:
 4. Keep package-specific details inside the feature wrapper.
 5. Promote to `components/ui` only after the same component is needed by multiple features.
 
-This protects the app from conflicts between Semi UI, Theme UI, imported design libraries, and local CSS.
+This protects the app from conflicts between Semi UI, Theme UI, additional UI libraries, and local CSS.
 
 ## Good First Targets
 

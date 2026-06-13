@@ -180,6 +180,7 @@ function App() {
         caught instanceof Error ? caught.message : "Unexpected error.",
         "err",
       );
+      throw caught;
     }
   };
 

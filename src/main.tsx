@@ -4,7 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./modern.css";
 import "./components/ui/tokens.css";
-import "./cherry.css";
+import "./app-surface.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

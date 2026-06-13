@@ -14,9 +14,9 @@ Use a feature folder when a screen owns meaningful state, storage, API orchestra
 - Helper files such as `storage.ts`, `constants.ts`, `types.ts`, and `*Utils.ts` contain non-React logic.
 - Cross-feature imports should be avoided. If two features need the same behavior, promote the stable part to `components/domain`, `components/ui`, or `utils`.
 
-## UI Import Policy
+## UI Integration Policy
 
-Imported designs should land inside the target feature first. For example, a new prompt composer design should start in `features/talking/components`, not `components/ui`.
+New UI designs should land inside the target feature first. For example, a new prompt composer design should start in `features/talking/components`, not `components/ui`.
 
 Promote a component to `components/ui` only when:
 
@@ -25,7 +25,7 @@ Promote a component to `components/ui` only when:
 - it does not know feature-specific data shapes,
 - it can be styled with shared tokens rather than page-specific assumptions.
 
-Keep new package usage behind feature-local components at first. This limits blast radius if the imported design library conflicts with Semi UI, Theme UI, or existing CSS.
+Keep new package usage behind feature-local components at first. This limits the impact if a UI library conflicts with Semi UI, Theme UI, or existing CSS.
 
 ## Recommended Shape
 
@@ -43,7 +43,7 @@ features/example/
 
 ## Current Features
 
-- `talking`: reference chat feature and prompt composer boundary.
+- `talking`: primary chat feature and prompt composer boundary.
 - `drawing`: image generation and image editing workflow.
 - `providers`: reusable API provider configuration.
 - `agents`: Codex, Claude, and Gemini runtime provider profiles.

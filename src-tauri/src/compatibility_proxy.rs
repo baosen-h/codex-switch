@@ -277,8 +277,7 @@ fn handle_chat_completions_provider(
             .map_err(|error| error.to_string())?;
     ensure_chat_model_and_stream(&mut chat_body, &upstream_model)?;
     let stream_requested = request_body_stream_requested(&codex_body);
-    let local_web_enabled =
-        should_enable_local_web(stream_requested, web_search, &chat_body);
+    let local_web_enabled = should_enable_local_web(stream_requested, web_search, &chat_body);
     if local_web_enabled {
         prepare_local_web_agent_body(&mut chat_body)?;
     }
@@ -773,7 +772,32 @@ fn handle_gemini_provider(
         .path
         .strip_prefix("/gemini")
         .ok_or_else(|| "Invalid Gemini gateway path".to_string())?;
-    let url = gemini_upstream_url(&provider.base_url, suffix)?;
+    let suffix = gemini_suffix_with_provider_model(suffix, &provider.model);
+    if suffix
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .ends_with(":streamGenerateContent")
+    {
+        let suffix = gemini_generate_content_suffix(&suffix)?;
+        let url = gemini_upstream_url(&provider.base_url, &suffix)?;
+        let mut response =
+            post_protocol_stream(&url, &provider.api_key, body, ProtocolAuth::Gemini)?;
+        if !response.status().is_success() {
+            return relay_response(response, stream);
+        }
+        let mut response_body = Vec::new();
+        response
+            .read_to_end(&mut response_body)
+            .map_err(|error| error.to_string())?;
+        return write_http_response(
+            stream,
+            200,
+            "text/event-stream",
+            gemini_sse_from_response(&response_body)?,
+        );
+    }
+    let url = gemini_upstream_url(&provider.base_url, &suffix)?;
     let response = post_protocol_stream(&url, &provider.api_key, body, ProtocolAuth::Gemini)?;
     relay_response(response, stream)
 }
@@ -1101,6 +1125,56 @@ fn gemini_upstream_url(base_url: &str, suffix: &str) -> Result<String, String> {
     }
 }
 
+fn gemini_generate_content_suffix(suffix: &str) -> Result<String, String> {
+    let (path, query) = suffix.split_once('?').unwrap_or((suffix, ""));
+    let path = path
+        .strip_suffix(":streamGenerateContent")
+        .map(|prefix| format!("{prefix}:generateContent"))
+        .ok_or_else(|| "Invalid Gemini streaming route".to_string())?;
+    let query = query
+        .split('&')
+        .filter(|pair| {
+            let key = pair.split_once('=').map(|(key, _)| key).unwrap_or(pair);
+            !key.eq_ignore_ascii_case("alt")
+        })
+        .filter(|pair| !pair.is_empty())
+        .collect::<Vec<_>>()
+        .join("&");
+    if query.is_empty() {
+        Ok(path)
+    } else {
+        Ok(format!("{path}?{query}"))
+    }
+}
+
+fn gemini_suffix_with_provider_model(suffix: &str, model: &str) -> String {
+    let model = model.trim();
+    let Some(models_start) = suffix.find("/models/") else {
+        return suffix.to_string();
+    };
+    if model.is_empty() {
+        return suffix.to_string();
+    }
+    let model_start = models_start + "/models/".len();
+    let Some(action_offset) = suffix[model_start..].find(':') else {
+        return suffix.to_string();
+    };
+    let action_start = model_start + action_offset;
+    format!(
+        "{}{}{}",
+        &suffix[..model_start],
+        urlencoding::encode(model),
+        &suffix[action_start..]
+    )
+}
+
+fn gemini_sse_from_response(response_body: &[u8]) -> Result<Vec<u8>, String> {
+    let response: Value =
+        serde_json::from_slice(response_body).map_err(|error| error.to_string())?;
+    let response = serde_json::to_string(&response).map_err(|error| error.to_string())?;
+    Ok(format!("data: {response}\n\n").into_bytes())
+}
+
 fn http_response(status: u16, content_type: &str, body: Vec<u8>) -> Vec<u8> {
     let reason = match status {
         200 => "OK",
@@ -1385,5 +1459,37 @@ mod tests {
             Some(3)
         );
         assert_eq!(next_id, 4);
+    }
+
+    #[test]
+    fn gemini_stream_route_is_rewritten_to_generate_content() {
+        assert_eq!(
+            gemini_generate_content_suffix(
+                "/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse&trace=1"
+            )
+            .unwrap(),
+            "/v1beta/models/gemini-3.5-flash:generateContent?trace=1"
+        );
+    }
+
+    #[test]
+    fn gemini_json_response_is_wrapped_as_one_sse_event() {
+        let body = br#"{"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}"#;
+
+        assert_eq!(
+            String::from_utf8(gemini_sse_from_response(body).unwrap()).unwrap(),
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]}}]}\n\n"
+        );
+    }
+
+    #[test]
+    fn gemini_route_uses_the_exact_selected_provider_model() {
+        assert_eq!(
+            gemini_suffix_with_provider_model(
+                "/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse",
+                "[福利]gemini-3.5-flash"
+            ),
+            "/v1beta/models/%5B%E7%A6%8F%E5%88%A9%5Dgemini-3.5-flash:streamGenerateContent?alt=sse"
+        );
     }
 }

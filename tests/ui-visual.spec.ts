@@ -261,6 +261,32 @@ async function installTauriMock(page: Page) {
                 env: {},
                 headers: {},
               },
+              {
+                id: "builtin-memory",
+                name: "Memory",
+                description: "Local knowledge graph memory server.",
+                builtIn: true,
+                transport: "stdio",
+                command: "npx",
+                args: ["-y", "@modelcontextprotocol/server-memory"],
+                workingDirectory: "",
+                url: "",
+                env: {},
+                headers: {},
+              },
+              {
+                id: "builtin-fetch",
+                name: "Fetch",
+                description: "Retrieve and transform web content.",
+                builtIn: true,
+                transport: "stdio",
+                command: "uvx",
+                args: ["mcp-server-fetch"],
+                workingDirectory: "",
+                url: "",
+                env: {},
+                headers: {},
+              },
             ],
             skills: [],
             mcpCounts: { codex: 0, claude: 0, gemini: 0, status: "ok" },
@@ -331,6 +357,123 @@ async function installTauriMock(page: Page) {
         if (cmd === "complete_openai_oauth") return Promise.resolve({ email: "mock@example.com", configText: "model = \"gpt-5.1\"" });
         if (cmd === "start_openai_oauth") return Promise.resolve({ authUrl: "https://auth.openai.com/mock", manualCallbackRequired: false });
         if (cmd === "pick_directory") return Promise.resolve("F:\\Desktop\\Draft");
+        if (cmd === "test_mcp_server") {
+          window.localStorage.setItem("codex-switch-ui-test-last-mcp", JSON.stringify(args.server));
+          return new Promise((resolve) => window.setTimeout(() => resolve({
+            status: "ok",
+            error: "",
+            output: "",
+            tools: [{ name: "mock_tool", description: "Mock MCP tool", inputSchema: {} }],
+            testedAt: new Date().toISOString(),
+          }), 250));
+        }
+        if (cmd === "search_marketplace") {
+          const installSpec = (
+            transport: string,
+            overrides: Partial<{
+              command: string;
+              args: string[];
+              url: string;
+              packageType: string;
+              packageName: string;
+              headerKeys: string[];
+              headerTemplates: Record<string, string>;
+              requiredHeaderKeys: string[];
+            }> = {},
+          ) => ({
+            transport,
+            command: "",
+            args: [],
+            url: "",
+            packageType: "",
+            packageName: "",
+            envKeys: [],
+            headerKeys: [],
+            headerTemplates: {},
+            requiredHeaderKeys: [],
+            ...overrides,
+          });
+          const result = (
+            id: string,
+            name: string,
+            description: string,
+            spec: ReturnType<typeof installSpec>,
+          ) => ({
+            id,
+            capabilityType: "mcp",
+            canonicalId: id,
+            name,
+            description,
+            author: "",
+            version: "1.0.0",
+            sourceId: "official-mcp-registry",
+            sourceName: "Official MCP Registry",
+            sourceIds: ["official-mcp-registry"],
+            sourceUrl: "",
+            artifactUrl: "",
+            artifactSha256: "",
+            installReference: id,
+            downloads: 0,
+            warnings: [],
+            installSpec: spec,
+            installedId: "",
+            updateAvailable: false,
+          });
+          return Promise.resolve({
+            results: [
+              result(
+                "ai.smithery/kwp-lab-rss-reader-mcp",
+                "Smithery RSS Reader",
+                "Authenticated Streamable HTTP reader.",
+                installSpec("http", {
+                  url: "https://server.smithery.ai/@kwp-lab/rss-reader-mcp/mcp",
+                  headerKeys: ["Authorization"],
+                  headerTemplates: { Authorization: "Bearer {value}" },
+                  requiredHeaderKeys: ["Authorization"],
+                }),
+              ),
+              result(
+                "app.readwithleaf/leaf",
+                "Leaf Reader",
+                "Public Streamable HTTP reader.",
+                installSpec("http", { url: "https://mcp.readwithleaf.app/mcp" }),
+              ),
+              result(
+                "io.github.CSOAI-ORG/readme-generator-ai-mcp",
+                "README Generator",
+                "Local PyPI reader package.",
+                installSpec("stdio", {
+                  command: "uvx",
+                  args: ["readme-generator-ai-mcp==1.0.4"],
+                  packageType: "pypi",
+                  packageName: "readme-generator-ai-mcp",
+                }),
+              ),
+            ],
+            sources: [{
+              sourceId: "official-mcp-registry",
+              sourceName: "Official MCP Registry",
+              status: "ok",
+              error: "",
+              resultCount: 3,
+            }],
+          });
+        }
+        if (cmd === "get_marketplace_sources") {
+          return Promise.resolve([{
+            id: "official-mcp-registry",
+            capabilityType: args.capabilityType,
+            name: "Official MCP Registry",
+            sourceType: "mcp_registry",
+            baseUrl: "https://registry.modelcontextprotocol.io",
+            enabled: true,
+            sortOrder: 0,
+            builtIn: true,
+            hasCredential: false,
+          }]);
+        }
+        if (cmd === "test_marketplace_source") return Promise.resolve(true);
+        if (cmd === "save_marketplace_source") return Promise.resolve(args.source);
         if (cmd === "save_settings") return Promise.resolve(args.settings);
         return Promise.resolve(true);
       },
@@ -521,6 +664,136 @@ test("talking messages render markdown, roles, and copy actions", async ({ page 
   await page.locator(".ai-message-assistant .ai-message-action").first().click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("**Wiggle style**");
   await capture(page, "19b-talking-rich-messages");
+});
+
+test("capability MCP controls stay aligned and use inline source management", async ({ page }) => {
+  await waitForApp(page);
+  await page.getByTitle("Capabilities").click();
+  await page.getByRole("button", { name: /^MCP/ }).click();
+
+  const list = page.locator(".capability-manager-list");
+  const search = page.locator(".capability-search").first();
+  const [listBox, searchBox] = await Promise.all([list.boundingBox(), search.boundingBox()]);
+  expect(listBox).not.toBeNull();
+  expect(searchBox).not.toBeNull();
+  expect(Math.abs(searchBox!.x - (listBox!.x + 9))).toBeLessThanOrEqual(1);
+  expect(Math.abs((searchBox!.x + searchBox!.width) - (listBox!.x + listBox!.width - 9))).toBeLessThanOrEqual(1);
+
+  await page.getByRole("button", { name: /Filesystem/ }).click();
+  const environmentAdd = page.locator(".capability-kv .add-button.add-button-compact");
+  await expect(environmentAdd).toBeVisible();
+  await expect(environmentAdd).toHaveCSS("width", "30px");
+  await page.getByRole("button", { name: "Test server" }).click();
+  await expect(page.getByRole("button", { name: "Testing..." })).toBeDisabled();
+  await expect(page.locator(".mcp-test-progress")).toBeVisible();
+  await expect(page.getByText("Server started. 1 tools found.")).toBeVisible();
+
+  await page.getByRole("button", { name: /Manage MCP markets/ }).click();
+  const sourceEditor = page.locator(".capability-inline-editor");
+  await expect(sourceEditor).toBeVisible();
+  await expect(sourceEditor.locator(".capability-inline-header")).toHaveCount(0);
+  await expect(sourceEditor.getByRole("button", { name: "Back to editor" })).toHaveCount(0);
+  await expect(sourceEditor.getByText("Enabled", { exact: true })).toHaveCount(0);
+  await expect(sourceEditor.locator("input[type='checkbox']")).toHaveCount(0);
+  await expect(sourceEditor.getByLabel("Name")).toHaveValue("Official MCP Registry");
+  const nameField = sourceEditor.getByLabel("Name");
+  const typeField = sourceEditor.getByLabel("Type");
+  const baseUrlField = sourceEditor.getByLabel("Base URL");
+  const [formBox, nameBox, typeBox, baseUrlBox] = await Promise.all([
+    sourceEditor.locator(".source-manager-form").boundingBox(),
+    nameField.boundingBox(),
+    typeField.boundingBox(),
+    baseUrlField.boundingBox(),
+  ]);
+  expect(formBox).not.toBeNull();
+  expect(nameBox).not.toBeNull();
+  expect(typeBox).not.toBeNull();
+  expect(baseUrlBox).not.toBeNull();
+  expect(typeBox!.y).toBeGreaterThan(nameBox!.y + nameBox!.height);
+  for (const box of [nameBox!, typeBox!, baseUrlBox!]) {
+    expect(box.x).toBeGreaterThanOrEqual(formBox!.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(formBox!.x + formBox!.width + 1);
+  }
+  const activeSource = sourceEditor.locator(".source-manager-list button.active");
+  await expect(activeSource).toHaveCSS("font-size", "10px");
+  await expect(activeSource).toHaveCSS("min-height", "36px");
+  const overflow = await sourceEditor.locator(".source-manager-layout").evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(1);
+  await capture(page, "16a-capabilities-mcp-market");
+
+  await sourceEditor.getByRole("button", { name: /Add source/ }).click();
+  await expect(sourceEditor.getByLabel("Name")).toHaveValue("");
+  const [sourceListAfterAdd, sourceFormAfterAdd] = await Promise.all([
+    sourceEditor.locator(".source-manager-list").boundingBox(),
+    sourceEditor.locator(".source-manager-form").boundingBox(),
+  ]);
+  expect(sourceListAfterAdd).not.toBeNull();
+  expect(sourceFormAfterAdd).not.toBeNull();
+  expect(sourceListAfterAdd!.width).toBeGreaterThanOrEqual(170);
+  expect(sourceFormAfterAdd!.x).toBeGreaterThanOrEqual(sourceListAfterAdd!.x + sourceListAfterAdd!.width - 1);
+  const overflowAfterAdd = await sourceEditor.locator(".source-manager-layout").evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  );
+  expect(overflowAfterAdd).toBeLessThanOrEqual(1);
+  await capture(page, "16b-capabilities-mcp-add-source");
+
+  await page.getByRole("button", { name: /Import MCP JSON/ }).click();
+  await expect(page.locator(".json-import-panel")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back to editor" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /New server/ }).click();
+  await page.getByLabel("Transport").selectOption("http");
+  const headerAdd = page.locator(".capability-kv .add-button.add-button-compact");
+  await headerAdd.click();
+  await expect(page.locator(".capability-kv-row input[type='checkbox']")).toHaveCount(0);
+  await expect(page.locator(".capability-kv-row input[type='password']")).toHaveCount(1);
+
+  await search.locator("select").selectOption("market");
+  await search.locator("input").fill("read");
+  await search.locator("input").press("Enter");
+  await expect(page.getByRole("button", { name: /Smithery RSS Reader/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Leaf Reader/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /README Generator/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /Smithery RSS Reader/ }).click();
+  const authorizationValue = page.locator(".capability-kv-row input[type='password']");
+  await expect(authorizationValue).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Test server" })).toBeDisabled();
+  await authorizationValue.fill("Bearer smithery-test-key");
+  await page.getByRole("button", { name: "Test server" }).click();
+  await expect(page.getByText("Server started. 1 tools found.")).toBeVisible();
+  const testedSmithery = await page.evaluate(() => JSON.parse(
+    window.localStorage.getItem("codex-switch-ui-test-last-mcp") || "{}",
+  ));
+  expect(testedSmithery.headers.Authorization).toEqual({
+    value: "Bearer smithery-test-key",
+    secret: true,
+    credentialId: "",
+    template: "Bearer {value}",
+  });
+
+  await page.getByRole("button", { name: /Leaf Reader/ }).click();
+  await expect(page.getByLabel("Transport")).toHaveValue("http");
+  await expect(page.getByLabel("URL")).toHaveValue("https://mcp.readwithleaf.app/mcp");
+  await expect(page.locator(".capability-kv-row")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /README Generator/ }).click();
+  await expect(page.getByLabel("Transport")).toHaveValue("stdio");
+  await expect(page.getByLabel("Command")).toHaveValue("uvx");
+  await expect(page.getByLabel("Arguments, one per line")).toHaveValue("readme-generator-ai-mcp==1.0.4");
+
+  await page.getByRole("button", { name: /Skills/ }).click();
+  const skillList = page.locator(".capability-manager-list");
+  const skillSearch = page.locator(".capability-search").first();
+  const [skillListBox, skillSearchBox] = await Promise.all([skillList.boundingBox(), skillSearch.boundingBox()]);
+  expect(skillListBox).not.toBeNull();
+  expect(skillSearchBox).not.toBeNull();
+  expect(Math.abs(skillSearchBox!.x - (skillListBox!.x + 9))).toBeLessThanOrEqual(1);
+  expect(Math.abs((skillSearchBox!.x + skillSearchBox!.width) - (skillListBox!.x + skillListBox!.width - 9))).toBeLessThanOrEqual(1);
+
+  await capture(page, "16-capabilities-inline-market");
 });
 
 test("talking prompt kit stays readable in light mode", async ({ page }) => {

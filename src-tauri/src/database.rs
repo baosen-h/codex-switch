@@ -1,10 +1,11 @@
 use crate::agent_writer::{
     default_claude_config_dir, default_codex_config_dir, default_gemini_config_dir,
+    render_codex_oauth,
 };
 use crate::app_config::{APP_HOME_DIR, DB_FILE, LEGACY_APP_HOME_DIR, LEGACY_DB_FILE};
 use crate::error::AppError;
 use crate::models::{
-    ApiProvider, AppSettings, DashboardState, McpPreset, McpServer, McpTool,
+    ApiProvider, AppSettings, DashboardState, MarketplaceSource, McpPreset, McpServer, McpTool,
     Provider, RemoteModel, SessionRecord, Skill, WebSearchSettings,
 };
 use crate::session_manager;
@@ -169,6 +170,16 @@ impl Database {
         } else {
             provider.id.clone()
         };
+        let has_openai_oauth = provider
+            .open_ai_auth_json
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty());
+        let provider_type = normalized_api_provider_type(&provider.provider_type, has_openai_oauth);
+        if provider_type == "openai_oauth" && !has_openai_oauth {
+            return Err(AppError::message(
+                "OpenAI OAuth provider is not authorized yet. Complete login before saving.",
+            ));
+        }
 
         let created_at = self
             .connection
@@ -202,13 +213,7 @@ impl Database {
             params![
                 provider_id,
                 provider.name.trim(),
-                normalized_api_provider_type(
-                    &provider.provider_type,
-                    provider
-                        .open_ai_auth_json
-                        .as_deref()
-                        .is_some_and(|value| !value.trim().is_empty()),
-                ),
+                provider_type,
                 normalized_wire_api(&provider.wire_api),
                 provider.base_url.trim(),
                 provider.api_key.trim(),
@@ -296,6 +301,25 @@ impl Database {
         let next_api_key = api_provider.api_key.trim().to_string();
         let next_website_url = api_provider.website_url.trim().to_string();
         let next_wire_api = normalized_wire_api(&api_provider.wire_api);
+        if api_provider.provider_type == "openai_oauth" && provider.agent == "codex" {
+            let auth_json = api_provider
+                .open_ai_auth_json
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    AppError::message(
+                        "OpenAI OAuth provider is missing auth data. Complete login again.",
+                    )
+                })?;
+
+            provider.base_url = String::new();
+            provider.api_key = String::new();
+            provider.website_url = next_website_url;
+            provider.wire_api = "responses".to_string();
+            provider.config_text = render_codex_oauth(&provider.model, auth_json);
+            return Ok(provider);
+        }
+
         let changed = provider.base_url != next_base_url
             || provider.api_key != next_api_key
             || provider.website_url != next_website_url
@@ -583,6 +607,119 @@ impl Database {
               trash_path TEXT NOT NULL DEFAULT '',
               deleted_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS marketplace_sources (
+              id TEXT PRIMARY KEY,
+              capability_type TEXT NOT NULL,
+              name TEXT NOT NULL,
+              source_type TEXT NOT NULL,
+              base_url TEXT NOT NULL DEFAULT '',
+              enabled INTEGER NOT NULL DEFAULT 1,
+              sort_order INTEGER NOT NULL DEFAULT 0,
+              built_in INTEGER NOT NULL DEFAULT 0,
+              credential_id TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS marketplace_installs (
+              capability_type TEXT NOT NULL,
+              capability_id TEXT NOT NULL,
+              source_id TEXT NOT NULL DEFAULT '',
+              canonical_id TEXT NOT NULL DEFAULT '',
+              source_version TEXT NOT NULL DEFAULT '',
+              source_url TEXT NOT NULL DEFAULT '',
+              artifact_url TEXT NOT NULL DEFAULT '',
+              artifact_sha256 TEXT NOT NULL DEFAULT '',
+              installed_hash TEXT NOT NULL DEFAULT '',
+              update_version TEXT NOT NULL DEFAULT '',
+              checked_at TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY(capability_type, capability_id)
+            );
+            "#,
+        )?;
+
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "source_id",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "canonical_id",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "source_version",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "source_url",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "installed_hash",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "mcp_servers",
+            "update_version",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "source_id",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "canonical_id",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "source_version",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "source_url",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "installed_hash",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &self.connection,
+            "skills",
+            "update_version",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+
+        self.connection.execute_batch(
+            r#"
+            INSERT OR IGNORE INTO marketplace_sources
+              (id, capability_type, name, source_type, base_url, enabled, sort_order, built_in)
+            VALUES
+              ('skill-skills-sh', 'skills', 'skills.sh', 'skills_sh', 'https://skills.sh', 1, 10, 1),
+              ('skill-claude-plugins', 'skills', 'claude-plugins.dev', 'claude_plugins', 'https://claude-plugins.dev', 1, 20, 1),
+              ('skill-clawhub', 'skills', 'clawhub.ai', 'clawhub', 'https://clawhub.ai', 1, 30, 1),
+              ('skill-hermes-index', 'skills', 'Hermes Skills Hub', 'hermes_index', 'https://hermes-agent.nousresearch.com/docs/api/skills-index.json', 1, 40, 1),
+              ('mcp-official', 'mcp', 'Official MCP Registry', 'mcp_registry', 'https://registry.modelcontextprotocol.io', 1, 10, 1);
             "#,
         )?;
 
@@ -736,11 +873,15 @@ impl Database {
         if server.target_key.trim().is_empty() {
             server.target_key = capability_target_key(&server.name, &server.id);
         }
-        let created_at = self.connection.query_row(
-            "SELECT created_at FROM mcp_servers WHERE id = ?1",
-            params![server.id],
-            |row| row.get::<_, String>(0),
-        ).optional()?.unwrap_or_else(|| now.clone());
+        let created_at = self
+            .connection
+            .query_row(
+                "SELECT created_at FROM mcp_servers WHERE id = ?1",
+                params![server.id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| now.clone());
         self.connection.execute(
             r#"INSERT INTO mcp_servers (
               id, target_key, name, description, transport, command, args_json,
@@ -755,19 +896,39 @@ impl Database {
               env_json=excluded.env_json, headers_json=excluded.headers_json,
               targets_json=excluded.targets_json, updated_at=excluded.updated_at"#,
             params![
-                server.id, server.target_key, server.name.trim(), server.description.trim(),
-                server.transport, server.command.trim(), serde_json::to_string(&server.args)?,
-                server.working_directory.trim(), server.url.trim(), serde_json::to_string(&server.env)?,
-                serde_json::to_string(&server.headers)?, serde_json::to_string(&server.targets)?,
-                server.last_test_status, server.last_test_error, server.last_test_at,
-                serde_json::to_string(&server.cached_tools)?, created_at, now,
+                server.id,
+                server.target_key,
+                server.name.trim(),
+                server.description.trim(),
+                server.transport,
+                server.command.trim(),
+                serde_json::to_string(&server.args)?,
+                server.working_directory.trim(),
+                server.url.trim(),
+                serde_json::to_string(&server.env)?,
+                serde_json::to_string(&server.headers)?,
+                serde_json::to_string(&server.targets)?,
+                server.last_test_status,
+                server.last_test_error,
+                server.last_test_at,
+                serde_json::to_string(&server.cached_tools)?,
+                created_at,
+                now,
             ],
         )?;
-        self.mcp_servers()?.into_iter().find(|item| item.id == server.id)
+        self.mcp_servers()?
+            .into_iter()
+            .find(|item| item.id == server.id)
             .ok_or_else(|| AppError::message("Saved MCP server was not found"))
     }
 
-    pub fn update_mcp_test(&self, id: &str, status: &str, error: &str, tools: &[McpTool]) -> Result<(), AppError> {
+    pub fn update_mcp_test(
+        &self,
+        id: &str,
+        status: &str,
+        error: &str,
+        tools: &[McpTool],
+    ) -> Result<(), AppError> {
         self.connection.execute(
             "UPDATE mcp_servers SET last_test_status=?2,last_test_error=?3,last_test_at=?4,cached_tools_json=?5 WHERE id=?1",
             params![id, status, error, current_time_string(), serde_json::to_string(tools)?],
@@ -779,7 +940,8 @@ impl Database {
         let server = self.mcp_servers()?.into_iter().find(|item| item.id == id);
         if let Some(ref item) = server {
             self.save_capability_backup("mcp", id, &serde_json::to_string(item)?, "")?;
-            self.connection.execute("DELETE FROM mcp_servers WHERE id=?1", params![id])?;
+            self.connection
+                .execute("DELETE FROM mcp_servers WHERE id=?1", params![id])?;
         }
         Ok(server)
     }
@@ -790,12 +952,21 @@ impl Database {
             r#"SELECT id,name,description,transport,command,args_json,working_directory,url,
             env_json,headers_json FROM mcp_presets ORDER BY name COLLATE NOCASE"#,
         )?;
-        let rows = statement.query_map([], |row| Ok(McpPreset {
-            id: row.get(0)?, name: row.get(1)?, description: row.get(2)?, built_in: false,
-            transport: row.get(3)?, command: row.get(4)?, args: json_column(row.get(5)?),
-            working_directory: row.get(6)?, url: row.get(7)?, env: json_column(row.get(8)?),
-            headers: json_column(row.get(9)?),
-        }))?;
+        let rows = statement.query_map([], |row| {
+            Ok(McpPreset {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                built_in: false,
+                transport: row.get(3)?,
+                command: row.get(4)?,
+                args: json_column(row.get(5)?),
+                working_directory: row.get(6)?,
+                url: row.get(7)?,
+                env: json_column(row.get(8)?),
+                headers: json_column(row.get(9)?),
+            })
+        })?;
         presets.extend(rows.filter_map(Result::ok));
         Ok(presets)
     }
@@ -825,7 +996,8 @@ impl Database {
     }
 
     pub fn delete_mcp_preset(&self, id: &str) -> Result<(), AppError> {
-        self.connection.execute("DELETE FROM mcp_presets WHERE id=?1", params![id])?;
+        self.connection
+            .execute("DELETE FROM mcp_presets WHERE id=?1", params![id])?;
         Ok(())
     }
 
@@ -834,12 +1006,20 @@ impl Database {
             r#"SELECT id,name,description,instructions,source_path,source_kind,sync_mode,
             targets_json,created_at,updated_at FROM skills ORDER BY name COLLATE NOCASE"#,
         )?;
-        let rows = statement.query_map([], |row| Ok(Skill {
-            id: row.get(0)?, name: row.get(1)?, description: row.get(2)?,
-            instructions: row.get(3)?, source_path: row.get(4)?, source_kind: row.get(5)?,
-            sync_mode: row.get(6)?, targets: json_column(row.get(7)?),
-            created_at: row.get(8)?, updated_at: row.get(9)?,
-        }))?;
+        let rows = statement.query_map([], |row| {
+            Ok(Skill {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                description: row.get(2)?,
+                instructions: row.get(3)?,
+                source_path: row.get(4)?,
+                source_kind: row.get(5)?,
+                sync_mode: row.get(6)?,
+                targets: json_column(row.get(7)?),
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+            })
+        })?;
         Ok(rows.filter_map(Result::ok).collect())
     }
 
@@ -848,10 +1028,15 @@ impl Database {
         if skill.id.trim().is_empty() {
             skill.id = Uuid::new_v4().to_string();
         }
-        let created_at = self.connection.query_row(
-            "SELECT created_at FROM skills WHERE id=?1", params![skill.id],
-            |row| row.get::<_, String>(0),
-        ).optional()?.unwrap_or_else(|| now.clone());
+        let created_at = self
+            .connection
+            .query_row(
+                "SELECT created_at FROM skills WHERE id=?1",
+                params![skill.id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_else(|| now.clone());
         self.connection.execute(
             r#"INSERT INTO skills (id,name,description,instructions,source_path,source_kind,
             sync_mode,targets_json,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
@@ -859,24 +1044,47 @@ impl Database {
             instructions=excluded.instructions,source_path=excluded.source_path,
             source_kind=excluded.source_kind,sync_mode=excluded.sync_mode,
             targets_json=excluded.targets_json,updated_at=excluded.updated_at"#,
-            params![skill.id,skill.name.trim(),skill.description.trim(),skill.instructions,
-                skill.source_path,skill.source_kind,skill.sync_mode,serde_json::to_string(&skill.targets)?,
-                created_at,now],
+            params![
+                skill.id,
+                skill.name.trim(),
+                skill.description.trim(),
+                skill.instructions,
+                skill.source_path,
+                skill.source_kind,
+                skill.sync_mode,
+                serde_json::to_string(&skill.targets)?,
+                created_at,
+                now
+            ],
         )?;
-        self.skills()?.into_iter().find(|item| item.id == skill.id)
+        self.skills()?
+            .into_iter()
+            .find(|item| item.id == skill.id)
             .ok_or_else(|| AppError::message("Saved skill was not found"))
     }
 
-    pub fn delete_skill_record(&self, id: &str, trash_path: &str) -> Result<Option<Skill>, AppError> {
+    pub fn delete_skill_record(
+        &self,
+        id: &str,
+        trash_path: &str,
+    ) -> Result<Option<Skill>, AppError> {
         let skill = self.skills()?.into_iter().find(|item| item.id == id);
         if let Some(ref item) = skill {
             self.save_capability_backup("skill", id, &serde_json::to_string(item)?, trash_path)?;
-            self.connection.execute("DELETE FROM skills WHERE id=?1", params![id])?;
+            self.connection
+                .execute("DELETE FROM skills WHERE id=?1", params![id])?;
         }
         Ok(skill)
     }
 
-    pub fn set_sync_state(&self, capability_type: &str, agent: &str, hash: &str, status: &str, error: &str) -> Result<(), AppError> {
+    pub fn set_sync_state(
+        &self,
+        capability_type: &str,
+        agent: &str,
+        hash: &str,
+        status: &str,
+        error: &str,
+    ) -> Result<(), AppError> {
         self.connection.execute(
             r#"INSERT INTO capability_sync_state (capability_type,target_agent,last_synced_hash,last_synced_at,last_status,last_error)
             VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(capability_type,target_agent) DO UPDATE SET
@@ -887,7 +1095,11 @@ impl Database {
         Ok(())
     }
 
-    pub fn sync_state(&self, capability_type: &str, agent: &str) -> Result<Option<(String,String,String)>, AppError> {
+    pub fn sync_state(
+        &self,
+        capability_type: &str,
+        agent: &str,
+    ) -> Result<Option<(String, String, String)>, AppError> {
         Ok(self.connection.query_row(
             "SELECT last_synced_hash,last_status,last_error FROM capability_sync_state WHERE capability_type=?1 AND target_agent=?2",
             params![capability_type,agent],
@@ -895,7 +1107,140 @@ impl Database {
         ).optional()?)
     }
 
-    fn save_capability_backup(&self, capability_type: &str, capability_id: &str, payload: &str, trash_path: &str) -> Result<(), AppError> {
+    pub fn marketplace_sources(
+        &self,
+        capability_type: &str,
+    ) -> Result<Vec<MarketplaceSource>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"SELECT id,capability_type,name,source_type,base_url,enabled,sort_order,built_in,credential_id
+               FROM marketplace_sources WHERE capability_type=?1 ORDER BY sort_order,name COLLATE NOCASE"#,
+        )?;
+        let rows = statement.query_map(params![capability_type], |row| {
+            let credential_id: String = row.get(8)?;
+            Ok(MarketplaceSource {
+                id: row.get(0)?,
+                capability_type: row.get(1)?,
+                name: row.get(2)?,
+                source_type: row.get(3)?,
+                base_url: row.get(4)?,
+                enabled: row.get::<_, i64>(5)? != 0,
+                sort_order: row.get(6)?,
+                built_in: row.get::<_, i64>(7)? != 0,
+                has_credential: !credential_id.is_empty(),
+                credential_id,
+            })
+        })?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn save_marketplace_source(
+        &self,
+        mut source: MarketplaceSource,
+    ) -> Result<MarketplaceSource, AppError> {
+        if source.id.trim().is_empty() {
+            source.id = Uuid::new_v4().to_string();
+        }
+        self.connection.execute(
+            r#"INSERT INTO marketplace_sources
+               (id,capability_type,name,source_type,base_url,enabled,sort_order,built_in,credential_id)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+               ON CONFLICT(id) DO UPDATE SET name=excluded.name,source_type=excluded.source_type,
+               base_url=excluded.base_url,enabled=excluded.enabled,sort_order=excluded.sort_order,
+               credential_id=excluded.credential_id"#,
+            params![
+                source.id,
+                source.capability_type,
+                source.name.trim(),
+                source.source_type,
+                source.base_url.trim().trim_end_matches('/'),
+                source.enabled as i64,
+                source.sort_order,
+                source.built_in as i64,
+                source.credential_id,
+            ],
+        )?;
+        self.marketplace_sources(&source.capability_type)?
+            .into_iter()
+            .find(|item| item.id == source.id)
+            .ok_or_else(|| AppError::message("Saved marketplace source was not found"))
+    }
+
+    pub fn delete_marketplace_source(&self, id: &str) -> Result<(), AppError> {
+        let built_in = self
+            .connection
+            .query_row(
+                "SELECT built_in FROM marketplace_sources WHERE id=?1",
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        if built_in == Some(1) {
+            return Err(AppError::message(
+                "Built-in marketplace sources cannot be removed",
+            ));
+        }
+        self.connection
+            .execute("DELETE FROM marketplace_sources WHERE id=?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn save_marketplace_install(
+        &self,
+        capability_type: &str,
+        capability_id: &str,
+        source_id: &str,
+        canonical_id: &str,
+        source_version: &str,
+        source_url: &str,
+        artifact_url: &str,
+        artifact_sha256: &str,
+        installed_hash: &str,
+    ) -> Result<(), AppError> {
+        self.connection.execute(
+            r#"INSERT INTO marketplace_installs
+               (capability_type,capability_id,source_id,canonical_id,source_version,source_url,
+                artifact_url,artifact_sha256,installed_hash,checked_at)
+               VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+               ON CONFLICT(capability_type,capability_id) DO UPDATE SET
+               source_id=excluded.source_id,canonical_id=excluded.canonical_id,
+               source_version=excluded.source_version,source_url=excluded.source_url,
+               artifact_url=excluded.artifact_url,artifact_sha256=excluded.artifact_sha256,
+               installed_hash=excluded.installed_hash,update_version='',checked_at=excluded.checked_at"#,
+            params![
+                capability_type,
+                capability_id,
+                source_id,
+                canonical_id,
+                source_version,
+                source_url,
+                artifact_url,
+                artifact_sha256,
+                installed_hash,
+                current_time_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn installed_marketplace_item(
+        &self,
+        capability_type: &str,
+        canonical_id: &str,
+    ) -> Result<Option<(String, String)>, AppError> {
+        Ok(self.connection.query_row(
+            "SELECT capability_id,source_version FROM marketplace_installs WHERE capability_type=?1 AND canonical_id=?2",
+            params![capability_type, canonical_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional()?)
+    }
+
+    fn save_capability_backup(
+        &self,
+        capability_type: &str,
+        capability_id: &str,
+        payload: &str,
+        trash_path: &str,
+    ) -> Result<(), AppError> {
         self.connection.execute(
             "INSERT INTO capability_delete_backups (id,capability_type,capability_id,payload_json,trash_path,deleted_at) VALUES (?1,?2,?3,?4,?5,?6)",
             params![Uuid::new_v4().to_string(), capability_type, capability_id, payload, trash_path, current_time_string()],
@@ -1007,27 +1352,85 @@ fn json_column<T: serde::de::DeserializeOwned + Default>(value: String) -> T {
 }
 
 fn capability_target_key(name: &str, id: &str) -> String {
-    let slug = name.chars().map(|ch| {
-        if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' }
-    }).collect::<String>();
-    let slug = slug.split('-').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("-");
-    let prefix = if slug.is_empty() { "mcp" } else { slug.as_str() };
-    format!("{}-{}", prefix, id.chars().filter(|ch| ch.is_ascii_hexdigit()).take(6).collect::<String>())
+    let slug = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let slug = slug
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let prefix = if slug.is_empty() {
+        "mcp"
+    } else {
+        slug.as_str()
+    };
+    format!(
+        "{}-{}",
+        prefix,
+        id.chars()
+            .filter(|ch| ch.is_ascii_hexdigit())
+            .take(6)
+            .collect::<String>()
+    )
 }
 
 fn builtin_mcp_presets() -> Vec<McpPreset> {
     use std::collections::BTreeMap;
-    let preset = |id: &str, name: &str, description: &str, command: &str, args: Vec<&str>| McpPreset {
-        id: id.to_string(), name: name.to_string(), description: description.to_string(),
-        built_in: true, transport: "stdio".to_string(), command: command.to_string(),
-        args: args.into_iter().map(str::to_string).collect(), working_directory: String::new(),
-        url: String::new(), env: BTreeMap::new(), headers: BTreeMap::new(),
-    };
+    let preset =
+        |id: &str, name: &str, description: &str, command: &str, args: Vec<&str>| McpPreset {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+            built_in: true,
+            transport: "stdio".to_string(),
+            command: command.to_string(),
+            args: args.into_iter().map(str::to_string).collect(),
+            working_directory: String::new(),
+            url: String::new(),
+            env: BTreeMap::new(),
+            headers: BTreeMap::new(),
+        };
     vec![
-        preset("builtin-filesystem", "Filesystem", "Read and manage selected local files.", "npx", vec!["-y", "@modelcontextprotocol/server-filesystem", "${WORKSPACE}"]),
-        preset("builtin-git", "Git", "Inspect and operate on a Git repository.", "uvx", vec!["mcp-server-git", "--repository", "${WORKSPACE}"]),
-        preset("builtin-memory", "Memory", "Local knowledge graph memory server.", "npx", vec!["-y", "@modelcontextprotocol/server-memory"]),
-        preset("builtin-fetch", "Fetch", "Retrieve and transform web content.", "uvx", vec!["mcp-server-fetch"]),
+        preset(
+            "builtin-filesystem",
+            "Filesystem",
+            "Read and manage selected local files.",
+            "npx",
+            vec![
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "${WORKSPACE}",
+            ],
+        ),
+        preset(
+            "builtin-git",
+            "Git",
+            "Inspect and operate on a Git repository.",
+            "uvx",
+            vec!["mcp-server-git", "--repository", "${WORKSPACE}"],
+        ),
+        preset(
+            "builtin-memory",
+            "Memory",
+            "Local knowledge graph memory server.",
+            "npx",
+            vec!["-y", "@modelcontextprotocol/server-memory"],
+        ),
+        preset(
+            "builtin-fetch",
+            "Fetch",
+            "Retrieve and transform web content.",
+            "uvx",
+            vec!["mcp-server-fetch"],
+        ),
     ]
 }
 
@@ -1127,6 +1530,31 @@ mod tests {
         }
     }
 
+    fn oauth_api_provider(id: &str) -> ApiProvider {
+        ApiProvider {
+            id: id.to_string(),
+            name: "OpenAI OAuth".to_string(),
+            provider_type: "openai_oauth".to_string(),
+            wire_api: "responses".to_string(),
+            base_url: String::new(),
+            api_key: String::new(),
+            website_url: "https://chatgpt.com".to_string(),
+            open_ai_auth_json: Some(
+                r#"{
+  "tokens": {
+    "access_token": "access-token",
+    "refresh_token": "refresh-token"
+  }
+}"#
+                .to_string(),
+            ),
+            models: Vec::new(),
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
     fn linked_codex_provider(api_provider_id: &str) -> Provider {
         Provider {
             id: "agent-1".to_string(),
@@ -1147,8 +1575,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn saving_api_provider_updates_linked_agent_provider() {
+    fn with_temp_home(test: impl FnOnce() -> Result<(), AppError>) -> Result<(), AppError> {
         let test_home =
             env::temp_dir().join(format!("codex-switch-db-test-{}", current_time_string()));
         let old_home = env::var_os("HOME");
@@ -1156,7 +1583,26 @@ mod tests {
         env::set_var("HOME", &test_home);
         env::set_var("USERPROFILE", &test_home);
 
-        let result = (|| -> Result<(), AppError> {
+        let result = test();
+
+        if let Some(value) = old_home {
+            env::set_var("HOME", value);
+        } else {
+            env::remove_var("HOME");
+        }
+        if let Some(value) = old_userprofile {
+            env::set_var("USERPROFILE", value);
+        } else {
+            env::remove_var("USERPROFILE");
+        }
+        let _ = fs::remove_dir_all(&test_home);
+
+        result
+    }
+
+    #[test]
+    fn saving_api_provider_updates_linked_agent_provider() {
+        with_temp_home(|| {
             let db = Database::new()?;
             db.save_api_provider(empty_api_provider(
                 "api-1",
@@ -1182,20 +1628,25 @@ mod tests {
             assert_eq!(linked.wire_api, "responses");
             assert!(linked.config_text.is_empty());
             Ok(())
-        })();
+        })
+        .unwrap();
+    }
 
-        if let Some(value) = old_home {
-            env::set_var("HOME", value);
-        } else {
-            env::remove_var("HOME");
-        }
-        if let Some(value) = old_userprofile {
-            env::set_var("USERPROFILE", value);
-        } else {
-            env::remove_var("USERPROFILE");
-        }
-        let _ = fs::remove_dir_all(&test_home);
+    #[test]
+    fn linked_openai_oauth_provider_writes_codex_oauth_config_text() {
+        with_temp_home(|| {
+            let db = Database::new()?;
+            db.save_api_provider(oauth_api_provider("oauth-1"))?;
 
-        result.unwrap();
+            let saved_agent = db.save_provider(linked_codex_provider("oauth-1"))?;
+
+            assert!(saved_agent.config_text.contains("\"tokens\""));
+            assert!(saved_agent
+                .config_text
+                .contains("\"access_token\": \"access-token\""));
+            assert!(!saved_agent.config_text.contains("OPENAI_API_KEY"));
+            Ok(())
+        })
+        .unwrap();
     }
 }

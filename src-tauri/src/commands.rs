@@ -12,10 +12,11 @@ use crate::handoff;
 use crate::models::{
     ApiProvider, AppSettings, AppUpdateInfo, CapabilitiesState, CapabilitySyncResult,
     ChatAttachment, ChatMessage, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
-    ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, McpPreset, McpServer,
-    McpTestResult, ModelListRequest, Provider, ProviderBalance, RemoteModel, SessionMessage,
-    SessionRecord, Skill, SkillMarketResult, UpdateDownloadProgress, WebSearchResponse,
-    WebSearchSettings,
+    ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, MarketplaceInstallRequest,
+    MarketplaceResult, MarketplaceSearchResponse, MarketplaceSource, McpImportPreview, McpPreset,
+    McpServer, McpTestResult, ModelListRequest, Provider, ProviderBalance, RemoteModel,
+    RuntimeAvailability, SessionMessage, SessionRecord, Skill, SkillMarketPreview,
+    SkillMarketResult, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -1439,12 +1440,31 @@ pub fn delete_mcp_server(
 }
 
 #[tauri::command]
-pub fn test_mcp_server(
+pub async fn test_mcp_server(
     state: State<'_, AppState>,
     server: McpServer,
 ) -> Result<McpTestResult, String> {
-    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
-    crate::capabilities::test_server(&db, server).map_err(|error| error.to_string())
+    let db = Arc::clone(&state.db);
+    let prepared = {
+        let db = db
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        crate::capabilities::prepare_server_test(&db, server).map_err(|error| error.to_string())?
+    };
+    let server_id = prepared.id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::capabilities::run_server_test(&prepared).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("MCP test worker failed: {error}"))??;
+    if !server_id.trim().is_empty() {
+        let db = db
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        crate::capabilities::record_server_test(&db, &server_id, &result)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(result)
 }
 
 #[tauri::command]
@@ -1604,6 +1624,87 @@ pub fn preview_skill(skill: Skill) -> Result<String, String> {
 pub fn sync_skill_capabilities(state: State<'_, AppState>) -> Result<CapabilitySyncResult, String> {
     let db = state.db.lock().map_err(|_| "Failed to lock database")?;
     crate::capabilities::sync_skills(&db).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_marketplace_sources(
+    state: State<'_, AppState>,
+    capability_type: String,
+) -> Result<Vec<MarketplaceSource>, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::list_sources(&db, &capability_type).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn save_marketplace_source(
+    state: State<'_, AppState>,
+    source: MarketplaceSource,
+    credential: String,
+) -> Result<MarketplaceSource, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::save_source(&db, source, &credential).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn delete_marketplace_source(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::delete_source(&db, &id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn test_marketplace_source(
+    source: MarketplaceSource,
+    credential: String,
+) -> Result<(), String> {
+    crate::marketplace::test_source(&source, &credential).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn search_marketplace(
+    state: State<'_, AppState>,
+    capability_type: String,
+    query: String,
+) -> Result<MarketplaceSearchResponse, String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::search(&db, &capability_type, &query).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_marketplace_skill(
+    result: MarketplaceResult,
+) -> Result<SkillMarketPreview, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::marketplace::preview_skill(result))
+        .await
+        .map_err(|error| format!("Skill preview task failed: {error}"))?
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn install_marketplace_skill(
+    state: State<'_, AppState>,
+    request: MarketplaceInstallRequest,
+) -> Result<(Skill, CapabilitySyncResult), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::install_skill(&db, request).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn install_marketplace_mcp(
+    state: State<'_, AppState>,
+    request: MarketplaceInstallRequest,
+) -> Result<(McpServer, CapabilitySyncResult), String> {
+    let db = state.db.lock().map_err(|_| "Failed to lock database")?;
+    crate::marketplace::install_mcp(&db, request).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn detect_marketplace_runtimes() -> RuntimeAvailability {
+    crate::marketplace::runtime_availability()
+}
+
+#[tauri::command]
+pub fn preview_mcp_json(input: String) -> Result<McpImportPreview, String> {
+    crate::marketplace::preview_mcp_json(&input).map_err(|error| error.to_string())
 }
 
 fn normalized_provider_type(provider_type: &str) -> String {

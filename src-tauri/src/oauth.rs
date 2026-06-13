@@ -3,10 +3,10 @@ use rand::{rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{Ipv4Addr, Ipv6Addr, TcpListener};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use url::Url;
 
@@ -39,7 +39,6 @@ pub struct StartOauthResult {
 #[serde(rename_all = "camelCase")]
 pub struct CompleteOauthResult {
     pub email: String,
-    pub config_text: String,
     pub auth_json: String,
 }
 
@@ -71,24 +70,25 @@ pub fn start_openai_oauth(
         });
     }
 
-    let bind_result = TcpListener::bind(("127.0.0.1", REDIRECT_PORT));
-    let mut manual_callback_required = false;
-    let mut message = None;
+    let should_open_browser = open_browser.unwrap_or(true);
+    let mut manual_callback_required = !should_open_browser;
+    let mut message = manual_callback_required.then(|| {
+        "Open the generated URL, finish login, then paste the final callback URL below.".to_string()
+    });
 
-    match bind_result {
-        Ok(listener) => {
-            let app_clone = app.clone();
-            std::thread::spawn(move || listen_for_callback(listener, app_clone, state));
+    if should_open_browser {
+        match bind_redirect_listeners() {
+            Ok(listeners) => {
+                std::thread::spawn(move || listen_for_callback(listeners, app, state));
+            }
+            Err(error) => {
+                manual_callback_required = true;
+                message = Some(format!(
+                    "Cannot bind local port {REDIRECT_PORT}: {error}. Finish login in the browser, then paste the final callback URL here."
+                ));
+            }
         }
-        Err(error) => {
-            manual_callback_required = true;
-            message = Some(format!(
-                "Cannot bind local port {REDIRECT_PORT}: {error}. Finish login in the browser, then paste the final callback URL here."
-            ));
-        }
-    }
 
-    if open_browser.unwrap_or(true) {
         open_external_url(&auth_url)?;
     }
 
@@ -100,20 +100,19 @@ pub fn start_openai_oauth(
 }
 
 #[tauri::command]
-pub fn submit_openai_oauth_callback(app: AppHandle, input: String) -> Result<(), String> {
-    let (code, state) = parse_callback_input(&input)
-        .ok_or_else(|| "Could not find code/state in callback URL".to_string())?;
-    validate_state(&state)?;
-    app.emit("openai-oauth-code", code)
-        .map_err(|error| format!("Failed to emit OAuth code: {error}"))?;
-    Ok(())
+pub fn complete_openai_oauth(code: String) -> Result<CompleteOauthResult, String> {
+    complete_openai_oauth_code(code)
 }
 
 #[tauri::command]
-pub fn complete_openai_oauth(
-    code: String,
-    model: Option<String>,
-) -> Result<CompleteOauthResult, String> {
+pub fn complete_openai_oauth_callback(input: String) -> Result<CompleteOauthResult, String> {
+    let (code, state) = parse_callback_input(&input)
+        .ok_or_else(|| "Could not find code/state in callback URL".to_string())?;
+    validate_state(&state)?;
+    complete_openai_oauth_code(code)
+}
+
+fn complete_openai_oauth_code(code: String) -> Result<CompleteOauthResult, String> {
     let code_verifier = {
         let mut pending = pending_login()
             .lock()
@@ -147,51 +146,62 @@ pub fn complete_openai_oauth(
     });
     let auth_body = serde_json::to_string_pretty(&auth_json)
         .map_err(|error| format!("Failed to render auth.json: {error}"))?;
-    let selected_model = model
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "gpt-5.4".to_string());
-    let config_text = format!(
-        "# ── ~/.codex/config.toml ──\nmodel = {:?}\ndisable_response_storage = true\n\n# ── ~/.codex/auth.json ──\n{}\n",
-        selected_model,
-        auth_body
-    );
 
     Ok(CompleteOauthResult {
         email,
-        config_text,
         auth_json: auth_body,
     })
 }
 
-fn listen_for_callback(listener: TcpListener, app: AppHandle, expected_state: String) {
-    let _ = listener.set_nonblocking(false);
-    let _ = listener.set_ttl(64);
-    if let Ok((mut stream, _)) = listener.accept() {
-        let mut buffer = [0u8; 4096];
-        if let Ok(n) = stream.read(&mut buffer) {
-            let request = String::from_utf8_lossy(&buffer[..n]);
-            if let Some((code, state)) = extract_code_from_request(&request) {
-                if state == expected_state {
-                    let body = "<html><body><h1>Authorization complete</h1><p>You can close this window and return to Codex Switch.</p></body></html>";
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                        body.len(),
-                        body
+fn listen_for_callback(listeners: Vec<TcpListener>, app: AppHandle, expected_state: String) {
+    for listener in &listeners {
+        let _ = listener.set_nonblocking(true);
+        let _ = listener.set_ttl(64);
+    }
+    let deadline = Instant::now() + Duration::from_secs(180);
+
+    while Instant::now() < deadline {
+        for listener in &listeners {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0u8; 4096];
+                    if let Ok(n) = stream.read(&mut buffer) {
+                        let request = String::from_utf8_lossy(&buffer[..n]);
+                        if let Some((code, state)) = extract_code_from_request(&request) {
+                            if state == expected_state {
+                                write_callback_response(
+                                    &mut stream,
+                                    200,
+                                    "<html><body><h1>Authorization complete</h1><p>You can close this window and return to Codex Switch.</p></body></html>",
+                                    "text/html; charset=utf-8",
+                                );
+                                let _ = app.emit("openai-oauth-code", code);
+                                return;
+                            }
+                        }
+                    }
+                    write_callback_response(
+                        &mut stream,
+                        400,
+                        "Authorization failed. Please paste the callback URL into Codex Switch.",
+                        "text/plain; charset=utf-8",
                     );
-                    let _ = stream.write_all(response.as_bytes());
-                    let _ = app.emit("openai-oauth-code", code);
-                    return;
                 }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(_) => return,
             }
         }
-        let body = "Authorization failed. Please paste the callback URL into Codex Switch.";
-        let response = format!(
-            "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-            body.len(),
-            body
-        );
-        let _ = stream.write_all(response.as_bytes());
+        std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+fn write_callback_response(stream: &mut impl Write, status: u16, body: &str, content_type: &str) {
+    let reason = if status == 200 { "OK" } else { "Bad Request" };
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(response.as_bytes());
 }
 
 struct PkceCodes {
@@ -220,6 +230,33 @@ fn generate_state() -> String {
 
 fn redirect_uri() -> String {
     format!("http://localhost:{REDIRECT_PORT}/auth/callback")
+}
+
+fn bind_redirect_listeners() -> Result<Vec<TcpListener>, std::io::Error> {
+    let mut listeners = Vec::new();
+    let mut first_error = None;
+
+    for bind_result in [
+        TcpListener::bind((Ipv4Addr::LOCALHOST, REDIRECT_PORT)),
+        TcpListener::bind((Ipv6Addr::LOCALHOST, REDIRECT_PORT)),
+    ] {
+        match bind_result {
+            Ok(listener) => listeners.push(listener),
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    if listeners.is_empty() {
+        Err(first_error.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "loopback unavailable")
+        }))
+    } else {
+        Ok(listeners)
+    }
 }
 
 fn build_auth_url(code_challenge: &str, state: &str, redirect_uri: &str) -> String {
@@ -285,27 +322,7 @@ fn exchange_code(
         urlencoding::encode(code_verifier)
     );
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(25))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let response = client
-        .post(TOKEN_URL)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .map_err(|error| format!("Token request failed: {error}"))?;
-
-    let status = response.status();
-    let text = response
-        .text()
-        .map_err(|error| format!("Failed to read token response: {error}"))?;
-    if !status.is_success() {
-        return Err(format!("OpenAI token exchange failed ({status}): {text}"));
-    }
-
-    serde_json::from_str::<TokenResponse>(&text)
-        .map_err(|error| format!("Failed to parse token response: {error}"))
+    request_token(body, "exchange")
 }
 
 pub fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, String> {
@@ -315,27 +332,33 @@ pub fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, String
         urlencoding::encode(CLIENT_ID),
     );
 
+    request_token(body, "refresh")
+}
+
+fn request_token(body: String, operation: &str) -> Result<TokenResponse, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(25))
         .build()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("Could not create OAuth client: {error}"))?;
     let response = client
         .post(TOKEN_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
-        .map_err(|error| format!("Token refresh failed: {error}"))?;
+        .map_err(|error| format!("Token {operation} request failed: {error}"))?;
 
     let status = response.status();
     let text = response
         .text()
-        .map_err(|error| format!("Failed to read refresh response: {error}"))?;
+        .map_err(|error| format!("Failed to read token {operation} response: {error}"))?;
     if !status.is_success() {
-        return Err(format!("OpenAI token refresh failed ({status}): {text}"));
+        return Err(format!(
+            "OpenAI token {operation} failed ({status}): {text}"
+        ));
     }
 
     serde_json::from_str::<TokenResponse>(&text)
-        .map_err(|error| format!("Failed to parse refresh response: {error}"))
+        .map_err(|error| format!("Failed to parse token {operation} response: {error}"))
 }
 
 fn parse_email_from_id_token(id_token: &str) -> Option<String> {
@@ -372,4 +395,45 @@ fn open_external_url(url: &str) -> Result<(), String> {
 
 fn rfc3339_expires_at(secs: u64) -> String {
     (chrono::Utc::now() + chrono::Duration::seconds(secs as i64)).to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn callback_parser_accepts_full_url_and_query_string() {
+        assert_eq!(
+            parse_callback_input("http://localhost:1455/auth/callback?code=abc&state=xyz"),
+            Some(("abc".to_string(), "xyz".to_string()))
+        );
+        assert_eq!(
+            parse_callback_input("?code=abc&state=xyz"),
+            Some(("abc".to_string(), "xyz".to_string()))
+        );
+        assert_eq!(
+            parse_callback_input("code=abc&state=xyz"),
+            Some(("abc".to_string(), "xyz".to_string()))
+        );
+    }
+
+    #[test]
+    fn redirect_uri_uses_registered_localhost_callback() {
+        assert_eq!(
+            redirect_uri(),
+            "http://localhost:1455/auth/callback".to_string()
+        );
+    }
+
+    #[test]
+    fn auth_url_contains_pkce_and_codex_parameters() {
+        let url = build_auth_url("challenge", "state", &redirect_uri());
+        assert!(url.contains("response_type=code"));
+        assert!(url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"));
+        assert!(url.contains("redirect_uri=http://localhost:1455/auth/callback"));
+        assert!(url.contains("code_challenge=challenge"));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("state=state"));
+        assert!(url.contains("codex_cli_simplified_flow=true"));
+    }
 }

@@ -255,7 +255,6 @@ export interface StartOpenAiOauthResult {
 
 export interface CompleteOpenAiOauthResult {
   email: string;
-  configText: string;
   authJson: string;
 }
 
@@ -269,6 +268,7 @@ export interface ConfigValue {
   value: string;
   secret: boolean;
   credentialId: string;
+  template?: string;
 }
 
 export interface McpTool {
@@ -341,6 +341,95 @@ export interface SkillMarketResult {
   source: string;
   installs: number;
   url: string;
+}
+
+export type MarketplaceCapability = "skills" | "mcp";
+
+export interface MarketplaceSource {
+  id: string;
+  capabilityType: MarketplaceCapability;
+  name: string;
+  sourceType: string;
+  baseUrl: string;
+  enabled: boolean;
+  sortOrder: number;
+  builtIn: boolean;
+  credentialId: string;
+  hasCredential: boolean;
+}
+
+export interface MarketplaceInstallSpec {
+  transport: string;
+  command: string;
+  args: string[];
+  url: string;
+  packageType: string;
+  packageName: string;
+  envKeys: string[];
+  headerKeys: string[];
+  headerTemplates: Record<string, string>;
+  requiredHeaderKeys: string[];
+}
+
+export interface MarketplaceResult {
+  id: string;
+  capabilityType: MarketplaceCapability;
+  canonicalId: string;
+  name: string;
+  description: string;
+  author: string;
+  version: string;
+  sourceId: string;
+  sourceName: string;
+  sourceIds: string[];
+  sourceUrl: string;
+  artifactUrl: string;
+  artifactSha256: string;
+  installReference: string;
+  downloads: number;
+  warnings: string[];
+  installSpec: MarketplaceInstallSpec;
+  installedId: string;
+  updateAvailable: boolean;
+}
+
+export interface MarketplaceSourceStatus {
+  sourceId: string;
+  sourceName: string;
+  status: string;
+  error: string;
+  resultCount: number;
+}
+
+export interface MarketplaceSearchResponse {
+  results: MarketplaceResult[];
+  sources: MarketplaceSourceStatus[];
+}
+
+export interface SkillMarketPreview {
+  result: MarketplaceResult;
+  instructions: string;
+  files: string[];
+  contentHash: string;
+}
+
+export interface MarketplaceInstallRequest {
+  result: MarketplaceResult;
+  targets: CapabilityTargets;
+  env: Record<string, ConfigValue>;
+  headers: Record<string, ConfigValue>;
+}
+
+export interface RuntimeAvailability {
+  node: boolean;
+  npx: boolean;
+  uv: boolean;
+  uvx: boolean;
+}
+
+export interface McpImportPreview {
+  servers: McpServer[];
+  errors: string[];
 }
 
 export interface SyncTargetResult {

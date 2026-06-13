@@ -33,6 +33,7 @@ toml_edit = "0.22"
 url = "2"
 urlencoding = "2"
 uuid = { version = "1", features = ["v4"] }
+zip = "2"
 
 [profile.release]
 lto = true

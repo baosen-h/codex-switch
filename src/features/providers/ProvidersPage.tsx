@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../../api/tauri";
-import type { ApiProvider, ApiProviderType } from "../../types";
+import type { ApiProvider, ApiProviderType, CompleteOpenAiOauthResult } from "../../types";
 import { useI18n } from "../../i18n/context";
 import { ProviderForm } from "./components/ProviderForm";
 import { ProviderList } from "./components/ProviderList";
@@ -59,6 +59,30 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
     setView("empty");
   };
 
+  const saveCompletedOpenAiOauth = useCallback(
+    async (result: CompleteOpenAiOauthResult) => {
+      const providerToSave: ApiProvider = {
+        ...draft,
+        name: draft.name.trim() || result.email || "OpenAI OAuth",
+        providerType: "openai_oauth",
+        baseUrl: "",
+        apiKey: "",
+        websiteUrl: "https://chatgpt.com",
+        openAiAuthJson: result.authJson,
+        enabled: true,
+      };
+      setDraft(providerToSave);
+      onNotify("OpenAI OAuth complete. Saving provider...", "ok");
+      await onSave(providerToSave);
+      setOauthStatus("OAuth complete. API provider saved.");
+      onNotify("OpenAI OAuth provider saved.", "ok");
+      setOauthManualMode(false);
+      setOauthCallbackInput("");
+      closeForm();
+    },
+    [draft, onNotify, onSave],
+  );
+
   useEffect(() => {
     if (view !== "form" || normalizeProviderType(draft.providerType) !== "openai_oauth") return;
     let active = true;
@@ -67,20 +91,9 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       setIsOauthBusy(true);
       setOauthStatus("OAuth code received. Exchanging token...");
       try {
-        const result = await appApi.completeOpenAiOauth(event.payload, draft.models[0]?.id);
-        setDraft((current) => ({
-          ...current,
-          name: current.name.trim() || result.email || "OpenAI OAuth",
-          providerType: "openai_oauth",
-          baseUrl: "",
-          apiKey: "",
-          websiteUrl: "https://chatgpt.com",
-          openAiAuthJson: result.authJson,
-          enabled: true,
-        }));
-        setOauthStatus("OAuth complete. Save this API provider, then select it on Agents.");
-        setOauthManualMode(false);
-        setOauthCallbackInput("");
+        const result = await appApi.completeOpenAiOauth(event.payload);
+        if (!active) return;
+        await saveCompletedOpenAiOauth(result);
       } catch (error) {
         setOauthStatus(error instanceof Error ? error.message : String(error));
       } finally {
@@ -91,7 +104,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       active = false;
       unlisten.then((fn) => fn());
     };
-  }, [view, draft.providerType, draft.models]);
+  }, [view, draft.providerType, saveCompletedOpenAiOauth]);
 
   const updateDraft = <K extends keyof ApiProvider>(field: K, value: ApiProvider[K]) => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -148,6 +161,10 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
 
   const handleSubmit = async () => {
     const normalizedProviderType = normalizeProviderType(draft.providerType);
+    if (normalizedProviderType === "openai_oauth" && !draft.openAiAuthJson?.trim()) {
+      setOauthStatus("OpenAI OAuth is not complete yet. Login first, then save.");
+      return;
+    }
     await onSave({
       ...draft,
       providerType: normalizedProviderType,
@@ -169,7 +186,8 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         setOauthManualMode(true);
         setOauthStatus(result.message || "Finish login in the browser, then paste the callback URL below.");
       } else {
-        setOauthStatus("Browser opened. Finish OpenAI login there.");
+        setOauthManualMode(true);
+        setOauthStatus("Browser opened. Finish OpenAI login there. If it does not complete automatically, paste the callback URL below.");
       }
     } catch (error) {
       setOauthStatus(error instanceof Error ? error.message : String(error));
@@ -195,13 +213,18 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   };
 
   const submitOfficialOpenAiCallback = async () => {
-    if (!oauthCallbackInput.trim()) return;
+    if (!oauthCallbackInput.trim()) {
+      setOauthStatus("Paste the callback URL before finishing OAuth.");
+      return;
+    }
     setIsOauthBusy(true);
-    setOauthStatus("Reading callback URL...");
+    setOauthStatus("Reading callback URL. Exchanging token...");
     try {
-      await appApi.submitOpenAiOauthCallback(oauthCallbackInput);
+      const result = await appApi.completeOpenAiOauthCallback(oauthCallbackInput);
+      await saveCompletedOpenAiOauth(result);
     } catch (error) {
       setOauthStatus(error instanceof Error ? error.message : String(error));
+    } finally {
       setIsOauthBusy(false);
     }
   };

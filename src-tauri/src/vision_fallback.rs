@@ -634,8 +634,7 @@ mod tests {
             }],
         }];
 
-        let output =
-            preprocess_chat_messages(&messages, &api, "gpt-5", &api, "gpt-5").unwrap();
+        let output = preprocess_chat_messages(&messages, &api, "gpt-5", &api, "gpt-5").unwrap();
 
         assert_eq!(output[0].attachments.len(), 1);
     }
