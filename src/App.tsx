@@ -338,7 +338,6 @@ function App() {
   ) : activePage === "settings" ? (
     <SettingsPage
       settings={data.settings}
-      onOpenGuide={() => setGuideOpen(true)}
       onSave={handleSaveSettings}
     />
   ) : (

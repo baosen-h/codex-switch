@@ -10,7 +10,7 @@ import { SettingsPathSection } from "./components/SettingsPathSection";
 import { shellOptions, type PathFieldKey } from "./settingsConfig";
 import type { SettingsPageProps } from "./types";
 
-export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProps) {
+export function SettingsPage({ settings, onSave }: SettingsPageProps) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(settings);
 
@@ -117,13 +117,10 @@ export function SettingsPage({ settings, onOpenGuide, onSave }: SettingsPageProp
                 labels={{
                   appVersion: t("appVersion"),
                   openReleases: t("openReleases"),
-                  guideSettingsTitle: t("guideSettingsTitle"),
-                  guideSettingsButton: t("guideSettingsButton"),
                   saveSettings: t("saveSettings"),
                 }}
                 canSave
                 onOpenReleases={() => void openReleases()}
-                onOpenGuide={onOpenGuide}
                 onSave={() => void onSave(draft)}
               />
             </div>

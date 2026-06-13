@@ -909,6 +909,29 @@ h3 { font-size: 15px; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.capability-agent-counts {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+}
+.capability-agent-counts span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border: 1px solid var(--b0);
+  border-radius: 999px;
+  color: var(--t3);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.capability-agent-counts b {
+  color: currentColor;
+  font-size: 9px;
+  font-weight: 600;
+}
 .capability-status-dot {
   width: 7px;
   height: 7px;

@@ -3,13 +3,10 @@ interface SettingsActionsSectionProps {
   labels: {
     appVersion: string;
     openReleases: string;
-    guideSettingsTitle: string;
-    guideSettingsButton: string;
     saveSettings: string;
   };
   canSave: boolean;
   onOpenReleases: () => void;
-  onOpenGuide: () => void;
   onSave: () => void;
 }
 
@@ -18,7 +15,6 @@ export function SettingsActionsSection({
   labels,
   canSave,
   onOpenReleases,
-  onOpenGuide,
   onSave,
 }: SettingsActionsSectionProps) {
   return (
@@ -31,12 +27,6 @@ export function SettingsActionsSection({
           </button>
         </div>
       </label>
-      <div className="field">
-        <span>{labels.guideSettingsTitle}</span>
-        <button className="secondary-button" onClick={onOpenGuide} type="button">
-          {labels.guideSettingsButton}
-        </button>
-      </div>
       <div className="actions">
         <button
           className="primary-button"

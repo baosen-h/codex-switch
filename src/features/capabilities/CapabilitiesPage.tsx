@@ -12,7 +12,7 @@ import {
 import { appApi } from "../../api/tauri";
 import { iconForAgent, ModelCapabilityBadges, ProviderAvatar } from "../../components/domain";
 import { useI18n } from "../../i18n/context";
-import type { AppSettings, CapabilitiesState } from "../../types";
+import type { AgentKind, AppSettings, CapabilitiesState, CapabilityCounts } from "../../types";
 import { modelSupportsVisionText } from "../../utils/modelCapabilities";
 import {
   defaultWebSearchSettings,
@@ -26,6 +26,20 @@ import { CapabilityManager } from "./CapabilityManagers";
 import { WebSearchProviderIcon } from "./WebSearchProviderIcon";
 
 type CapabilityKey = "vision" | "search" | "mcp" | "skills";
+const countAgents: AgentKind[] = ["codex", "claude", "gemini"];
+
+function AgentCountChips({ counts }: { counts: CapabilityCounts }) {
+  return (
+    <span className="capability-agent-counts">
+      {countAgents.map((agent) => (
+        <span key={agent} title={`${agent}: ${counts[agent]}`}>
+          {iconForAgent(agent)}
+          <b>{counts[agent]}</b>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export function CapabilitiesPage({ apiProviders, settings, onSave }: CapabilitiesPageProps) {
   const { t } = useI18n();
@@ -111,18 +125,16 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
     {
       key: "mcp" as const,
       label: t("capabilityMcp"),
-      hint: capabilityState
-        ? `${t("agentCodex")} ${capabilityState.mcpCounts.codex} · ${t("agentClaude")} ${capabilityState.mcpCounts.claude} · ${t("agentGemini")} ${capabilityState.mcpCounts.gemini}`
-        : t("capabilityMcpHint"),
+      hint: t("capabilityMcpHint"),
+      counts: capabilityState?.mcpCounts,
       configured: Boolean(capabilityState?.mcpServers.length),
       Icon: Boxes,
     },
     {
       key: "skills" as const,
       label: t("capabilitySkills"),
-      hint: capabilityState
-        ? `${t("agentCodex")} ${capabilityState.skillCounts.codex} · ${t("agentClaude")} ${capabilityState.skillCounts.claude} · ${t("agentGemini")} ${capabilityState.skillCounts.gemini}`
-        : t("capabilitySkillsHint"),
+      hint: t("capabilitySkillsHint"),
+      counts: capabilityState?.skillCounts,
       configured: Boolean(capabilityState?.skills.length),
       Icon: Wrench,
     },
@@ -136,7 +148,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
             <h2>{t("capabilities")}</h2>
           </header>
           <div className="capability-menu">
-            {capabilityItems.map(({ key, label, hint, configured, Icon }) => (
+            {capabilityItems.map(({ key, label, hint, counts, configured, Icon }) => (
               <button
                 className={`capability-menu-item ${activeCapability === key ? "active" : ""}`}
                 key={key}
@@ -146,7 +158,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 <span className="capability-menu-icon"><Icon size={18} /></span>
                 <span className="capability-menu-copy">
                   <strong>{label}</strong>
-                  <small>{hint}</small>
+                  {counts ? <AgentCountChips counts={counts} /> : <small>{hint}</small>}
                 </span>
                 <span className={`capability-status-dot ${configured ? "configured" : ""}`} />
               </button>
