@@ -216,41 +216,6 @@ pub struct ImageGenerationResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProviderBalance {
-    pub strategy: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remaining: Option<f64>,
-    pub unit: String,
-    pub is_active: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_reset_at: Option<i64>,
-    pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub five_hour_left: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub five_hour_reset: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub five_hour_reset_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub five_hour_label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub weekly_left: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub weekly_reset: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub weekly_reset_at: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub weekly_label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credits_balance: Option<f64>,
-    #[serde(default)]
-    pub has_credits: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AppUpdateInfo {
     pub latest_version: String,
     pub release_url: String,

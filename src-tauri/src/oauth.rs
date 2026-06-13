@@ -325,16 +325,6 @@ fn exchange_code(
     request_token(body, "exchange")
 }
 
-pub fn refresh_access_token(refresh_token: &str) -> Result<TokenResponse, String> {
-    let body = format!(
-        "grant_type=refresh_token&refresh_token={}&client_id={}",
-        urlencoding::encode(refresh_token),
-        urlencoding::encode(CLIENT_ID),
-    );
-
-    request_token(body, "refresh")
-}
-
 fn request_token(body: String, operation: &str) -> Result<TokenResponse, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(25))

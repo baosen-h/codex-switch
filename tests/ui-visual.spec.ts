@@ -305,26 +305,6 @@ async function installTauriMock(page: Page) {
         }
         if (cmd === "send_chat_message") return Promise.resolve({ content: "Mock response for visual testing." });
         if (cmd === "generate_image") return Promise.resolve({ images: [] });
-        if (cmd === "get_provider_balance") {
-          const provider = args.provider as { id?: string };
-          if (provider.id === "api-openai") {
-            return Promise.resolve({
-              strategy: "openai_oauth",
-              remaining: 0,
-              unit: "USD",
-              isActive: true,
-              label: "Balance",
-              creditsBalance: 0,
-              fiveHourLabel: "5H quota",
-              fiveHourLeft: 99,
-              fiveHourReset: "3h 22m",
-              weeklyLabel: "Weekly quota",
-              weeklyLeft: 6,
-              weeklyReset: "2h 33m",
-            });
-          }
-          return Promise.resolve({ strategy: "openai_compat", remaining: 98, unit: "%", isActive: true, label: "Token quota" });
-        }
         if (cmd === "check_app_update") {
           if (window.localStorage.getItem("codex-switch-ui-test-update") === "true") {
             return Promise.resolve({
@@ -547,7 +527,6 @@ test("main pages render usable layouts", async ({ page }) => {
 
   await page.getByTitle("Agents").click();
   await expect(page.locator(".provider-toolbar")).toBeVisible();
-  await expect(page.locator(".agent-balance-row")).toHaveCount(0);
   await expect(page.locator(".agent-provider-row .provider-avatar").first()).toHaveCSS("width", "28px");
   await expect(page.locator(".agent-provider-row .provider-avatar").first()).toHaveCSS("height", "28px");
   await capture(page, "11-agents");

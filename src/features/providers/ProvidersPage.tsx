@@ -5,7 +5,6 @@ import type { ApiProvider, ApiProviderType, CompleteOpenAiOauthResult } from "..
 import { useI18n } from "../../i18n/context";
 import { ProviderForm } from "./components/ProviderForm";
 import { ProviderList } from "./components/ProviderList";
-import { useProviderBalances } from "./hooks/useProviderBalances";
 import {
   emptyApiProvider,
   inferProviderType,
@@ -25,7 +24,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
   const [oauthAuthUrl, setOauthAuthUrl] = useState("");
   const [oauthManualMode, setOauthManualMode] = useState(false);
   const [isOauthBusy, setIsOauthBusy] = useState(false);
-  const { balanceMap, loadingBalanceId, refreshBalance } = useProviderBalances();
 
   const sortedProviders = useMemo(
     () =>
@@ -242,8 +240,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       <div className="provider-workspace">
         <ProviderList
           providers={sortedProviders}
-          balanceMap={balanceMap}
-          loadingBalanceId={loadingBalanceId}
           selectedProviderId={selectedProviderId}
           labels={{
             providers: t("providers"),
@@ -257,7 +253,6 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
           onSelectProvider={openForm}
           onDeleteProvider={(id) => void onDelete(id)}
           onOpenWebsite={(url) => void openWebsite(url)}
-          onRefreshBalance={(provider) => void refreshBalance(provider)}
         />
         {view === "form" ? (
           <ProviderForm

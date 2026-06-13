@@ -387,7 +387,6 @@ h3 { font-size: 15px; }
 }
 .provider-row:hover .provider-actions,
 .provider-row:focus-within .provider-actions { opacity: 1; }
-.provider-balance-panel { display: none; }
 .provider-detail-panel {
   min-width: 0;
   min-height: 0;

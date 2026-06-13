@@ -1,15 +1,11 @@
 import { ProviderAvatar } from "../../../components/domain";
 import { DeleteIcon } from "../../../components/ui";
 import type { ApiProvider } from "../../../types";
-import type { ProviderBalanceState } from "../balanceStorage";
 import { websiteLabel } from "../providerConfig";
 import { AddIcon } from "./ProviderIcons";
-import { ProviderBalancePanel } from "./ProviderBalancePanel";
 
 interface ProviderListProps {
   providers: ApiProvider[];
-  balanceMap: Record<string, ProviderBalanceState>;
-  loadingBalanceId: string | null;
   selectedProviderId: string | null;
   labels: {
     providers: string;
@@ -23,20 +19,16 @@ interface ProviderListProps {
   onSelectProvider: (provider: ApiProvider) => void;
   onDeleteProvider: (id: string) => void;
   onOpenWebsite: (url: string) => void;
-  onRefreshBalance: (provider: ApiProvider) => void;
 }
 
 export function ProviderList({
   providers,
-  balanceMap,
-  loadingBalanceId,
   selectedProviderId,
   labels,
   onAddProvider,
   onSelectProvider,
   onDeleteProvider,
   onOpenWebsite,
-  onRefreshBalance,
 }: ProviderListProps) {
   return (
     <aside className="provider-master-panel">
@@ -53,9 +45,7 @@ export function ProviderList({
 
         <div className="provider-list" role="list">
           {providers.length ? (
-            providers.map((provider) => {
-              const balance = balanceMap[provider.id];
-              return (
+            providers.map((provider) => (
                 <div
                   className={`provider-row api-provider-row ${selectedProviderId === provider.id ? "provider-row-selected" : ""}`}
                   key={provider.id}
@@ -74,12 +64,6 @@ export function ProviderList({
                         {websiteLabel(provider.websiteUrl)}
                       </button>
                     ) : null}
-                    <ProviderBalancePanel
-                      provider={provider}
-                      balance={balance}
-                      loadingBalanceId={loadingBalanceId}
-                      onRefreshBalance={onRefreshBalance}
-                    />
                   </div>
                   <div className="provider-actions">
                     <span className="provider-model-count">
@@ -90,8 +74,7 @@ export function ProviderList({
                     </button>
                   </div>
                 </div>
-              );
-            })
+            ))
           ) : (
             <p className="empty-state">{labels.noApiProviders}</p>
           )}

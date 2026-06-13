@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appApi } from "./api/tauri";
-import { FloatingToast, OnboardingGuide, Sidebar, TitleBar, UpdateNotice, type ToastState } from "./components/app";
+import { FloatingToast, Sidebar, TitleBar, UpdateNotice, type ToastState } from "./components/app";
 import { I18nProvider } from "./i18n/context";
 import type { Lang } from "./i18n/translations";
 import { AgentsPage } from "./features/agents";
@@ -11,7 +11,7 @@ import { SessionsPage } from "./features/sessions";
 import { SettingsPage } from "./features/settings";
 import { TalkingPage } from "./features/talking";
 import type { ApiProvider, AppSettings, AppUpdateInfo, DashboardState, PageKey, Provider, SessionRecord } from "./types";
-import { DISMISSED_UPDATE_KEY, GUIDE_SEEN_KEY } from "./utils/appConstants";
+import { DISMISSED_UPDATE_KEY } from "./utils/appConstants";
 import { applyBackgroundColor, applyTheme, normalizeAppTheme } from "./utils/theme";
 
 const emptyState: DashboardState = {
@@ -80,7 +80,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [guideOpen, setGuideOpen] = useState(false);
   const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
   const dismissToast = useCallback(() => setToast(null), []);
 
@@ -140,18 +139,6 @@ function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [checkUpdate]);
-
-  useEffect(() => {
-    if (loading) return;
-    try {
-      if (!window.localStorage.getItem(GUIDE_SEEN_KEY)) {
-        window.localStorage.setItem(GUIDE_SEEN_KEY, "true");
-        setGuideOpen(true);
-      }
-    } catch {
-      setGuideOpen(true);
-    }
-  }, [loading]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -366,12 +353,6 @@ function App() {
             {content}
           </main>
         </div>
-        <OnboardingGuide
-          open={guideOpen}
-          activePage={activePage}
-          onSelectPage={setActivePage}
-          onClose={() => setGuideOpen(false)}
-        />
         <UpdateNotice lang={lang} update={appUpdate} onDismiss={dismissUpdate} />
         <FloatingToast toast={toast} onDismiss={dismissToast} />
       </div>

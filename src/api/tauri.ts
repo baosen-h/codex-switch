@@ -24,7 +24,6 @@ import type {
   McpServer,
   McpTestResult,
   ModelListRequest,
-  ProviderBalance,
   Provider,
   RemoteModel,
   SessionMessage,
@@ -82,9 +81,6 @@ export const appApi = {
   },
   launchSession(session: SessionRecord): Promise<boolean> {
     return invoke("launch_session", { session });
-  },
-  getProviderBalance(provider: ApiProvider): Promise<ProviderBalance> {
-    return invoke("get_provider_balance", { provider });
   },
   checkAppUpdate(currentVersion: string): Promise<AppUpdateInfo | null> {
     return invoke("check_app_update", { currentVersion });

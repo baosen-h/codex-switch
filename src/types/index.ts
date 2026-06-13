@@ -106,26 +106,6 @@ export interface ImageGenerationResponse {
   images: string[];
 }
 
-export interface ProviderBalance {
-  strategy: string;
-  remaining?: number;
-  unit: string;
-  isActive: boolean;
-  nextResetAt?: number;
-  label: string;
-  planType?: string;
-  fiveHourLeft?: number;
-  fiveHourReset?: string;
-  fiveHourResetAt?: number;
-  fiveHourLabel?: string;
-  weeklyLeft?: number;
-  weeklyReset?: string;
-  weeklyResetAt?: number;
-  weeklyLabel?: string;
-  creditsBalance?: number;
-  hasCredits?: boolean;
-}
-
 export interface AppUpdateInfo {
   latestVersion: string;
   releaseUrl: string;
