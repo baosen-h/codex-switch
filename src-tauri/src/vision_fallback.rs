@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-const MAX_IMAGES: usize = 3;
+const MAX_IMAGES: usize = 6;
 const VISION_PROMPT: &str = "Analyze this image for another AI assistant. Extract visible text exactly and describe errors, code, UI state, objects, layout, charts, and spatial relationships relevant to the user's request. Do not answer the user's request directly.";
 static DESCRIPTION_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
 
@@ -58,12 +58,19 @@ pub fn preprocess_chat_messages(
 
     let mut remaining = MAX_IMAGES;
     let mut output = Vec::with_capacity(messages.len());
-    for message in messages {
+    let latest_image_message = messages.iter().rposition(|message| {
+        message
+            .attachments
+            .iter()
+            .any(|attachment| is_image_attachment(attachment))
+    });
+    for (index, message) in messages.iter().enumerate() {
         let mut next = message.clone();
         let mut descriptions = Vec::new();
         let mut kept = Vec::new();
+        let should_describe_images = Some(index) == latest_image_message;
         for attachment in &message.attachments {
-            if remaining > 0 && is_image_attachment(attachment) {
+            if is_image_attachment(attachment) && should_describe_images && remaining > 0 {
                 let image = attachment
                     .data_url
                     .as_deref()
@@ -76,6 +83,8 @@ pub fn preprocess_chat_messages(
                     &attachment.name,
                 )?);
                 remaining -= 1;
+            } else if is_image_attachment(attachment) {
+                descriptions.push(omitted_image_description(&attachment.name));
             } else {
                 kept.push(attachment.clone());
             }
@@ -100,8 +109,10 @@ pub fn preprocess_codex_body(
     let mut value: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
     let mut remaining = MAX_IMAGES;
     if let Some(input) = value.get_mut("input").and_then(Value::as_array_mut) {
-        for item in input {
+        let latest_image_item = input.iter().rposition(codex_item_has_image);
+        for (index, item) in input.iter_mut().enumerate() {
             let context = codex_item_text(item);
+            let should_describe_images = Some(index) == latest_image_item;
             for key in ["content", "output"] {
                 if let Some(parts) = item.get_mut(key).and_then(Value::as_array_mut) {
                     replace_codex_images(
@@ -110,6 +121,7 @@ pub fn preprocess_codex_body(
                         vision_provider,
                         vision_model,
                         &mut remaining,
+                        should_describe_images,
                     )?;
                 }
             }
@@ -126,22 +138,29 @@ pub fn preprocess_anthropic_body(
     let mut value: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
     let mut remaining = MAX_IMAGES;
     if let Some(messages) = value.get_mut("messages").and_then(Value::as_array_mut) {
-        for message in messages {
+        let latest_image_message = messages.iter().rposition(anthropic_message_has_image);
+        for (index, message) in messages.iter_mut().enumerate() {
             let context = content_text(message.get("content"));
+            let should_describe_images = Some(index) == latest_image_message;
             if let Some(parts) = message.get_mut("content").and_then(Value::as_array_mut) {
                 let mut next = Vec::with_capacity(parts.len());
                 for part in parts.drain(..) {
-                    if remaining > 0 && part.get("type").and_then(Value::as_str) == Some("image") {
-                        let image = anthropic_image_data_url(&part)?;
-                        let description = describe_image(
-                            vision_provider,
-                            vision_model,
-                            &image,
-                            &context,
-                            "image",
-                        )?;
+                    if part.get("type").and_then(Value::as_str) == Some("image") {
+                        let description = if should_describe_images && remaining > 0 {
+                            let image = anthropic_image_data_url(&part)?;
+                            let description = describe_image(
+                                vision_provider,
+                                vision_model,
+                                &image,
+                                &context,
+                                "image",
+                            )?;
+                            remaining -= 1;
+                            description
+                        } else {
+                            omitted_image_description("image")
+                        };
                         next.push(json!({"type": "text", "text": description}));
-                        remaining -= 1;
                     } else {
                         next.push(part);
                     }
@@ -161,7 +180,8 @@ pub fn preprocess_gemini_body(
     let mut value: Value = serde_json::from_slice(body).map_err(|error| error.to_string())?;
     let mut remaining = MAX_IMAGES;
     if let Some(contents) = value.get_mut("contents").and_then(Value::as_array_mut) {
-        for content in contents {
+        let latest_image_content = contents.iter().rposition(gemini_content_has_image);
+        for (index, content) in contents.iter_mut().enumerate() {
             let context = content
                 .get("parts")
                 .and_then(Value::as_array)
@@ -173,29 +193,35 @@ pub fn preprocess_gemini_body(
                         .join("\n")
                 })
                 .unwrap_or_default();
+            let should_describe_images = Some(index) == latest_image_content;
             if let Some(parts) = content.get_mut("parts").and_then(Value::as_array_mut) {
                 let mut next = Vec::with_capacity(parts.len());
                 for part in parts.drain(..) {
-                    if remaining > 0 && part.get("inlineData").is_some() {
-                        let inline = part.get("inlineData").unwrap_or(&Value::Null);
-                        let mime = inline
-                            .get("mimeType")
-                            .and_then(Value::as_str)
-                            .unwrap_or("image/png");
-                        let data = inline
-                            .get("data")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| "Gemini image part has no data".to_string())?;
-                        let image = format!("data:{mime};base64,{data}");
-                        let description = describe_image(
-                            vision_provider,
-                            vision_model,
-                            &image,
-                            &context,
-                            "image",
-                        )?;
+                    if part.get("inlineData").is_some() {
+                        let description = if should_describe_images && remaining > 0 {
+                            let inline = part.get("inlineData").unwrap_or(&Value::Null);
+                            let mime = inline
+                                .get("mimeType")
+                                .and_then(Value::as_str)
+                                .unwrap_or("image/png");
+                            let data = inline
+                                .get("data")
+                                .and_then(Value::as_str)
+                                .ok_or_else(|| "Gemini image part has no data".to_string())?;
+                            let image = format!("data:{mime};base64,{data}");
+                            let description = describe_image(
+                                vision_provider,
+                                vision_model,
+                                &image,
+                                &context,
+                                "image",
+                            )?;
+                            remaining -= 1;
+                            description
+                        } else {
+                            omitted_image_description("image")
+                        };
                         next.push(json!({"text": description}));
-                        remaining -= 1;
                     } else {
                         next.push(part);
                     }
@@ -213,18 +239,24 @@ fn replace_codex_images(
     vision_provider: &ApiProvider,
     vision_model: &str,
     remaining: &mut usize,
+    should_describe_images: bool,
 ) -> Result<(), String> {
     let mut next = Vec::with_capacity(parts.len());
     for part in parts.drain(..) {
-        if *remaining > 0 && part.get("type").and_then(Value::as_str) == Some("input_image") {
-            let image = part
-                .get("image_url")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Codex image part has no image_url".to_string())?;
-            let description =
-                describe_image(vision_provider, vision_model, image, context, "image")?;
+        if part.get("type").and_then(Value::as_str) == Some("input_image") {
+            let description = if should_describe_images && *remaining > 0 {
+                let image = part
+                    .get("image_url")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "Codex image part has no image_url".to_string())?;
+                let description =
+                    describe_image(vision_provider, vision_model, image, context, "image")?;
+                *remaining -= 1;
+                description
+            } else {
+                omitted_image_description("image")
+            };
             next.push(json!({"type": "input_text", "text": description}));
-            *remaining -= 1;
         } else {
             next.push(part);
         }
@@ -383,6 +415,41 @@ fn description_cache_key(provider: &ApiProvider, model: &str, image: &str, promp
 
 fn is_image_attachment(attachment: &ChatAttachment) -> bool {
     attachment.kind == "image" && attachment.data_url.is_some()
+}
+
+fn codex_item_has_image(item: &Value) -> bool {
+    ["content", "output"]
+        .iter()
+        .filter_map(|key| item.get(*key).and_then(Value::as_array))
+        .flat_map(|parts| parts.iter())
+        .any(|part| part.get("type").and_then(Value::as_str) == Some("input_image"))
+}
+
+fn anthropic_message_has_image(message: &Value) -> bool {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .any(|part| part.get("type").and_then(Value::as_str) == Some("image"))
+        })
+        .unwrap_or(false)
+}
+
+fn gemini_content_has_image(content: &Value) -> bool {
+    content
+        .get("parts")
+        .and_then(Value::as_array)
+        .map(|parts| parts.iter().any(|part| part.get("inlineData").is_some()))
+        .unwrap_or(false)
+}
+
+fn omitted_image_description(image_name: &str) -> String {
+    format!(
+        "<vision-analysis image=\"{}\">\nImage omitted because the vision fallback image limit was reached.\n</vision-analysis>",
+        image_name
+    )
 }
 
 fn codex_item_text(item: &Value) -> String {
@@ -661,5 +728,82 @@ mod tests {
         }
         *parts = next;
         assert_eq!(value["input"][0]["content"][1]["type"], "input_text");
+    }
+
+    #[test]
+    fn codex_image_over_limit_is_replaced_by_text_shape() {
+        let mut parts = vec![json!({
+            "type": "input_image",
+            "image_url": "data:image/png;base64,AA=="
+        })];
+        let api = provider(RemoteModel {
+            id: "vision-model".to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+            capabilities: vec!["image".to_string()],
+            input_modalities: vec!["text".to_string(), "image".to_string()],
+            output_modalities: vec!["text".to_string()],
+        });
+        let mut remaining = 0;
+
+        replace_codex_images(
+            &mut parts,
+            "inspect",
+            &api,
+            "vision-model",
+            &mut remaining,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(parts[0]["type"], "input_text");
+        assert!(parts[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("vision fallback image limit"));
+    }
+
+    #[test]
+    fn codex_old_image_is_omitted_without_using_budget() {
+        let mut parts = vec![json!({
+            "type": "input_image",
+            "image_url": "data:image/png;base64,OLD"
+        })];
+        let api = provider(RemoteModel {
+            id: "vision-model".to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+            capabilities: vec!["image".to_string()],
+            input_modalities: vec!["text".to_string(), "image".to_string()],
+            output_modalities: vec!["text".to_string()],
+        });
+        let mut remaining = MAX_IMAGES;
+
+        replace_codex_images(
+            &mut parts,
+            "old context",
+            &api,
+            "vision-model",
+            &mut remaining,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(remaining, MAX_IMAGES);
+        assert_eq!(parts[0]["type"], "input_text");
+        assert!(parts[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("vision fallback image limit"));
+    }
+
+    #[test]
+    fn omitted_image_description_uses_vision_analysis_text() {
+        let text = omitted_image_description("image.png");
+
+        assert!(text.contains("<vision-analysis image=\"image.png\">"));
+        assert!(text.contains("vision fallback image limit"));
     }
 }

@@ -298,7 +298,7 @@ preprocess_chat_messages / preprocess_codex_body
 preprocess_anthropic_body / preprocess_gemini_body
              │
              ▼
-使用配置的视觉 Provider describe_image，最多 3 张图片，并缓存描述
+使用配置的视觉 Provider describe_image，最多 6 张图片，并缓存描述
              │
              ▼
 主模型调用前，把图片 part 替换为 <vision-analysis> 文本

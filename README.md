@@ -16,7 +16,7 @@
 
 ## Product Introduction
 
-Codex Switch is a Windows desktop control panel for local AI agent runtimes. It keeps reusable API providers, Codex / Claude Code / Gemini agent profiles, Talking, Drawing, local sessions, MCP servers, Skills, vision fallback, and web search in one local app.
+Codex Switch manages AI providers, agents, chat, drawing, sessions, MCP, Skills, vision fallback, and web search on Windows.
 
 The app writes the native config files those agents already use, while a local compatibility proxy on `127.0.0.1:47632` fills the protocol gaps when a provider does not match the target runtime. That is how chat-completion providers such as DeepSeek, MiMo, and GLM can be used from Codex-style workflows, how text-only models can receive image descriptions from a configured vision model, and how models without native web search can call local `web__search` and `web__fetch` tools.
 
@@ -298,7 +298,7 @@ preprocess_chat_messages / preprocess_codex_body
 preprocess_anthropic_body / preprocess_gemini_body
              |
              v
-describe_image with configured vision provider, max 3 images, cached descriptions
+describe_image with configured vision provider, max 6 images, cached descriptions
              |
              v
 replace image parts with <vision-analysis> text before main model call
