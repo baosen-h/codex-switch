@@ -32,9 +32,17 @@ interface AgentProviderFormProps {
     templateGuideHint: string;
     configPreview: string;
     configPreviewHint: string;
+    deepSeekOneMillionContext: string;
+    deepSeekOneMillionContextHint: string;
+    codexWebSearchTool: string;
+    codexWebSearchToolHint: string;
     save: string;
     create: string;
   };
+  showDeepSeekOneMillionContext: boolean;
+  deepSeekOneMillionContextEnabled: boolean;
+  showCodexWebSearchTool: boolean;
+  codexWebSearchToolEnabled: boolean;
   agentLabel: (agent: AgentKind) => string;
   onClose: () => void;
   onUpdateDraft: (field: keyof Provider, value: string) => void;
@@ -45,6 +53,8 @@ interface AgentProviderFormProps {
   onFetchModels: () => void;
   onSelectModel: (model: string) => void;
   onUpdatePreview: (value: string) => void;
+  onToggleDeepSeekOneMillionContext: (enabled: boolean) => void;
+  onToggleCodexWebSearchTool: (enabled: boolean) => void;
   onSubmit: () => void;
 }
 
@@ -57,6 +67,10 @@ export function AgentProviderForm({
   isLoadingModels,
   modelListError,
   labels,
+  showDeepSeekOneMillionContext,
+  deepSeekOneMillionContextEnabled,
+  showCodexWebSearchTool,
+  codexWebSearchToolEnabled,
   agentLabel,
   onClose,
   onUpdateDraft,
@@ -67,6 +81,8 @@ export function AgentProviderForm({
   onFetchModels,
   onSelectModel,
   onUpdatePreview,
+  onToggleDeepSeekOneMillionContext,
+  onToggleCodexWebSearchTool,
   onSubmit,
 }: AgentProviderFormProps) {
   const isEditing = Boolean(draft.id);
@@ -139,6 +155,32 @@ export function AgentProviderForm({
                 <span>{labels.apiKey}</span>
                 <input value={draft.apiKey} onChange={(event) => onUpdateDraft("apiKey", event.target.value)} placeholder="sk-..." type="password" />
               </label>
+              {showDeepSeekOneMillionContext ? (
+                <label className="checkbox-field field-full">
+                  <input
+                    checked={deepSeekOneMillionContextEnabled}
+                    onChange={(event) => onToggleDeepSeekOneMillionContext(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    {labels.deepSeekOneMillionContext}
+                    <small>{labels.deepSeekOneMillionContextHint}</small>
+                  </span>
+                </label>
+              ) : null}
+              {showCodexWebSearchTool ? (
+                <label className="checkbox-field field-full">
+                  <input
+                    checked={codexWebSearchToolEnabled}
+                    onChange={(event) => onToggleCodexWebSearchTool(event.target.checked)}
+                    type="checkbox"
+                  />
+                  <span>
+                    {labels.codexWebSearchTool}
+                    <small>{labels.codexWebSearchToolHint}</small>
+                  </span>
+                </label>
+              ) : null}
             </div>
 
             <div className="template-inline-block">

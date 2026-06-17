@@ -346,27 +346,11 @@ fn handle_chat_completions_provider(
 }
 
 fn should_enable_local_web(
-    stream_requested: bool,
+    _stream_requested: bool,
     settings: &WebSearchSettings,
-    chat_body: &[u8],
+    _chat_body: &[u8],
 ) -> bool {
-    !stream_requested
-        && !settings.search_provider_id.trim().is_empty()
-        && !chat_has_native_web_search(chat_body)
-}
-
-fn chat_has_native_web_search(body: &[u8]) -> bool {
-    serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|value| value.get("tools").and_then(Value::as_array).cloned())
-        .is_some_and(|tools| {
-            tools.iter().any(|tool| {
-                matches!(
-                    tool.get("type").and_then(Value::as_str),
-                    Some("web_search") | Some("web_search_preview")
-                )
-            })
-        })
+    !settings.search_provider_id.trim().is_empty()
 }
 
 fn prepare_local_web_agent_body(body: &mut Vec<u8>) -> Result<(), String> {
@@ -384,7 +368,9 @@ fn prepare_local_web_agent_body(body: &mut Vec<u8>) -> Result<(), String> {
         .ok_or_else(|| "Translated chat tools are not an array".to_string())?;
     tools.retain(|tool| {
         let name = tool.pointer("/function/name").and_then(Value::as_str);
+        let tool_type = tool.get("type").and_then(Value::as_str);
         !matches!(name, Some(LOCAL_WEB_SEARCH_TOOL | LOCAL_WEB_FETCH_TOOL))
+            && !matches!(tool_type, Some("web_search" | "web_search_preview"))
     });
     tools.push(serde_json::json!({
         "type": "function",
@@ -1221,21 +1207,136 @@ fn synthetic_sse_from_response(response_body: &[u8]) -> Vec<u8> {
             "output": []
         })
     });
+    let response_id = response
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("resp_synthetic");
+    let output_text = first_response_output_text(&response);
+    let item_id =
+        first_response_message_id(&response).unwrap_or_else(|| format!("msg_{}", unix_secs()));
     let created = serde_json::json!({
         "type": "response.created",
         "response": response,
         "sequence_number": 0
     });
+    let mut sequence_number = 1u64;
+    let mut events = format!("event: response.created\ndata: {created}\n\n");
+    if !output_text.is_empty() {
+        let output_item_added = serde_json::json!({
+            "type": "response.output_item.added",
+            "response_id": response_id,
+            "output_index": 0,
+            "item": {
+                "id": item_id,
+                "type": "message",
+                "role": "assistant",
+                "status": "in_progress",
+                "content": [{"type": "output_text", "text": ""}]
+            },
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        let content_part_added = serde_json::json!({
+            "type": "response.content_part.added",
+            "response_id": response_id,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": 0,
+            "part": {"type": "output_text", "text": "", "annotations": []},
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        let text_delta = serde_json::json!({
+            "type": "response.output_text.delta",
+            "response_id": response_id,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": 0,
+            "delta": output_text,
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        let text_done = serde_json::json!({
+            "type": "response.output_text.done",
+            "response_id": response_id,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": 0,
+            "text": output_text,
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        let content_part_done = serde_json::json!({
+            "type": "response.content_part.done",
+            "response_id": response_id,
+            "item_id": item_id,
+            "output_index": 0,
+            "content_index": 0,
+            "part": {"type": "output_text", "text": output_text, "annotations": []},
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        let output_item_done = serde_json::json!({
+            "type": "response.output_item.done",
+            "response_id": response_id,
+            "output_index": 0,
+            "item": {
+                "id": item_id,
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": output_text}]
+            },
+            "sequence_number": sequence_number
+        });
+        sequence_number += 1;
+        events.push_str(&format!(
+            "event: response.output_item.added\ndata: {output_item_added}\n\n\
+event: response.content_part.added\ndata: {content_part_added}\n\n\
+event: response.output_text.delta\ndata: {text_delta}\n\n\
+event: response.output_text.done\ndata: {text_done}\n\n\
+event: response.content_part.done\ndata: {content_part_done}\n\n\
+event: response.output_item.done\ndata: {output_item_done}\n\n"
+        ));
+    }
     let completed = serde_json::json!({
         "type": "response.completed",
         "response": created.get("response").cloned().unwrap_or(Value::Null),
-        "sequence_number": 1
+        "sequence_number": sequence_number
     });
-    format!(
-        "event: response.created\ndata: {}\n\nevent: response.completed\ndata: {}\n\n",
-        created, completed
-    )
-    .into_bytes()
+    events.push_str(&format!("event: response.completed\ndata: {completed}\n\n"));
+    events.into_bytes()
+}
+
+fn first_response_output_text(response: &Value) -> String {
+    response
+        .get("output")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("content").and_then(Value::as_array))
+        .flatten()
+        .find_map(|content| {
+            content
+                .get("text")
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+fn first_response_message_id(response: &Value) -> Option<String> {
+    response
+        .get("output")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find_map(|item| {
+            (item.get("type").and_then(Value::as_str) == Some("message"))
+                .then(|| item.get("id").and_then(Value::as_str).map(str::to_string))
+                .flatten()
+        })
 }
 
 fn unix_secs() -> u64 {
@@ -1420,22 +1521,49 @@ mod tests {
     }
 
     #[test]
-    fn native_web_search_is_not_replaced() {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "tools": [{"type": "web_search", "web_search": {"enable": true}}]
+    fn native_web_search_is_replaced_by_local_tools_when_local_web_runs() {
+        let mut body = serde_json::to_vec(&serde_json::json!({
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "latest news"}],
+            "tools": [
+                {"type": "web_search", "web_search": {"enable": true}},
+                {"type": "web_search_preview"},
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "other_tool",
+                        "parameters": {"type": "object"}
+                    }
+                }
+            ]
         }))
         .unwrap();
-        assert!(chat_has_native_web_search(&body));
+
+        prepare_local_web_agent_body(&mut body).unwrap();
+        let value: Value = serde_json::from_slice(&body).unwrap();
+        let tools = value.get("tools").and_then(Value::as_array).unwrap();
+        assert!(!tools.iter().any(|tool| matches!(
+            tool.get("type").and_then(Value::as_str),
+            Some("web_search" | "web_search_preview")
+        )));
+        let names = tools
+            .iter()
+            .filter_map(|tool| tool.pointer("/function/name").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            vec!["other_tool", LOCAL_WEB_SEARCH_TOOL, LOCAL_WEB_FETCH_TOOL]
+        );
     }
 
     #[test]
-    fn streaming_codex_requests_never_enter_local_web_loop() {
+    fn streaming_codex_requests_can_enter_local_web_loop() {
         let settings = WebSearchSettings {
             search_provider_id: "tavily".to_string(),
             ..WebSearchSettings::default()
         };
         let body = serde_json::to_vec(&serde_json::json!({"tools": []})).unwrap();
-        assert!(!should_enable_local_web(true, &settings, &body));
+        assert!(should_enable_local_web(true, &settings, &body));
         assert!(should_enable_local_web(false, &settings, &body));
     }
 
@@ -1480,6 +1608,34 @@ mod tests {
             String::from_utf8(gemini_sse_from_response(body).unwrap()).unwrap(),
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]}}]}\n\n"
         );
+    }
+
+    #[test]
+    fn synthetic_response_sse_includes_text_delta_events() {
+        let response = serde_json::json!({
+            "id": "resp_test",
+            "object": "response",
+            "status": "completed",
+            "output": [{
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{
+                    "type": "output_text",
+                    "text": "hello from synthetic sse",
+                    "annotations": []
+                }]
+            }]
+        });
+        let body = serde_json::to_vec(&response).unwrap();
+        let sse = String::from_utf8(synthetic_sse_from_response(&body)).unwrap();
+
+        assert!(sse.contains("event: response.output_item.added"));
+        assert!(sse.contains("event: response.content_part.added"));
+        assert!(sse.contains("event: response.output_text.delta"));
+        assert!(sse.contains("hello from synthetic sse"));
+        assert!(sse.contains("event: response.completed"));
     }
 
     #[test]

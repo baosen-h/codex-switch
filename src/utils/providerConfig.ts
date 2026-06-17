@@ -20,6 +20,14 @@ export const emptyProvider: Provider = {
 
 export const agentTabs: AgentKind[] = ["codex", "claude", "gemini"];
 export const CODEX_COMPAT_PROXY_BASE_URL = "http://127.0.0.1:47632/v1";
+const DEEPSEEK_CONTEXT_WINDOW = 1_000_000;
+const DEEPSEEK_AUTO_COMPACT_LIMIT = 950_000;
+const ONE_MILLION_CONTEXT_ON_MARKER = "codex-switch: one-million-context=true";
+const ONE_MILLION_CONTEXT_OFF_MARKER = "codex-switch: one-million-context=false";
+const DEEPSEEK_ONE_MILLION_ON_MARKER = "codex-switch: deepseek-1m-context=true";
+const DEEPSEEK_ONE_MILLION_OFF_MARKER = "codex-switch: deepseek-1m-context=false";
+const CODEX_WEB_SEARCH_MARKER = "codex-switch: codex-web-search-tool=true";
+const LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER = "codex-switch: deepseek-v4-1m-context=true";
 
 function normalizedEndpoint(baseUrl: string): string {
   return baseUrl.trim().replace(/\/$/, "").toLowerCase();
@@ -36,6 +44,65 @@ function usesNativeCliModel(provider: Pick<Provider, "agent" | "model">): boolea
   if (provider.agent === "claude") return model.includes("claude");
   if (provider.agent === "gemini") return model.includes("gemini");
   return model.includes("gpt") || model.includes("codex");
+}
+
+export function isDeepSeekModel(model: string): boolean {
+  return model.trim().toLowerCase().startsWith("deepseek-");
+}
+
+function isOfficialDeepSeekBaseUrl(baseUrl: string): boolean {
+  const normalized = normalizedEndpoint(baseUrl);
+  return (
+    normalized === "https://api.deepseek.com"
+    || normalized === "https://api.deepseek.com/v1"
+    || normalized === "https://api.deepseek.com/anthropic"
+  );
+}
+
+function hasMarker(provider: Pick<Provider, "extraToml" | "configText">, marker: string): boolean {
+  return provider.extraToml.includes(marker) || provider.configText.includes(marker);
+}
+
+export function isDeepSeekOneMillionContextEnabled(provider: Pick<Provider, "model" | "baseUrl" | "extraToml" | "configText">): boolean {
+  if (!provider.model.trim()) return false;
+  if (hasMarker(provider, ONE_MILLION_CONTEXT_OFF_MARKER) || hasMarker(provider, DEEPSEEK_ONE_MILLION_OFF_MARKER)) return false;
+  if (
+    hasMarker(provider, ONE_MILLION_CONTEXT_ON_MARKER) ||
+    hasMarker(provider, DEEPSEEK_ONE_MILLION_ON_MARKER) ||
+    hasMarker(provider, LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER)
+  ) {
+    return true;
+  }
+  return isDeepSeekModel(provider.model) && isOfficialDeepSeekBaseUrl(provider.baseUrl);
+}
+
+export function setDeepSeekOneMillionContext(provider: Provider, enabled: boolean): Provider {
+  const markerLine = `# ${enabled ? ONE_MILLION_CONTEXT_ON_MARKER : ONE_MILLION_CONTEXT_OFF_MARKER}`;
+  const lines = provider.extraToml
+    .split(/\r?\n/)
+    .filter((line) =>
+      !line.includes(ONE_MILLION_CONTEXT_ON_MARKER)
+      && !line.includes(ONE_MILLION_CONTEXT_OFF_MARKER)
+      && !line.includes(DEEPSEEK_ONE_MILLION_ON_MARKER)
+      && !line.includes(DEEPSEEK_ONE_MILLION_OFF_MARKER)
+      && !line.includes(LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER)
+    );
+  const extraToml = [...lines.filter((line) => line.trim()), markerLine].join("\n");
+  return { ...provider, extraToml };
+}
+
+export function isCodexWebSearchToolEnabled(provider: Pick<Provider, "model" | "extraToml" | "configText">): boolean {
+  return Boolean(provider.model.trim()) && hasMarker(provider, CODEX_WEB_SEARCH_MARKER);
+}
+
+export function setCodexWebSearchTool(provider: Provider, enabled: boolean): Provider {
+  const lines = provider.extraToml
+    .split(/\r?\n/)
+    .filter((line) => !line.includes(CODEX_WEB_SEARCH_MARKER));
+  const extraToml = enabled
+    ? [...lines.filter((line) => line.trim()), `# ${CODEX_WEB_SEARCH_MARKER}`].join("\n")
+    : lines.join("\n").trim();
+  return { ...provider, extraToml };
 }
 
 export function shouldUseCodexCompatibilityProxy(provider: Pick<Provider, "agent" | "baseUrl" | "model" | "wireApi">): boolean {
@@ -79,6 +146,15 @@ function renderCodexPreview(provider: Provider): string {
   if (hasCustom) lines.push('model_provider = "custom"');
   lines.push(`model = "${model}"`);
   lines.push("disable_response_storage = true");
+  const hasDeepSeekContext = isDeepSeekOneMillionContextEnabled(provider);
+  const hasCodexWebSearch = isCodexWebSearchToolEnabled(provider);
+  if (hasDeepSeekContext) {
+    lines.push(`model_context_window = ${DEEPSEEK_CONTEXT_WINDOW}`);
+    lines.push(`model_auto_compact_token_limit = ${DEEPSEEK_AUTO_COMPACT_LIMIT}`);
+  }
+  if (hasDeepSeekContext || hasCodexWebSearch) {
+    lines.push('model_catalog_json = "model-catalog.json"');
+  }
   if (hasCustom) {
     lines.push("[model_providers]");
     lines.push("[model_providers.custom]");
@@ -98,11 +174,16 @@ function renderCodexPreview(provider: Provider): string {
 }
 
 function renderClaudePreview(provider: Provider): string {
+  const model = claudeModelWithContext(provider);
   const body = {
     env: {
       ANTHROPIC_AUTH_TOKEN: provider.apiKey,
       ANTHROPIC_BASE_URL: provider.baseUrl.trim(),
-      ANTHROPIC_MODEL: provider.model.trim(),
+      ANTHROPIC_MODEL: model,
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
+      ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+      ANTHROPIC_DEFAULT_OPUS_MODEL: model,
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: "950000",
     },
   };
   return `// ── ~/.claude/settings.json ──\n${JSON.stringify(body, null, 2)}\n`;
@@ -157,6 +238,11 @@ export function patchProviderPreviewFromFields(provider: Provider): string {
   for (const field of ["name", "model", "wireApi", "baseUrl", "apiKey", "extraToml"] as const) {
     next = patchProviderPreviewField({ ...provider, configText: next }, field, provider[field]);
   }
+  if (provider.agent === "codex") {
+    next = syncDeepSeekContextPreview(next, provider);
+  } else if (provider.agent === "claude") {
+    next = syncClaudeDeepSeekContextPreview(next, provider);
+  }
   return next;
 }
 
@@ -193,7 +279,14 @@ function patchClaudePreview(preview: string, field: PreviewField, value: string)
       body.env && typeof body.env === "object" && !Array.isArray(body.env)
         ? { ...(body.env as Record<string, unknown>) }
         : {};
-    env[envKey] = value;
+    env[envKey] = envKey === "ANTHROPIC_MODEL"
+      ? claudeModelWithContext({
+          model: value,
+          baseUrl: String(env.ANTHROPIC_BASE_URL ?? ""),
+          extraToml: "",
+          configText: preview,
+        })
+      : value;
     return { ...body, env };
   });
 }
@@ -363,6 +456,79 @@ function insertCodexTopLevelLine(preview: string, line: string): string {
   return `${before}\n${line}\n\n${after}`;
 }
 
+function removeCodexTopLevelLine(preview: string, key: string): string {
+  const lines = preview.split(/\r?\n/);
+  let inTopLevel = true;
+  const prefix = `${key} `;
+  const compactPrefix = `${key}=`;
+  return lines
+    .filter((line) => {
+      const trimmed = line.trimStart();
+      if (trimmed.startsWith("[")) inTopLevel = false;
+      return !(inTopLevel && (trimmed.startsWith(prefix) || trimmed.startsWith(compactPrefix)));
+    })
+    .join("\n");
+}
+
+function setCodexTopLevelLine(preview: string, key: string, value: string): string {
+  const line = `${key} = ${value}`;
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`^(\\s*${escapedKey}\\s*=\\s*).*$`, "im");
+  if (regex.test(preview)) return preview.replace(regex, line);
+  return insertCodexTopLevelLine(preview, line);
+}
+
+function syncDeepSeekContextPreview(preview: string, provider: Provider): string {
+  const enabled = isDeepSeekOneMillionContextEnabled(provider);
+  const webSearchEnabled = isCodexWebSearchToolEnabled(provider);
+  if (enabled) {
+    let next = setCodexTopLevelLine(preview, "model_context_window", String(DEEPSEEK_CONTEXT_WINDOW));
+    next = setCodexTopLevelLine(next, "model_auto_compact_token_limit", String(DEEPSEEK_AUTO_COMPACT_LIMIT));
+    return setCodexTopLevelLine(next, "model_catalog_json", '"model-catalog.json"');
+  }
+  if (webSearchEnabled) {
+    let next = removeCodexTopLevelLine(preview, "model_context_window");
+    next = removeCodexTopLevelLine(next, "model_auto_compact_token_limit");
+    return setCodexTopLevelLine(next, "model_catalog_json", '"model-catalog.json"');
+  }
+  if (!provider.extraToml.includes(ONE_MILLION_CONTEXT_OFF_MARKER) && !provider.extraToml.includes(DEEPSEEK_ONE_MILLION_OFF_MARKER)) return preview;
+  let next = removeCodexTopLevelLine(preview, "model_context_window");
+  next = removeCodexTopLevelLine(next, "model_auto_compact_token_limit");
+  return removeCodexTopLevelLine(next, "model_catalog_json");
+}
+
+function stripOneMillionSuffix(model: string): string {
+  return model.trim().replace(/\s*\[1m\]$/i, "");
+}
+
+function addOneMillionSuffix(model: string): string {
+  const base = stripOneMillionSuffix(model);
+  return base ? `${base}[1M]` : base;
+}
+
+function claudeModelWithContext(provider: Pick<Provider, "model" | "baseUrl" | "extraToml" | "configText">): string {
+  const model = provider.model.trim() || "claude-opus-4-5";
+  return isDeepSeekOneMillionContextEnabled(provider)
+    ? addOneMillionSuffix(model)
+    : stripOneMillionSuffix(model);
+}
+
+function syncClaudeDeepSeekContextPreview(preview: string, provider: Provider): string {
+  return replaceJsonBody(preview, (body) => {
+    const env =
+      body.env && typeof body.env === "object" && !Array.isArray(body.env)
+        ? { ...(body.env as Record<string, unknown>) }
+        : {};
+    const model = claudeModelWithContext(provider);
+    env.ANTHROPIC_MODEL = model;
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = model;
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = model;
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = model;
+    env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "950000";
+    return { ...body, env };
+  });
+}
+
 function insertBeforeCodexAuth(preview: string, block: string): string {
   const authMarker = preview.search(/^#\s*── .*auth\.json.*──\s*$/im);
   if (authMarker === -1) return `${preview.trimEnd()}\n${block}\n`;
@@ -392,6 +558,7 @@ function replaceCodexAuth(preview: string, apiKey: string): string {
 
 function replaceExperimentalBlock(preview: string, extraToml: string): string {
   const nextBlock = extraToml.trim();
+  preview = stripDeepSeekContextMarkers(preview);
   const experimental = preview.search(/^\[experimental\]\s*$/im);
   if (experimental === -1) {
     if (!nextBlock) return preview;
@@ -405,6 +572,20 @@ function replaceExperimentalBlock(preview: string, extraToml: string): string {
   const blockEnd = nextSectionOffset === -1 ? preview.length : experimental + 1 + nextSectionOffset;
   if (!nextBlock) return `${preview.slice(0, experimental).trimEnd()}\n\n${preview.slice(blockEnd).trimStart()}`;
   return `${preview.slice(0, experimental).trimEnd()}\n\n${nextBlock}\n\n${preview.slice(blockEnd).trimStart()}`;
+}
+
+function stripDeepSeekContextMarkers(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) =>
+      !line.includes(DEEPSEEK_ONE_MILLION_ON_MARKER)
+      && !line.includes(ONE_MILLION_CONTEXT_ON_MARKER)
+      && !line.includes(ONE_MILLION_CONTEXT_OFF_MARKER)
+      && !line.includes(DEEPSEEK_ONE_MILLION_OFF_MARKER)
+      && !line.includes(CODEX_WEB_SEARCH_MARKER)
+      && !line.includes(LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER)
+    )
+    .join("\n");
 }
 
 function replaceJsonBody(
@@ -511,7 +692,7 @@ function parseClaudePreview(preview: string): Partial<Provider> {
   return {
     apiKey: typeof env.ANTHROPIC_AUTH_TOKEN === "string" ? env.ANTHROPIC_AUTH_TOKEN : "",
     baseUrl: typeof env.ANTHROPIC_BASE_URL === "string" ? env.ANTHROPIC_BASE_URL : "",
-    model: typeof env.ANTHROPIC_MODEL === "string" ? env.ANTHROPIC_MODEL : "",
+    model: typeof env.ANTHROPIC_MODEL === "string" ? stripOneMillionSuffix(env.ANTHROPIC_MODEL) : "",
   };
 }
 

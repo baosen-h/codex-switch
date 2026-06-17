@@ -1,12 +1,22 @@
 use crate::compatibility_proxy::proxy_base_url;
 use crate::error::AppError;
 use crate::models::Provider;
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const AGENT_CODEX: &str = "codex";
 pub const AGENT_CLAUDE: &str = "claude";
 pub const AGENT_GEMINI: &str = "gemini";
+const DEEPSEEK_CONTEXT_WINDOW: u64 = 1_000_000;
+const DEEPSEEK_DEFAULT_CONTEXT_WINDOW: u64 = 128_000;
+const DEEPSEEK_AUTO_COMPACT_LIMIT: u64 = 950_000;
+const ONE_MILLION_CONTEXT_ON_MARKER: &str = "codex-switch: one-million-context=true";
+const ONE_MILLION_CONTEXT_OFF_MARKER: &str = "codex-switch: one-million-context=false";
+const DEEPSEEK_ONE_MILLION_ON_MARKER: &str = "codex-switch: deepseek-1m-context=true";
+const DEEPSEEK_ONE_MILLION_OFF_MARKER: &str = "codex-switch: deepseek-1m-context=false";
+const CODEX_WEB_SEARCH_MARKER: &str = "codex-switch: codex-web-search-tool=true";
+const LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER: &str = "codex-switch: deepseek-v4-1m-context=true";
 
 pub fn default_codex_config_dir() -> PathBuf {
     home_join(".codex")
@@ -50,12 +60,16 @@ pub fn render_codex_oauth(model: &str, auth_json: &str) -> String {
 
 pub fn render_claude(provider: &Provider) -> String {
     let base_url = provider.base_url.trim();
-    let model = provider.model.trim();
+    let model = claude_model_with_context(provider);
     let json = serde_json::to_string_pretty(&serde_json::json!({
         "env": {
             "ANTHROPIC_AUTH_TOKEN": provider.api_key,
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "950000",
         }
     }))
     .unwrap_or_else(|_| "{}".to_string());
@@ -137,6 +151,17 @@ fn build_codex_toml(provider: &Provider) -> String {
     }
     lines.push(format!("model = \"{}\"", provider.model.trim()));
     lines.push("disable_response_storage = true".to_string());
+    let uses_deepseek_context = uses_deepseek_one_million_context(provider);
+    let uses_codex_web_search = uses_codex_web_search_tool(provider);
+    if uses_deepseek_context {
+        lines.push(format!("model_context_window = {DEEPSEEK_CONTEXT_WINDOW}"));
+        lines.push(format!(
+            "model_auto_compact_token_limit = {DEEPSEEK_AUTO_COMPACT_LIMIT}"
+        ));
+    }
+    if uses_deepseek_context || uses_codex_web_search {
+        lines.push("model_catalog_json = \"model-catalog.json\"".to_string());
+    }
 
     if has_custom {
         lines.push("[model_providers]".to_string());
@@ -287,14 +312,309 @@ fn write_codex_with_gateway(
     }
 
     let toml_body = toml.unwrap_or_else(|| build_codex_toml(provider));
+    let toml_body = augment_codex_toml_for_model_catalog(&toml_body, provider, config_dir);
     let auth_body = auth.unwrap_or_else(|| {
         serde_json::to_string_pretty(&serde_json::json!({"OPENAI_API_KEY": provider.api_key}))
             .unwrap_or_else(|_| "{}".to_string())
     });
 
+    maybe_write_codex_model_catalog(provider, config_dir)?;
     fs::write(auth_path, auth_body)?;
     fs::write(config_path, toml_body)?;
     Ok(())
+}
+
+fn is_deepseek_model(model: &str) -> bool {
+    model.trim().to_ascii_lowercase().starts_with("deepseek-")
+}
+
+fn is_official_deepseek_base_url(base_url: &str) -> bool {
+    let normalized = base_url.trim().trim_end_matches('/').to_ascii_lowercase();
+    normalized == "https://api.deepseek.com"
+        || normalized == "https://api.deepseek.com/v1"
+        || normalized == "https://api.deepseek.com/anthropic"
+}
+
+fn provider_contains_marker(provider: &Provider, marker: &str) -> bool {
+    provider.extra_toml.contains(marker) || provider.config_text.contains(marker)
+}
+
+fn uses_deepseek_one_million_context(provider: &Provider) -> bool {
+    if provider.model.trim().is_empty() {
+        return false;
+    }
+    if provider_contains_marker(provider, ONE_MILLION_CONTEXT_OFF_MARKER)
+        || provider_contains_marker(provider, DEEPSEEK_ONE_MILLION_OFF_MARKER)
+    {
+        return false;
+    }
+    if provider_contains_marker(provider, ONE_MILLION_CONTEXT_ON_MARKER)
+        || provider_contains_marker(provider, DEEPSEEK_ONE_MILLION_ON_MARKER)
+        || provider_contains_marker(provider, LEGACY_DEEPSEEK_V4_ONE_MILLION_MARKER)
+    {
+        return true;
+    }
+    is_deepseek_model(provider.model.trim()) && is_official_deepseek_base_url(&provider.base_url)
+}
+
+fn strip_one_million_suffix(model: &str) -> String {
+    let model = model.trim();
+    if model.to_ascii_lowercase().ends_with("[1m]") {
+        model[..model.len().saturating_sub(4)]
+            .trim_end()
+            .to_string()
+    } else {
+        model.to_string()
+    }
+}
+
+fn add_one_million_suffix(model: &str) -> String {
+    let model = strip_one_million_suffix(model);
+    if model.is_empty() {
+        model
+    } else {
+        format!("{model}[1M]")
+    }
+}
+
+fn claude_model_with_context(provider: &Provider) -> String {
+    let model = if provider.model.trim().is_empty() {
+        "claude-opus-4-5"
+    } else {
+        provider.model.trim()
+    };
+    if uses_deepseek_one_million_context(provider) {
+        add_one_million_suffix(model)
+    } else {
+        strip_one_million_suffix(model)
+    }
+}
+
+fn uses_codex_web_search_tool(provider: &Provider) -> bool {
+    !provider.model.trim().is_empty() && provider_contains_marker(provider, CODEX_WEB_SEARCH_MARKER)
+}
+
+fn maybe_write_codex_model_catalog(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
+    let uses_context = uses_deepseek_one_million_context(provider);
+    let uses_web_search = uses_codex_web_search_tool(provider);
+    if !uses_context && !uses_web_search {
+        return Ok(());
+    }
+
+    let model = provider.model.trim();
+    let catalog = json!({
+        "models": [
+            codex_catalog_model(model, uses_context, uses_web_search)
+        ]
+    });
+    let catalog_path = config_dir.join("model-catalog.json");
+    fs::write(
+        catalog_path,
+        serde_json::to_string_pretty(&catalog)
+            .map_err(|error| AppError::message(error.to_string()))?
+            + "\n",
+    )?;
+    Ok(())
+}
+
+fn codex_catalog_model(slug: &str, uses_context: bool, uses_web_search: bool) -> serde_json::Value {
+    let context_window = if uses_context {
+        DEEPSEEK_CONTEXT_WINDOW
+    } else {
+        DEEPSEEK_DEFAULT_CONTEXT_WINDOW
+    };
+    let mut model = json!({
+        "slug": slug,
+        "display_name": catalog_display_name(slug),
+        "description": format!("{slug} through the configured Codex Switch provider."),
+        "base_instructions": "",
+        "default_reasoning_level": "high",
+        "supported_reasoning_levels": [
+            {
+                "effort": "low",
+                "description": "Fast responses with lighter reasoning"
+            },
+            {
+                "effort": "medium",
+                "description": "Balances speed and reasoning depth for everyday tasks"
+            },
+            {
+                "effort": "high",
+                "description": "Greater reasoning depth for complex problems"
+            },
+            {
+                "effort": "xhigh",
+                "description": "Extra high reasoning depth for complex problems"
+            }
+        ],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": true,
+        "priority": 0,
+        "context_window": context_window,
+        "max_context_window": context_window,
+        "effective_context_window_percent": 95,
+        "apply_patch_tool_type": "freeform",
+        "truncation_policy": {
+            "mode": "tokens",
+            "limit": 10000
+        },
+        "supports_reasoning_summaries": true,
+        "default_reasoning_summary": "none",
+        "support_verbosity": true,
+        "default_verbosity": "low",
+        "supports_parallel_tool_calls": true,
+        "experimental_supported_tools": [],
+        "supports_image_detail_original": true,
+        "input_modalities": ["text"],
+        "service_tiers": []
+    });
+    if uses_web_search {
+        if let Some(object) = model.as_object_mut() {
+            object.insert(
+                "web_search_tool_type".to_string(),
+                serde_json::Value::String("text_and_image".to_string()),
+            );
+            object.insert(
+                "supports_search_tool".to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
+    }
+    model
+}
+
+fn catalog_display_name(slug: &str) -> String {
+    match slug.trim().to_ascii_lowercase().as_str() {
+        "deepseek-v4-flash" => "DeepSeek V4 Flash".to_string(),
+        "deepseek-v4-pro" => "DeepSeek V4 Pro".to_string(),
+        "deepseek-chat" => "DeepSeek Chat".to_string(),
+        "deepseek-reasoner" => "DeepSeek Reasoner".to_string(),
+        other => {
+            let suffix = other
+                .strip_prefix("deepseek-")
+                .or_else(|| other.strip_prefix("claude-"))
+                .or_else(|| other.strip_prefix("gemini-"))
+                .or_else(|| other.strip_prefix("gpt-"))
+                .unwrap_or(other);
+            let suffix = suffix
+                .split(['-', '_'])
+                .filter(|part| !part.is_empty())
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let prefix = if other.starts_with("deepseek-") {
+                "DeepSeek"
+            } else if other.starts_with("claude-") {
+                "Claude"
+            } else if other.starts_with("gemini-") {
+                "Gemini"
+            } else if other.starts_with("gpt-") {
+                "GPT"
+            } else {
+                ""
+            };
+            if suffix.is_empty() || prefix.is_empty() {
+                slug.trim().to_string()
+            } else {
+                format!("{prefix} {suffix}")
+            }
+        }
+    }
+}
+
+fn augment_codex_toml_for_model_catalog(
+    toml_body: &str,
+    provider: &Provider,
+    config_dir: &Path,
+) -> String {
+    let uses_context = uses_deepseek_one_million_context(provider);
+    let uses_web_search = uses_codex_web_search_tool(provider);
+    if !uses_context && !uses_web_search {
+        if provider_contains_marker(provider, ONE_MILLION_CONTEXT_OFF_MARKER)
+            || provider_contains_marker(provider, DEEPSEEK_ONE_MILLION_OFF_MARKER)
+        {
+            let mut next = remove_top_level_toml_line(toml_body, "model_context_window");
+            next = remove_top_level_toml_line(&next, "model_auto_compact_token_limit");
+            return remove_top_level_toml_line(&next, "model_catalog_json");
+        }
+        return toml_body.to_string();
+    }
+
+    let catalog_path = config_dir.join("model-catalog.json");
+    let catalog_path = catalog_path.to_string_lossy().replace('\\', "\\\\");
+    let mut next = toml_body.to_string();
+    if uses_context {
+        next = set_top_level_toml_line(
+            &next,
+            "model_context_window",
+            &DEEPSEEK_CONTEXT_WINDOW.to_string(),
+        );
+        next = set_top_level_toml_line(
+            &next,
+            "model_auto_compact_token_limit",
+            &DEEPSEEK_AUTO_COMPACT_LIMIT.to_string(),
+        );
+    } else {
+        next = remove_top_level_toml_line(&next, "model_context_window");
+        next = remove_top_level_toml_line(&next, "model_auto_compact_token_limit");
+    }
+    set_top_level_toml_line(&next, "model_catalog_json", &format!("\"{catalog_path}\""))
+}
+
+fn remove_top_level_toml_line(toml_body: &str, key: &str) -> String {
+    let prefix = format!("{key} ");
+    let compact_prefix = format!("{key}=");
+    let mut in_top_level = true;
+    let mut lines = Vec::new();
+
+    for line in toml_body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            in_top_level = false;
+        }
+        if in_top_level && (trimmed.starts_with(&prefix) || trimmed.starts_with(&compact_prefix)) {
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn set_top_level_toml_line(toml_body: &str, key: &str, value: &str) -> String {
+    let mut lines = Vec::new();
+    let mut found_key = false;
+    let mut inserted = false;
+    let prefix = format!("{key} ");
+    let compact_prefix = format!("{key}=");
+
+    for line in toml_body.lines() {
+        let trimmed = line.trim_start();
+        if !found_key && !inserted && trimmed.starts_with('[') {
+            lines.push(format!("{key} = {value}"));
+            inserted = true;
+        }
+        if trimmed.starts_with(&prefix) || trimmed.starts_with(&compact_prefix) {
+            if !found_key {
+                lines.push(format!("{key} = {value}"));
+                found_key = true;
+            }
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+
+    if !found_key && !inserted {
+        lines.push(format!("{key} = {value}"));
+    }
+    lines.join("\n")
 }
 
 fn uses_codex_proxy(provider: &Provider) -> bool {
@@ -634,6 +954,169 @@ mod tests {
     }
 
     #[test]
+    fn render_codex_advertises_official_deepseek_context_and_catalog() {
+        let mut provider = codex_provider("chat", "");
+        provider.base_url = "https://api.deepseek.com/v1".to_string();
+        provider.model = "deepseek-chat".to_string();
+
+        let text = render_codex(&provider);
+
+        assert!(text.contains("model_context_window = 1000000"));
+        assert!(text.contains("model_auto_compact_token_limit = 950000"));
+        assert!(text.contains("model_catalog_json = \"model-catalog.json\""));
+        assert!(text.contains("http://127.0.0.1:47632/v1"));
+    }
+
+    #[test]
+    fn write_codex_writes_selected_deepseek_model_catalog() {
+        let mut provider = codex_provider("chat", "");
+        provider.model = "deepseek-v4-flash".to_string();
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_ON_MARKER}");
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-deepseek-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+
+        let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(config.contains("model_context_window = 1000000"));
+        assert!(config.contains("model_auto_compact_token_limit = 950000"));
+        assert!(config.contains("model_catalog_json = "));
+        assert!(catalog.contains("\"slug\": \"deepseek-v4-flash\""));
+        assert!(!catalog.contains("\"slug\": \"deepseek-v4-pro\""));
+        assert!(catalog.contains("\"base_instructions\": \"\""));
+        assert!(catalog.contains("\"truncation_policy\""));
+        assert!(catalog.contains("\"supported_reasoning_levels\""));
+        assert!(!catalog.contains("\"web_search_tool_type\""));
+        assert!(!catalog.contains("\"supports_search_tool\""));
+        assert!(catalog.contains("\"apply_patch_tool_type\": \"freeform\""));
+
+        std::fs::remove_dir_all(&dir).expect("remove catalog test dir");
+    }
+
+    #[test]
+    fn write_codex_can_advertise_one_million_context_for_non_deepseek_model() {
+        let mut provider = codex_provider("responses", "");
+        provider.model = "qwen-max".to_string();
+        provider.extra_toml = format!("# {ONE_MILLION_CONTEXT_ON_MARKER}");
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-generic-1m-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale generic 1m catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+
+        let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(config.contains("model_context_window = 1000000"));
+        assert!(config.contains("model_auto_compact_token_limit = 950000"));
+        assert!(config.contains("model_catalog_json = "));
+        assert!(catalog.contains("\"slug\": \"qwen-max\""));
+        assert!(catalog.contains("\"display_name\": \"qwen-max\""));
+        assert!(catalog.contains("\"base_instructions\": \"\""));
+        assert!(catalog.contains("\"truncation_policy\""));
+        assert!(catalog.contains("\"context_window\": 1000000"));
+        assert!(!catalog.contains("\"web_search_tool_type\""));
+
+        std::fs::remove_dir_all(&dir).expect("remove generic 1m catalog test dir");
+    }
+
+    #[test]
+    fn write_codex_can_advertise_web_search_without_one_million_context() {
+        let mut provider = codex_provider("chat", "");
+        provider.model = "gpt-5.4".to_string();
+        provider.extra_toml = format!("# {CODEX_WEB_SEARCH_MARKER}");
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-deepseek-web-search-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale web search catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+
+        let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(!config.contains("model_context_window = 1000000"));
+        assert!(!config.contains("model_auto_compact_token_limit = 950000"));
+        assert!(config.contains("model_catalog_json = "));
+        assert!(catalog.contains("\"slug\": \"gpt-5.4\""));
+        assert!(catalog.contains("\"base_instructions\": \"\""));
+        assert!(catalog.contains("\"truncation_policy\""));
+        assert!(catalog.contains("\"context_window\": 128000"));
+        assert!(catalog.contains("\"supported_reasoning_levels\""));
+        assert!(catalog.contains("\"web_search_tool_type\": \"text_and_image\""));
+        assert!(catalog.contains("\"supports_search_tool\": true"));
+
+        std::fs::remove_dir_all(&dir).expect("remove web search catalog test dir");
+    }
+
+    #[test]
+    fn official_deepseek_can_disable_one_million_context_but_keep_web_search_catalog() {
+        let mut provider = codex_provider("chat", "");
+        provider.base_url = "https://api.deepseek.com".to_string();
+        provider.model = "deepseek-v4-pro".to_string();
+        provider.extra_toml =
+            format!("# {DEEPSEEK_ONE_MILLION_OFF_MARKER}\n# {CODEX_WEB_SEARCH_MARKER}");
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-deepseek-web-search-off-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale web search off catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+
+        let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(!config.contains("model_context_window = 1000000"));
+        assert!(!config.contains("model_auto_compact_token_limit = 950000"));
+        assert!(config.contains("model_catalog_json = "));
+        assert!(catalog.contains("\"web_search_tool_type\": \"text_and_image\""));
+        assert!(catalog.contains("\"supports_search_tool\": true"));
+
+        std::fs::remove_dir_all(&dir).expect("remove web search off catalog test dir");
+    }
+
+    #[test]
+    fn custom_deepseek_catalog_is_opt_in() {
+        let mut provider = codex_provider("chat", "");
+        provider.model = "deepseek-v4-pro".to_string();
+
+        let text = render_codex(&provider);
+
+        assert!(!text.contains("model_context_window = 1000000"));
+        assert!(!text.contains("model_catalog_json"));
+    }
+
+    #[test]
+    fn official_deepseek_catalog_can_be_disabled() {
+        let mut provider = codex_provider("chat", "");
+        provider.base_url = "https://api.deepseek.com".to_string();
+        provider.model = "deepseek-v4-pro".to_string();
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_OFF_MARKER}");
+
+        let text = render_codex(&provider);
+
+        assert!(!text.contains("model_context_window = 1000000"));
+        assert!(!text.contains("model_catalog_json"));
+    }
+
+    #[test]
     fn stale_proxy_preview_is_detected() {
         let text = r#"# -- ~/.codex/config.toml --
 base_url = "http://127.0.0.1:47632/v1"
@@ -686,7 +1169,55 @@ base_url = "http://127.0.0.1:47632/v1"
             env["ANTHROPIC_BASE_URL"],
             "https://api.deepseek.com/anthropic"
         );
+        assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "950000");
+    }
+
+    #[test]
+    fn claude_code_deepseek_one_million_context_can_be_disabled() {
+        let mut provider = claude_provider(
+            "DeepSeek",
+            "https://api.deepseek.com/anthropic",
+            "deepseek-chat",
+        );
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_OFF_MARKER}");
+        let env = rendered_claude_env(&provider);
+
         assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-chat");
+    }
+
+    #[test]
+    fn claude_code_custom_deepseek_one_million_context_is_opt_in() {
+        let mut provider = claude_provider(
+            "DeepSeek Custom",
+            "https://gateway.example.com/anthropic",
+            "deepseek-chat",
+        );
+        let env = rendered_claude_env(&provider);
+        assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-chat");
+
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_ON_MARKER}");
+        let env = rendered_claude_env(&provider);
+
+        assert_eq!(env["ANTHROPIC_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "deepseek-chat[1M]");
+    }
+
+    #[test]
+    fn claude_code_non_deepseek_one_million_context_is_opt_in() {
+        let mut provider =
+            claude_provider("Qwen", "https://gateway.example.com/anthropic", "qwen-max");
+        let env = rendered_claude_env(&provider);
+        assert_eq!(env["ANTHROPIC_MODEL"], "qwen-max");
+
+        provider.extra_toml = format!("# {ONE_MILLION_CONTEXT_ON_MARKER}");
+        let env = rendered_claude_env(&provider);
+
+        assert_eq!(env["ANTHROPIC_MODEL"], "qwen-max[1M]");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "qwen-max[1M]");
     }
 
     #[test]
@@ -742,7 +1273,20 @@ base_url = "http://127.0.0.1:47632/v1"
             value["env"]["ANTHROPIC_BASE_URL"],
             "https://api.deepseek.com/anthropic"
         );
-        assert_eq!(value["env"]["ANTHROPIC_MODEL"], "deepseek-chat");
+        assert_eq!(value["env"]["ANTHROPIC_MODEL"], "deepseek-chat[1M]");
+        assert_eq!(
+            value["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            "deepseek-chat[1M]"
+        );
+        assert_eq!(
+            value["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+            "deepseek-chat[1M]"
+        );
+        assert_eq!(
+            value["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            "deepseek-chat[1M]"
+        );
+        assert_eq!(value["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "950000");
 
         std::fs::remove_dir_all(&dir).expect("remove temp claude test dir");
     }

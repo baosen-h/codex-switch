@@ -5,10 +5,14 @@ import { useI18n } from "../../i18n/context";
 import {
   defaultModelForAgent,
   emptyProvider,
+  isCodexWebSearchToolEnabled,
+  isDeepSeekOneMillionContextEnabled,
   patchProviderPreviewField,
   patchProviderPreviewFromFields,
   renderCodexOAuthPreview,
   renderProviderPreview,
+  setCodexWebSearchTool,
+  setDeepSeekOneMillionContext,
 } from "../../utils/providerConfig";
 import {
   avatarSourceForProvider,
@@ -76,7 +80,7 @@ export function AgentsPage({
     const initial: Provider = {
       ...base,
       apiProviderId: base.apiProviderId || linkedApiProvider?.id || "",
-      configText: base.configText || renderProviderPreview(base),
+      configText: base.configText ? patchProviderPreviewFromFields(base) : renderProviderPreview(base),
     };
     setDraft(initial);
     setModelOptions(linkedApiProvider?.models ?? []);
@@ -101,7 +105,9 @@ export function AgentsPage({
       const next = { ...current, [field]: value };
       return {
         ...next,
-        configText: patchProviderPreviewField(next, field, value),
+        configText: field === "model"
+          ? patchProviderPreviewFromFields(next)
+          : patchProviderPreviewField(next, field, value),
       };
     });
   };
@@ -150,6 +156,26 @@ export function AgentsPage({
   const handleSubmit = async () => {
     await onSave(draft);
     closeForm();
+  };
+
+  const toggleDeepSeekOneMillionContext = (enabled: boolean) => {
+    setDraft((current) => {
+      const next = setDeepSeekOneMillionContext(current, enabled);
+      return {
+        ...next,
+        configText: patchProviderPreviewFromFields(next),
+      };
+    });
+  };
+
+  const toggleCodexWebSearchTool = (enabled: boolean) => {
+    setDraft((current) => {
+      const next = setCodexWebSearchTool(current, enabled);
+      return {
+        ...next,
+        configText: patchProviderPreviewFromFields(next),
+      };
+    });
   };
 
   const loadModelOptions = async () => {
@@ -214,9 +240,17 @@ export function AgentsPage({
           templateGuideHint: t("templateGuideHint"),
           configPreview: t("configPreview"),
           configPreviewHint: t("configPreviewHint"),
+          deepSeekOneMillionContext: t("deepSeekOneMillionContext"),
+          deepSeekOneMillionContextHint: t("deepSeekOneMillionContextHint"),
+          codexWebSearchTool: t("codexWebSearchTool"),
+          codexWebSearchToolHint: t("codexWebSearchToolHint"),
           save: t("save"),
           create: t("create"),
         }}
+        showDeepSeekOneMillionContext={(draft.agent === "codex" || draft.agent === "claude") && Boolean(draft.model.trim())}
+        deepSeekOneMillionContextEnabled={isDeepSeekOneMillionContextEnabled(draft)}
+        showCodexWebSearchTool={draft.agent === "codex" && Boolean(draft.model.trim())}
+        codexWebSearchToolEnabled={isCodexWebSearchToolEnabled(draft)}
         agentLabel={agentLabel}
         onClose={closeForm}
         onUpdateDraft={updateDraft}
@@ -244,6 +278,8 @@ export function AgentsPage({
           setIsModelListOpen(false);
         }}
         onUpdatePreview={updatePreview}
+        onToggleDeepSeekOneMillionContext={toggleDeepSeekOneMillionContext}
+        onToggleCodexWebSearchTool={toggleCodexWebSearchTool}
         onSubmit={() => void handleSubmit()}
       />
     );
