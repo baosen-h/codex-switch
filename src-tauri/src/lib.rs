@@ -247,12 +247,17 @@ fn activate_provider_from_tray(app: &AppHandle, provider_id: &str) {
         let codex_dir = agent_writer::resolve_codex_dir(&settings.codex_config_dir);
         let claude_dir = agent_writer::resolve_claude_dir(&settings.claude_config_dir);
         let gemini_dir = agent_writer::resolve_gemini_dir(&settings.gemini_config_dir);
+        let api_providers = match db.api_providers() {
+            Ok(api_providers) => api_providers,
+            Err(_) => return,
+        };
         agent_writer::write_provider(
             &provider,
             &agent_writer::AgentDirs {
                 codex: &codex_dir,
                 claude: &claude_dir,
                 gemini: &gemini_dir,
+                api_providers: &api_providers,
                 vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
                 vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
                 vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,

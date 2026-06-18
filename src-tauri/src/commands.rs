@@ -83,12 +83,14 @@ pub fn save_provider(
         let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
         let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
         let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+        let api_providers = db.api_providers().map_err(|error| error.to_string())?;
         write_provider(
             &saved,
             &AgentDirs {
                 codex: &codex_dir,
                 claude: &claude_dir,
                 gemini: &gemini_dir,
+                api_providers: &api_providers,
                 vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
                 vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
                 vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
@@ -179,10 +181,12 @@ pub fn save_api_provider(
         let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
         let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
         let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+        let api_providers = db.api_providers().map_err(|error| error.to_string())?;
         let dirs = AgentDirs {
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
+            api_providers: &api_providers,
             vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
             vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
             vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
@@ -224,12 +228,14 @@ pub fn activate_provider(
     let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
     let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
     let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+    let api_providers = db.api_providers().map_err(|error| error.to_string())?;
     write_provider(
         &provider,
         &AgentDirs {
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
+            api_providers: &api_providers,
             vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
             vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
             vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
@@ -753,12 +759,14 @@ pub fn launch_codex(state: State<'_, AppState>, request: LaunchRequest) -> Resul
     let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
     let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
     let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+    let api_providers = db.api_providers().map_err(|error| error.to_string())?;
     write_provider(
         &provider,
         &AgentDirs {
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
+            api_providers: &api_providers,
             vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
             vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
             vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
@@ -788,12 +796,14 @@ pub fn launch_session(state: State<'_, AppState>, session: SessionRecord) -> Res
             let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
             let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
             let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+            let api_providers = db.api_providers().map_err(|error| error.to_string())?;
             write_provider(
                 &provider,
                 &AgentDirs {
                     codex: &codex_dir,
                     claude: &claude_dir,
                     gemini: &gemini_dir,
+                    api_providers: &api_providers,
                     vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
                     vision_claude: settings.vision_fallback_enabled
                         && settings.vision_claude_enabled,
@@ -893,12 +903,14 @@ pub fn launch_provider(state: State<'_, AppState>, provider_id: String) -> Resul
     let codex_dir = resolve_codex_dir(&settings.codex_config_dir);
     let claude_dir = resolve_claude_dir(&settings.claude_config_dir);
     let gemini_dir = resolve_gemini_dir(&settings.gemini_config_dir);
+    let api_providers = db.api_providers().map_err(|error| error.to_string())?;
     write_provider(
         &provider,
         &AgentDirs {
             codex: &codex_dir,
             claude: &claude_dir,
             gemini: &gemini_dir,
+            api_providers: &api_providers,
             vision_codex: settings.vision_fallback_enabled && settings.vision_codex_enabled,
             vision_claude: settings.vision_fallback_enabled && settings.vision_claude_enabled,
             vision_gemini: settings.vision_fallback_enabled && settings.vision_gemini_enabled,
@@ -936,10 +948,12 @@ pub fn save_settings(
     let codex_dir = resolve_codex_dir(&saved.codex_config_dir);
     let claude_dir = resolve_claude_dir(&saved.claude_config_dir);
     let gemini_dir = resolve_gemini_dir(&saved.gemini_config_dir);
+    let api_providers = db.api_providers().map_err(|error| error.to_string())?;
     let dirs = AgentDirs {
         codex: &codex_dir,
         claude: &claude_dir,
         gemini: &gemini_dir,
+        api_providers: &api_providers,
         vision_codex: saved.vision_fallback_enabled && saved.vision_codex_enabled,
         vision_claude: saved.vision_fallback_enabled && saved.vision_claude_enabled,
         vision_gemini: saved.vision_fallback_enabled && saved.vision_gemini_enabled,

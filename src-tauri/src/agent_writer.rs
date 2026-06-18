@@ -1,7 +1,7 @@
 use crate::compatibility_proxy::proxy_base_url;
 use crate::error::AppError;
-use crate::models::Provider;
-use serde_json::json;
+use crate::models::{ApiProvider, Provider, RemoteModel};
+use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -191,6 +191,7 @@ pub struct AgentDirs<'a> {
     pub codex: &'a Path,
     pub claude: &'a Path,
     pub gemini: &'a Path,
+    pub api_providers: &'a [ApiProvider],
     pub vision_codex: bool,
     pub vision_claude: bool,
     pub vision_gemini: bool,
@@ -203,7 +204,12 @@ pub fn write_provider(provider: &Provider, dirs: &AgentDirs) -> Result<(), AppEr
     match provider.agent.as_str() {
         AGENT_CLAUDE => write_claude_with_gateway(provider, dirs.claude, dirs.vision_claude),
         AGENT_GEMINI => write_gemini_with_gateway(provider, dirs.gemini, dirs.vision_gemini),
-        _ => write_codex_with_gateway(provider, dirs.codex, dirs.vision_codex),
+        _ => write_codex_with_gateway(
+            provider,
+            dirs.codex,
+            dirs.vision_codex,
+            dirs.api_providers,
+        ),
     }
 }
 
@@ -273,13 +279,14 @@ fn split_sections(text: &str) -> Vec<(String, String)> {
 
 #[allow(dead_code)]
 pub fn write_codex(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
-    write_codex_with_gateway(provider, config_dir, false)
+    write_codex_with_gateway(provider, config_dir, false, &[])
 }
 
 fn write_codex_with_gateway(
     provider: &Provider,
     config_dir: &Path,
     use_gateway: bool,
+    api_providers: &[ApiProvider],
 ) -> Result<(), AppError> {
     ensure_dir(config_dir)?;
     let auth_path = config_dir.join("auth.json");
@@ -311,14 +318,25 @@ fn write_codex_with_gateway(
         }
     }
 
+    let advertise_vision_images = use_gateway && uses_codex_proxy(&effective_provider);
     let toml_body = toml.unwrap_or_else(|| build_codex_toml(provider));
-    let toml_body = augment_codex_toml_for_model_catalog(&toml_body, provider, config_dir);
+    let toml_body = augment_codex_toml_for_model_catalog(
+        &toml_body,
+        provider,
+        config_dir,
+        advertise_vision_images,
+    );
     let auth_body = auth.unwrap_or_else(|| {
         serde_json::to_string_pretty(&serde_json::json!({"OPENAI_API_KEY": provider.api_key}))
             .unwrap_or_else(|_| "{}".to_string())
     });
 
-    maybe_write_codex_model_catalog(provider, config_dir)?;
+    maybe_write_codex_model_catalog(
+        provider,
+        config_dir,
+        advertise_vision_images,
+        api_providers,
+    )?;
     fs::write(auth_path, auth_body)?;
     fs::write(config_path, toml_body)?;
     Ok(())
@@ -394,17 +412,23 @@ fn uses_codex_web_search_tool(provider: &Provider) -> bool {
     !provider.model.trim().is_empty() && provider_contains_marker(provider, CODEX_WEB_SEARCH_MARKER)
 }
 
-fn maybe_write_codex_model_catalog(provider: &Provider, config_dir: &Path) -> Result<(), AppError> {
+fn maybe_write_codex_model_catalog(
+    provider: &Provider,
+    config_dir: &Path,
+    advertise_vision_images: bool,
+    api_providers: &[ApiProvider],
+) -> Result<(), AppError> {
     let uses_context = uses_deepseek_one_million_context(provider);
     let uses_web_search = uses_codex_web_search_tool(provider);
-    if !uses_context && !uses_web_search {
+    if !uses_context && !uses_web_search && !advertise_vision_images {
         return Ok(());
     }
 
     let model = provider.model.trim();
+    let metadata = provider_model_metadata(provider, api_providers);
     let catalog = json!({
         "models": [
-            codex_catalog_model(model, uses_context, uses_web_search)
+            codex_catalog_model(model, uses_context, uses_web_search, advertise_vision_images, metadata)
         ]
     });
     let catalog_path = config_dir.join("model-catalog.json");
@@ -417,16 +441,33 @@ fn maybe_write_codex_model_catalog(provider: &Provider, config_dir: &Path) -> Re
     Ok(())
 }
 
-fn codex_catalog_model(slug: &str, uses_context: bool, uses_web_search: bool) -> serde_json::Value {
+fn codex_catalog_model(
+    slug: &str,
+    uses_context: bool,
+    uses_web_search: bool,
+    advertise_vision_images: bool,
+    metadata: Option<&RemoteModel>,
+) -> serde_json::Value {
     let context_window = if uses_context {
         DEEPSEEK_CONTEXT_WINDOW
     } else {
         DEEPSEEK_DEFAULT_CONTEXT_WINDOW
     };
+    let input_modalities = catalog_input_modalities(metadata, advertise_vision_images);
+    let display_name = metadata
+        .and_then(|model| model.name.as_deref())
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| catalog_display_name(slug));
+    let description = metadata
+        .and_then(|model| model.description.as_deref())
+        .filter(|description| !description.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{slug} through the configured Codex Switch provider."));
     let mut model = json!({
         "slug": slug,
-        "display_name": catalog_display_name(slug),
-        "description": format!("{slug} through the configured Codex Switch provider."),
+        "display_name": display_name,
+        "description": description,
         "base_instructions": "",
         "default_reasoning_level": "high",
         "supported_reasoning_levels": [
@@ -466,7 +507,7 @@ fn codex_catalog_model(slug: &str, uses_context: bool, uses_web_search: bool) ->
         "supports_parallel_tool_calls": true,
         "experimental_supported_tools": [],
         "supports_image_detail_original": true,
-        "input_modalities": ["text"],
+        "input_modalities": input_modalities,
         "service_tiers": []
     });
     if uses_web_search {
@@ -482,6 +523,61 @@ fn codex_catalog_model(slug: &str, uses_context: bool, uses_web_search: bool) ->
         }
     }
     model
+}
+
+fn provider_model_metadata<'a>(
+    provider: &Provider,
+    api_providers: &'a [ApiProvider],
+) -> Option<&'a RemoteModel> {
+    let api_provider = api_providers
+        .iter()
+        .find(|api| api.id == provider.api_provider_id)?;
+    find_remote_model(&api_provider.models, provider.model.trim())
+}
+
+fn find_remote_model<'a>(models: &'a [RemoteModel], model: &str) -> Option<&'a RemoteModel> {
+    let model = model.trim();
+    if model.is_empty() {
+        return None;
+    }
+    let lower = model.to_ascii_lowercase();
+    let compact = catalog_model_match_key(&lower);
+    models.iter().find(|item| {
+        let id = item.id.trim().to_ascii_lowercase();
+        let id_compact = catalog_model_match_key(&id);
+        id == lower
+            || id_compact == compact
+            || id.rsplit_once('/').is_some_and(|(_, suffix)| {
+                let suffix = suffix.to_ascii_lowercase();
+                suffix == lower || catalog_model_match_key(&suffix) == compact
+            })
+    })
+}
+
+fn catalog_model_match_key(model_id: &str) -> String {
+    model_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn catalog_input_modalities(metadata: Option<&RemoteModel>, advertise_vision_images: bool) -> Value {
+    let mut modalities = metadata
+        .map(|model| model.input_modalities.clone())
+        .filter(|modalities| !modalities.is_empty())
+        .unwrap_or_else(|| vec!["text".to_string()]);
+    if !modalities.iter().any(|item| item.eq_ignore_ascii_case("text")) {
+        modalities.insert(0, "text".to_string());
+    }
+    if advertise_vision_images
+        && !modalities
+            .iter()
+            .any(|item| item.eq_ignore_ascii_case("image"))
+    {
+        modalities.push("image".to_string());
+    }
+    json!(modalities)
 }
 
 fn catalog_display_name(slug: &str) -> String {
@@ -533,10 +629,11 @@ fn augment_codex_toml_for_model_catalog(
     toml_body: &str,
     provider: &Provider,
     config_dir: &Path,
+    advertise_vision_images: bool,
 ) -> String {
     let uses_context = uses_deepseek_one_million_context(provider);
     let uses_web_search = uses_codex_web_search_tool(provider);
-    if !uses_context && !uses_web_search {
+    if !uses_context && !uses_web_search && !advertise_vision_images {
         if provider_contains_marker(provider, ONE_MILLION_CONTEXT_OFF_MARKER)
             || provider_contains_marker(provider, DEEPSEEK_ONE_MILLION_OFF_MARKER)
         {
@@ -884,6 +981,38 @@ mod tests {
         }
     }
 
+    fn api_provider_with_models(id: &str, models: Vec<RemoteModel>) -> ApiProvider {
+        ApiProvider {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider_type: "openai_compatible".to_string(),
+            wire_api: "chat".to_string(),
+            base_url: "https://example.com/v1".to_string(),
+            api_key: "sk-test".to_string(),
+            website_url: String::new(),
+            open_ai_auth_json: None,
+            models,
+            enabled: true,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn remote_model(id: &str, input_modalities: &[&str]) -> RemoteModel {
+        RemoteModel {
+            id: id.to_string(),
+            name: None,
+            owned_by: None,
+            description: None,
+            capabilities: Vec::new(),
+            input_modalities: input_modalities
+                .iter()
+                .map(|item| item.to_string())
+                .collect(),
+            output_modalities: Vec::new(),
+        }
+    }
+
     fn claude_provider(name: &str, base_url: &str, model: &str) -> Provider {
         Provider {
             id: format!("provider-{name}"),
@@ -980,7 +1109,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).expect("clean stale catalog test dir");
         }
 
-        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+        write_codex_with_gateway(&provider, &dir, false, &[]).expect("write Codex config");
 
         let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
         let catalog =
@@ -993,11 +1122,92 @@ mod tests {
         assert!(catalog.contains("\"base_instructions\": \"\""));
         assert!(catalog.contains("\"truncation_policy\""));
         assert!(catalog.contains("\"supported_reasoning_levels\""));
+        assert!(catalog.contains("\"input_modalities\": [\n        \"text\"\n      ]"));
         assert!(!catalog.contains("\"web_search_tool_type\""));
         assert!(!catalog.contains("\"supports_search_tool\""));
         assert!(catalog.contains("\"apply_patch_tool_type\": \"freeform\""));
 
         std::fs::remove_dir_all(&dir).expect("remove catalog test dir");
+    }
+
+    #[test]
+    fn codex_vision_fallback_catalog_advertises_image_input_for_proxy_models() {
+        let mut provider = codex_provider("chat", "");
+        provider.model = "deepseek-v4-flash".to_string();
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_ON_MARKER}");
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-vision-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale vision catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, true, &[]).expect("write Codex config");
+
+        let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(config.contains("model_catalog_json = "));
+        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+
+        std::fs::remove_dir_all(&dir).expect("remove vision catalog test dir");
+    }
+
+    #[test]
+    fn codex_catalog_uses_upstream_model_input_modalities() {
+        let mut provider = codex_provider("chat", "");
+        provider.api_provider_id = "api-openrouter".to_string();
+        provider.model = "qwen/qwen-vl-max".to_string();
+        provider.extra_toml = format!("# {ONE_MILLION_CONTEXT_ON_MARKER}");
+        let api_providers = vec![api_provider_with_models(
+            "api-openrouter",
+            vec![remote_model("qwen/qwen-vl-max", &["text", "image"])],
+        )];
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-upstream-modalities-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale upstream modalities catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, false, &api_providers)
+            .expect("write Codex config");
+
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+
+        std::fs::remove_dir_all(&dir).expect("remove upstream modalities catalog test dir");
+    }
+
+    #[test]
+    fn codex_vision_fallback_adds_image_to_text_only_upstream_metadata() {
+        let mut provider = codex_provider("chat", "");
+        provider.api_provider_id = "api-deepseek".to_string();
+        provider.model = "deepseek-v4-flash".to_string();
+        provider.extra_toml = format!("# {DEEPSEEK_ONE_MILLION_ON_MARKER}");
+        let api_providers = vec![api_provider_with_models(
+            "api-deepseek",
+            vec![remote_model("deepseek-v4-flash", &["text"])],
+        )];
+        let dir = std::env::temp_dir().join(format!(
+            "codex-switch-fallback-modalities-catalog-test-{}",
+            std::process::id()
+        ));
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).expect("clean stale fallback modalities catalog test dir");
+        }
+
+        write_codex_with_gateway(&provider, &dir, true, &api_providers)
+            .expect("write Codex config");
+
+        let catalog =
+            std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
+        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+
+        std::fs::remove_dir_all(&dir).expect("remove fallback modalities catalog test dir");
     }
 
     #[test]
@@ -1013,7 +1223,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).expect("clean stale generic 1m catalog test dir");
         }
 
-        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+        write_codex_with_gateway(&provider, &dir, false, &[]).expect("write Codex config");
 
         let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
         let catalog =
@@ -1044,7 +1254,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).expect("clean stale web search catalog test dir");
         }
 
-        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+        write_codex_with_gateway(&provider, &dir, false, &[]).expect("write Codex config");
 
         let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
         let catalog =
@@ -1078,7 +1288,7 @@ mod tests {
             std::fs::remove_dir_all(&dir).expect("clean stale web search off catalog test dir");
         }
 
-        write_codex_with_gateway(&provider, &dir, false).expect("write Codex config");
+        write_codex_with_gateway(&provider, &dir, false, &[]).expect("write Codex config");
 
         let config = std::fs::read_to_string(dir.join("config.toml")).expect("read config.toml");
         let catalog =
@@ -1145,7 +1355,7 @@ base_url = "http://127.0.0.1:47632/v1"
             std::fs::remove_dir_all(&dir).expect("clean stale OAuth test dir");
         }
 
-        write_codex_with_gateway(&provider, &dir, true).expect("write OAuth config");
+        write_codex_with_gateway(&provider, &dir, true, &[]).expect("write OAuth config");
 
         let auth = std::fs::read_to_string(dir.join("auth.json")).expect("read auth.json");
         assert!(auth.contains("\"tokens\""));
