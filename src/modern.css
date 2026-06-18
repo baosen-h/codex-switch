@@ -1290,6 +1290,7 @@ select:focus {
 .model-modality-audio { color: #f59e0b; }
 .model-modality-video { color: #a78bfa; }
 .model-modality-file { color: #60a5fa; }
+.model-modality-unknown { color: #94a3b8; }
 
 .model-modality-arrow {
   display: inline-flex;

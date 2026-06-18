@@ -296,6 +296,30 @@ pub async fn list_provider_models(
         .map_err(|error| format!("Model list task failed: {error}"))?
 }
 
+#[tauri::command]
+pub async fn refresh_model_metadata(
+    state: State<'_, AppState>,
+    models: Vec<RemoteModel>,
+) -> Result<Vec<RemoteModel>, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || refresh_model_metadata_blocking(db, models))
+        .await
+        .map_err(|error| format!("Model metadata task failed: {error}"))?
+}
+
+#[tauri::command]
+pub fn set_manual_model_metadata(
+    state: State<'_, AppState>,
+    model: RemoteModel,
+) -> Result<RemoteModel, String> {
+    state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .set_manual_model_metadata(model)
+        .map_err(|error| error.to_string())
+}
+
 fn list_provider_models_blocking(
     db: Arc<Mutex<Database>>,
     request: ModelListRequest,
@@ -338,7 +362,14 @@ fn list_provider_models_blocking(
     }
 
     let models = extract_models(&body);
-    Ok(enrich_models_with_openrouter_metadata(&db, &client, models))
+    Ok(enrich_models_with_cached_metadata(&db, models))
+}
+
+fn refresh_model_metadata_blocking(
+    db: Arc<Mutex<Database>>,
+    models: Vec<RemoteModel>,
+) -> Result<Vec<RemoteModel>, String> {
+    Ok(refresh_models_with_openrouter_metadata(&db, models))
 }
 
 #[tauri::command]
@@ -2449,9 +2480,8 @@ fn extract_models(value: &Value) -> Vec<RemoteModel> {
     models
 }
 
-fn enrich_models_with_openrouter_metadata(
+fn enrich_models_with_cached_metadata(
     db: &Arc<Mutex<Database>>,
-    client: &Client,
     mut models: Vec<RemoteModel>,
 ) -> Vec<RemoteModel> {
     if models
@@ -2477,10 +2507,27 @@ fn enrich_models_with_openrouter_metadata(
         return models;
     }
 
+    models
+}
+
+fn refresh_models_with_openrouter_metadata(
+    db: &Arc<Mutex<Database>>,
+    mut models: Vec<RemoteModel>,
+) -> Vec<RemoteModel> {
+    if models
+        .iter()
+        .all(|model| !model.input_modalities.is_empty() || !model.output_modalities.is_empty())
+    {
+        return models;
+    }
+
     let openrouter_client = Client::builder()
         .timeout(Duration::from_secs(8))
         .build()
-        .unwrap_or_else(|_| client.clone());
+        .ok();
+    let Some(openrouter_client) = openrouter_client else {
+        return models;
+    };
 
     let response = openrouter_client
         .get("https://openrouter.ai/api/v1/models")
@@ -2520,6 +2567,7 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
             capabilities: Vec::new(),
             input_modalities: Vec::new(),
             output_modalities: Vec::new(),
+            metadata_source: None,
         });
     }
 
@@ -2561,6 +2609,7 @@ fn model_from_value(value: &Value) -> Option<RemoteModel> {
         capabilities,
         input_modalities,
         output_modalities,
+        metadata_source: None,
     })
 }
 
@@ -2936,6 +2985,7 @@ mod tests {
                 capabilities: Vec::new(),
                 input_modalities: Vec::new(),
                 output_modalities: Vec::new(),
+                metadata_source: None,
             },
             RemoteModel {
                 id: "mimo-v2.5".to_string(),
@@ -2945,6 +2995,7 @@ mod tests {
                 capabilities: Vec::new(),
                 input_modalities: Vec::new(),
                 output_modalities: Vec::new(),
+                metadata_source: None,
             },
         ];
         let catalog = extract_models(&serde_json::json!({

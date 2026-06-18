@@ -1006,6 +1006,7 @@ mod tests {
                 .map(|item| item.to_string())
                 .collect(),
             output_modalities: Vec::new(),
+            metadata_source: None,
         }
     }
 

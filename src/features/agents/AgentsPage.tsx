@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { appApi } from "../../api/tauri";
 import type { AgentKind, ApiProvider, Provider, RemoteModel } from "../../types";
 import { useI18n } from "../../i18n/context";
@@ -24,6 +24,11 @@ import { AgentProviderForm } from "./components/AgentProviderForm";
 import { AgentProviderList } from "./components/AgentProviderList";
 import type { AgentsPageProps } from "./types";
 
+const hasModelMetadata = (model: RemoteModel) =>
+  Boolean(model.inputModalities?.length || model.outputModalities?.length);
+
+const hasMissingModelMetadata = (models: RemoteModel[]) => models.some((model) => !hasModelMetadata(model));
+
 export function AgentsPage({
   apiProviders,
   providers,
@@ -41,6 +46,7 @@ export function AgentsPage({
   const [isModelListOpen, setIsModelListOpen] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelListError, setModelListError] = useState<string | null>(null);
+  const modelRequestKeyRef = useRef("");
 
   const sortedProviders = useMemo(() => sortAgentProviders(providers), [providers]);
   const tabCounts = useMemo(() => countProvidersByAgent(providers), [providers]);
@@ -184,23 +190,64 @@ export function AgentsPage({
       return;
     }
 
+    const request = {
+      providerType: selectedApiProvider?.providerType ?? "openai-compatible",
+      baseUrl: draft.baseUrl,
+      apiKey: draft.apiKey,
+    };
+    const requestKey = `${request.providerType}\n${request.baseUrl}\n${request.apiKey}`;
+    modelRequestKeyRef.current = requestKey;
+
     setIsLoadingModels(true);
     setModelListError(null);
     setIsModelListOpen(true);
 
     try {
-      const models = await appApi.listProviderModels({
-        providerType: selectedApiProvider?.providerType ?? "openai-compatible",
-        baseUrl: draft.baseUrl,
-        apiKey: draft.apiKey,
-      });
+      const models = await appApi.listProviderModels(request);
       setModelOptions(models);
       setModelSearch("");
+      if (hasMissingModelMetadata(models)) {
+        void refreshMissingModelMetadata(models, requestKey);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setModelListError(detail || t("modelListError"));
     } finally {
       setIsLoadingModels(false);
+    }
+  };
+
+  const refreshMissingModelMetadata = async (
+    models: RemoteModel[],
+    requestKey: string,
+  ) => {
+    try {
+      const enrichedModels = await appApi.refreshModelMetadata(models);
+      const enrichedById = new Map(enrichedModels.map((model) => [model.id, model]));
+      setModelOptions((currentModels) => {
+        if (modelRequestKeyRef.current !== requestKey) {
+          return currentModels;
+        }
+
+        let changed = false;
+        const nextModels = currentModels.map((model) => {
+          if (hasModelMetadata(model)) {
+            return model;
+          }
+
+          const enriched = enrichedById.get(model.id);
+          if (!enriched || !hasModelMetadata(enriched)) {
+            return model;
+          }
+
+          changed = true;
+          return { ...model, ...enriched };
+        });
+
+        return changed ? nextModels : currentModels;
+      });
+    } catch {
+      // Metadata is best-effort; model selection should not wait for OpenRouter.
     }
   };
 

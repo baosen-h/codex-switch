@@ -67,6 +67,12 @@ export const appApi = {
   listProviderModels(request: ModelListRequest): Promise<RemoteModel[]> {
     return invoke("list_provider_models", { request });
   },
+  refreshModelMetadata(models: RemoteModel[]): Promise<RemoteModel[]> {
+    return invoke("refresh_model_metadata", { models });
+  },
+  setManualModelMetadata(model: RemoteModel): Promise<RemoteModel> {
+    return invoke("set_manual_model_metadata", { model });
+  },
   sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
     return invoke("send_chat_message", { request });
   },

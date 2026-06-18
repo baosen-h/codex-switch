@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { appApi } from "../../api/tauri";
-import type { ApiProvider, ApiProviderType, CompleteOpenAiOauthResult } from "../../types";
+import type { ApiProvider, ApiProviderType, CompleteOpenAiOauthResult, RemoteModel } from "../../types";
 import { useI18n } from "../../i18n/context";
 import { ProviderForm } from "./components/ProviderForm";
 import { ProviderList } from "./components/ProviderList";
@@ -12,6 +12,11 @@ import {
   providerTypes,
 } from "./providerConfig";
 import type { ProvidersPageProps } from "./types";
+
+const hasModelMetadata = (model: RemoteModel) =>
+  Boolean(model.inputModalities?.length || model.outputModalities?.length);
+
+const hasMissingModelMetadata = (models: RemoteModel[]) => models.some((model) => !hasModelMetadata(model));
 
 export function ProvidersPage({ providers, onSave, onDelete, onNotify }: ProvidersPageProps) {
   const { t } = useI18n();
@@ -139,22 +144,74 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
       return;
     }
 
+    const request = {
+      providerType: draft.providerType,
+      baseUrl: draft.baseUrl,
+      apiKey: draft.apiKey,
+    };
+
     setIsLoadingModels(true);
     setModelListError(null);
     try {
-      const models = await appApi.listProviderModels({
-        providerType: draft.providerType,
-        baseUrl: draft.baseUrl,
-        apiKey: draft.apiKey,
-      });
+      const models = await appApi.listProviderModels(request);
       setDraft((current) => ({ ...current, models }));
       onNotify(`${models.length} ${t("modelsLoaded")}`, "ok");
+      if (hasMissingModelMetadata(models)) {
+        void refreshMissingModelMetadata(models, request);
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       setModelListError(detail || t("modelListError"));
     } finally {
       setIsLoadingModels(false);
     }
+  };
+
+  const refreshMissingModelMetadata = async (
+    models: RemoteModel[],
+    request: { providerType: ApiProviderType; baseUrl: string; apiKey: string },
+  ) => {
+    try {
+      const enrichedModels = await appApi.refreshModelMetadata(models);
+      const enrichedById = new Map(enrichedModels.map((model) => [model.id, model]));
+      setDraft((current) => {
+        if (
+          current.providerType !== request.providerType ||
+          current.baseUrl !== request.baseUrl ||
+          current.apiKey !== request.apiKey
+        ) {
+          return current;
+        }
+
+        let changed = false;
+        const nextModels = current.models.map((model) => {
+          if (hasModelMetadata(model)) {
+            return model;
+          }
+
+          const enriched = enrichedById.get(model.id);
+          if (!enriched || !hasModelMetadata(enriched)) {
+            return model;
+          }
+
+          changed = true;
+          return { ...model, ...enriched };
+        });
+
+        return changed ? { ...current, models: nextModels } : current;
+      });
+    } catch {
+      // Metadata is best-effort; the provider model list is already visible.
+    }
+  };
+
+  const setManualModelMetadata = async (model: RemoteModel) => {
+    const saved = await appApi.setManualModelMetadata(model);
+    setDraft((current) => ({
+      ...current,
+      models: current.models.map((item) => (item.id === saved.id ? { ...item, ...saved } : item)),
+    }));
+    onNotify("Model modality saved.", "ok");
   };
 
   const handleSubmit = async () => {
@@ -290,6 +347,7 @@ export function ProvidersPage({ providers, onSave, onDelete, onNotify }: Provide
         onUpdateDraft={updateDraft}
         onApplyProviderType={applyProviderType}
         onRefreshModels={() => void refreshModels()}
+        onManualModelMetadata={(model) => void setManualModelMetadata(model)}
         onSubmit={() => void handleSubmit()}
         onOauthCallbackInputChange={setOauthCallbackInput}
         onStartOauthLogin={() => void startOfficialOpenAiOauth()}

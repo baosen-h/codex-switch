@@ -388,7 +388,7 @@ impl Database {
         let mut statement = self.connection.prepare(
             r#"
             SELECT model_id, name, owned_by, description, capabilities_json,
-              input_modalities_json, output_modalities_json
+              input_modalities_json, output_modalities_json, source
             FROM model_metadata_cache
             WHERE updated_at >= ?1
             "#,
@@ -402,6 +402,7 @@ impl Database {
                 capabilities: json_column(row.get(4)?),
                 input_modalities: json_column(row.get(5)?),
                 output_modalities: json_column(row.get(6)?),
+                metadata_source: row.get(7)?,
             })
         })?;
         Ok(rows.filter_map(Result::ok).collect())
@@ -432,6 +433,7 @@ impl Database {
                   output_modalities_json = excluded.output_modalities_json,
                   source = excluded.source,
                   updated_at = excluded.updated_at
+                WHERE ?8 = 'manual' OR model_metadata_cache.source <> 'manual'
                 "#,
                 params![
                     &model.id,
@@ -447,6 +449,15 @@ impl Database {
             )?;
         }
         Ok(())
+    }
+
+    pub fn set_manual_model_metadata(
+        &self,
+        mut model: RemoteModel,
+    ) -> Result<RemoteModel, AppError> {
+        model.metadata_source = Some("manual".to_string());
+        self.upsert_model_metadata_cache("manual", std::slice::from_ref(&model))?;
+        Ok(model)
     }
 
     pub fn delete_api_provider(&self, id: &str) -> Result<bool, AppError> {

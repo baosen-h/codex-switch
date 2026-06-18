@@ -652,6 +652,7 @@ mod tests {
             capabilities: vec![],
             input_modalities: vec!["text".to_string()],
             output_modalities: vec!["text".to_string()],
+            metadata_source: None,
         });
         assert_eq!(
             model_vision_capability(&api, "gpt-5-text"),
@@ -669,6 +670,7 @@ mod tests {
             capabilities: vec![],
             input_modalities: vec![],
             output_modalities: vec![],
+            metadata_source: None,
         });
         assert_eq!(
             model_vision_capability(&api, "gpt-5"),
@@ -686,6 +688,7 @@ mod tests {
             capabilities: vec![],
             input_modalities: vec![],
             output_modalities: vec![],
+            metadata_source: None,
         });
         let messages = vec![ChatMessage {
             role: "user".to_string(),
@@ -744,6 +747,7 @@ mod tests {
             capabilities: vec!["image".to_string()],
             input_modalities: vec!["text".to_string(), "image".to_string()],
             output_modalities: vec!["text".to_string()],
+            metadata_source: None,
         });
         let mut remaining = 0;
 
@@ -778,6 +782,7 @@ mod tests {
             capabilities: vec!["image".to_string()],
             input_modalities: vec!["text".to_string(), "image".to_string()],
             output_modalities: vec!["text".to_string()],
+            metadata_source: None,
         });
         let mut remaining = MAX_IMAGES;
 

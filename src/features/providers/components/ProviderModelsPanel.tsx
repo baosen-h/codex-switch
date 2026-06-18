@@ -16,6 +16,7 @@ interface ProviderModelsPanelProps {
     modelFromProvider: string;
   };
   onRefreshModels: () => void;
+  onManualModelMetadata: (model: RemoteModel) => void | Promise<void>;
 }
 
 export function ProviderModelsPanel({
@@ -25,6 +26,7 @@ export function ProviderModelsPanel({
   modelListError,
   labels,
   onRefreshModels,
+  onManualModelMetadata,
 }: ProviderModelsPanelProps) {
   return (
     <div className="provider-models-panel">
@@ -51,7 +53,7 @@ export function ProviderModelsPanel({
                 <strong>{model.name || model.id}</strong>
                 <span>{model.name && model.name !== model.id ? model.id : model.ownedBy || model.description || labels.modelFromProvider}</span>
               </div>
-              <ModelCapabilityBadges model={model} />
+              <ModelCapabilityBadges model={model} onManualMetadata={onManualModelMetadata} />
             </div>
           ))
         ) : (

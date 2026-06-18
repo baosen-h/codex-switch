@@ -1784,6 +1784,24 @@ h3 { font-size: 15px; }
   gap: 6px;
 }
 
+.model-modality-row {
+  position: relative;
+}
+
+.model-modality-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-modality-row.editable .model-modality-flow {
+  cursor: pointer;
+}
+
+.model-modality-row.editable .model-modality-flow:hover .model-modality-chip {
+  border-color: color-mix(in srgb, var(--a) 60%, transparent);
+}
+
 .model-capability-tag,
 .model-modality-chip {
   border-color: color-mix(in srgb, currentColor 36%, transparent);
@@ -1808,6 +1826,75 @@ h3 { font-size: 15px; }
 .model-modality-chip svg,
 .model-capability-tag svg {
   color: currentColor;
+}
+
+.model-modality-editor {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  width: max-content;
+  max-width: min(330px, calc(100vw - 32px));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--b1);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--p1) 96%, black);
+  box-shadow: 0 18px 42px rgb(0 0 0 / 0.35);
+}
+
+.model-modality-editor-row {
+  display: grid;
+  grid-template-columns: 48px repeat(6, 28px);
+  align-items: center;
+  gap: 7px;
+}
+
+.model-modality-editor-label {
+  color: var(--t2);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.model-modality-editor-chip {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+
+.model-modality-editor-chip.active {
+  border-color: color-mix(in srgb, var(--a) 62%, transparent);
+  background: color-mix(in srgb, var(--a) 14%, transparent);
+  color: var(--t1);
+}
+
+.model-modality-editor-chip .model-modality-chip {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 7px;
+}
+
+.model-modality-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.compact-button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 12px;
 }
 
 .model-avatar {
@@ -1888,6 +1975,7 @@ h3 { font-size: 15px; }
 .model-modality-video { color: #8b5cf6; }
 .model-modality-file,
 .model-capability-web { color: #0ea5e9; }
+.model-modality-unknown { color: #94a3b8; }
 .model-capability-function { color: #14b8a6; }
 
 .api-model-pill .model-capability-row {
@@ -1912,6 +2000,35 @@ h3 { font-size: 15px; }
 .api-model-pill .model-modality-file,
 .api-model-pill .model-capability-web { color: #0ea5e9; }
 .api-model-pill .model-capability-function { color: #14b8a6; }
+
+.model-picker-option .model-capability-row {
+  overflow: visible;
+}
+
+.model-picker-option .model-modality-chip,
+.model-picker-option .model-capability-tag {
+  overflow: visible;
+  color: currentColor;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.model-picker-option .model-modality-text,
+.model-picker-option .model-capability-vision { color: #38bdf8; }
+.model-picker-option .model-modality-image,
+.model-picker-option .model-capability-image { color: #22c55e; }
+.model-picker-option .model-modality-audio,
+.model-picker-option .model-capability-reasoning { color: #f59e0b; }
+.model-picker-option .model-modality-video { color: #8b5cf6; }
+.model-picker-option .model-modality-file,
+.model-picker-option .model-capability-web { color: #0ea5e9; }
+.model-picker-option .model-modality-unknown { color: #94a3b8; }
+.model-picker-option .model-capability-function { color: #14b8a6; }
+
+.model-picker-option .model-modality-chip > span,
+.model-picker-option .model-capability-tag > span {
+  color: currentColor;
+}
 
 .api-model-pill .model-modality-chip > span,
 .api-model-pill .model-capability-tag > span {

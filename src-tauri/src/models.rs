@@ -154,6 +154,8 @@ pub struct RemoteModel {
     pub input_modalities: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_modalities: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_source: Option<String>,
 }
 
 pub fn enrich_remote_models_from_catalog(models: &mut [RemoteModel], catalog: Vec<RemoteModel>) {
@@ -201,6 +203,7 @@ pub fn enrich_remote_models_from_catalog(models: &mut [RemoteModel], catalog: Ve
             }
             model.input_modalities = source.input_modalities.clone();
             model.output_modalities = source.output_modalities.clone();
+            model.metadata_source = source.metadata_source.clone();
         }
     }
 }

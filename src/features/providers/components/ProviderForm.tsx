@@ -1,5 +1,5 @@
 import { ProviderTypeAvatar } from "../../../components/domain";
-import type { ApiProvider, ApiProviderType } from "../../../types";
+import type { ApiProvider, ApiProviderType, RemoteModel } from "../../../types";
 import { normalizeProviderType, providerTypes } from "../providerConfig";
 import { BackIcon } from "./ProviderIcons";
 import { OpenAiOAuthPanel } from "./OpenAiOAuthPanel";
@@ -40,6 +40,7 @@ interface ProviderFormProps {
   onUpdateDraft: <K extends keyof ApiProvider>(field: K, value: ApiProvider[K]) => void;
   onApplyProviderType: (providerType: ApiProviderType) => void;
   onRefreshModels: () => void;
+  onManualModelMetadata: (model: RemoteModel) => void | Promise<void>;
   onSubmit: () => void;
   onOauthCallbackInputChange: (value: string) => void;
   onStartOauthLogin: () => void;
@@ -57,6 +58,7 @@ export function ProviderForm({
   onUpdateDraft,
   onApplyProviderType,
   onRefreshModels,
+  onManualModelMetadata,
   onSubmit,
   onOauthCallbackInputChange,
   onStartOauthLogin,
@@ -153,6 +155,7 @@ export function ProviderForm({
                 modelFromProvider: labels.modelFromProvider,
               }}
               onRefreshModels={onRefreshModels}
+              onManualModelMetadata={onManualModelMetadata}
             />
           </div>
 

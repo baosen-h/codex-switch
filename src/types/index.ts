@@ -63,6 +63,7 @@ export interface RemoteModel {
   capabilities?: string[];
   inputModalities?: string[];
   outputModalities?: string[];
+  metadataSource?: string;
 }
 
 export interface ChatMessage {
