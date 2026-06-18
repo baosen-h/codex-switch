@@ -4,6 +4,7 @@ import type { AgentFilter } from "../types";
 interface SessionFiltersProps {
   query: string;
   agentFilter: AgentFilter;
+  isIndexing: boolean;
   labels: {
     search: string;
     searchPlaceholder: string;
@@ -13,6 +14,7 @@ interface SessionFiltersProps {
     agentClaude: string;
     agentGemini: string;
     refreshSessions: string;
+    indexingSessions: string;
   };
   onQueryChange: (query: string) => void;
   onAgentFilterChange: (filter: AgentFilter) => void;
@@ -22,6 +24,7 @@ interface SessionFiltersProps {
 export function SessionFilters({
   query,
   agentFilter,
+  isIndexing,
   labels,
   onQueryChange,
   onAgentFilterChange,
@@ -50,9 +53,16 @@ export function SessionFilters({
             <option value="gemini">{labels.agentGemini}</option>
           </select>
         </label>
-        <button className="session-refresh-button" onClick={onRefresh} type="button" title={labels.refreshSessions}>
+        <button
+          className="session-refresh-button"
+          disabled={isIndexing}
+          onClick={onRefresh}
+          type="button"
+          title={isIndexing ? labels.indexingSessions : labels.refreshSessions}
+        >
           <RefreshIcon />
         </button>
+        {isIndexing ? <span className="session-index-status">{labels.indexingSessions}</span> : null}
       </div>
     </div>
   );

@@ -4,13 +4,15 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-pub fn scan_codex_sessions(config_dir: &Path) -> Vec<SessionRecord> {
-    scan_files(
-        &config_dir.join("sessions"),
-        "jsonl",
-        |_| true,
-        parse_codex_session,
-    )
+pub fn collect_all_session_files(codex_config_dir: &Path) -> Vec<PathBuf> {
+    let mut files = collect_files(&codex_config_dir.join("sessions"), "jsonl");
+    files.extend(collect_claude_files());
+    files.extend(collect_gemini_files_from_default_root());
+    files
+}
+
+pub fn session_record_for_index(path: &Path) -> Option<SessionRecord> {
+    session_record_for_path(path).ok()
 }
 
 pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -279,10 +281,18 @@ fn parse_codex_session(path: &Path) -> Option<SessionRecord> {
         resume_command: format!("codex resume {session_id}"),
         status: "active".to_string(),
         notes: String::new(),
-        message_count: count_lines(path),
+        message_count: indexed_message_count(path),
         started_at: started_at.clone(),
         last_active_at: last_active_at.unwrap_or(started_at),
     })
+}
+
+fn indexed_message_count(path: &Path) -> i64 {
+    let file_size = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+    if file_size > 1_048_576 {
+        return 0;
+    }
+    count_lines(path)
 }
 
 fn count_lines(path: &Path) -> i64 {
@@ -302,6 +312,7 @@ fn count_lines(path: &Path) -> i64 {
     count
 }
 
+#[cfg(test)]
 fn scan_files(
     root: &Path,
     ext: &str,
@@ -317,6 +328,7 @@ fn scan_files(
     )
 }
 
+#[cfg(test)]
 fn sessions_from(
     files: Vec<PathBuf>,
     parse: fn(&Path) -> Option<SessionRecord>,
@@ -544,13 +556,18 @@ fn is_uuid_like(candidate: &[u8]) -> bool {
 
 /* ── Claude Code sessions ──────────────────────────────────────── */
 
-pub fn scan_claude_sessions() -> Vec<SessionRecord> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Vec::new(),
-    };
-    let root = home.join(".claude").join("projects");
-    scan_files(&root, "jsonl", not_agent_file, parse_claude_session)
+fn default_claude_projects_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".claude")
+        .join("projects")
+}
+
+fn collect_claude_files() -> Vec<PathBuf> {
+    collect_files(&default_claude_projects_root(), "jsonl")
+        .into_iter()
+        .filter(|path| not_agent_file(path))
+        .collect()
 }
 
 fn gemini_chat_dirs(tmp: &Path) -> Vec<PathBuf> {
@@ -755,7 +772,7 @@ fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
         resume_command: format!("claude --resume {session_id}"),
         status: "active".to_string(),
         notes: String::new(),
-        message_count: count_lines(path),
+        message_count: indexed_message_count(path),
         started_at: started_at.clone(),
         last_active_at: last_active_at.unwrap_or(started_at),
     })
@@ -763,13 +780,15 @@ fn parse_claude_session(path: &Path) -> Option<SessionRecord> {
 
 /* ── Gemini sessions ───────────────────────────────────────────── */
 
-pub fn scan_gemini_sessions() -> Vec<SessionRecord> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Vec::new(),
-    };
-    let tmp = home.join(".gemini").join("tmp");
-    sessions_from(collect_gemini_files(&tmp), parse_gemini_session)
+fn default_gemini_tmp_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".gemini")
+        .join("tmp")
+}
+
+fn collect_gemini_files_from_default_root() -> Vec<PathBuf> {
+    collect_gemini_files(&default_gemini_tmp_root())
 }
 
 pub fn load_gemini_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {

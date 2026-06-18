@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -153,6 +154,63 @@ pub struct RemoteModel {
     pub input_modalities: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_modalities: Vec<String>,
+}
+
+pub fn enrich_remote_models_from_catalog(models: &mut [RemoteModel], catalog: Vec<RemoteModel>) {
+    let mut by_id = HashMap::new();
+    let mut by_suffix = HashMap::new();
+    for model in catalog {
+        let normalized_id = model.id.to_ascii_lowercase();
+        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
+            if let Some((_, suffix)) = normalized_id.rsplit_once('/') {
+                by_suffix
+                    .entry(suffix.to_string())
+                    .or_insert_with(|| model.clone());
+                by_suffix
+                    .entry(model_match_key(suffix))
+                    .or_insert_with(|| model.clone());
+            }
+            by_id
+                .entry(model_match_key(&normalized_id))
+                .or_insert_with(|| model.clone());
+            by_id.entry(normalized_id).or_insert(model);
+        }
+    }
+
+    for model in models {
+        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
+            continue;
+        }
+
+        let key = model.id.to_ascii_lowercase();
+        let compact_key = model_match_key(&key);
+        let source = by_id
+            .get(&key)
+            .or_else(|| by_suffix.get(&key))
+            .or_else(|| by_id.get(&compact_key))
+            .or_else(|| by_suffix.get(&compact_key));
+        if let Some(source) = source {
+            if model.name.is_none() {
+                model.name = source.name.clone();
+            }
+            if model.owned_by.is_none() {
+                model.owned_by = source.owned_by.clone();
+            }
+            if model.description.is_none() {
+                model.description = source.description.clone();
+            }
+            model.input_modalities = source.input_modalities.clone();
+            model.output_modalities = source.output_modalities.clone();
+        }
+    }
+}
+
+pub fn model_match_key(model_id: &str) -> String {
+    model_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

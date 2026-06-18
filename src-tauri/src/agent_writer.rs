@@ -204,12 +204,7 @@ pub fn write_provider(provider: &Provider, dirs: &AgentDirs) -> Result<(), AppEr
     match provider.agent.as_str() {
         AGENT_CLAUDE => write_claude_with_gateway(provider, dirs.claude, dirs.vision_claude),
         AGENT_GEMINI => write_gemini_with_gateway(provider, dirs.gemini, dirs.vision_gemini),
-        _ => write_codex_with_gateway(
-            provider,
-            dirs.codex,
-            dirs.vision_codex,
-            dirs.api_providers,
-        ),
+        _ => write_codex_with_gateway(provider, dirs.codex, dirs.vision_codex, dirs.api_providers),
     }
 }
 
@@ -331,12 +326,7 @@ fn write_codex_with_gateway(
             .unwrap_or_else(|_| "{}".to_string())
     });
 
-    maybe_write_codex_model_catalog(
-        provider,
-        config_dir,
-        advertise_vision_images,
-        api_providers,
-    )?;
+    maybe_write_codex_model_catalog(provider, config_dir, advertise_vision_images, api_providers)?;
     fs::write(auth_path, auth_body)?;
     fs::write(config_path, toml_body)?;
     Ok(())
@@ -562,12 +552,18 @@ fn catalog_model_match_key(model_id: &str) -> String {
         .collect()
 }
 
-fn catalog_input_modalities(metadata: Option<&RemoteModel>, advertise_vision_images: bool) -> Value {
+fn catalog_input_modalities(
+    metadata: Option<&RemoteModel>,
+    advertise_vision_images: bool,
+) -> Value {
     let mut modalities = metadata
         .map(|model| model.input_modalities.clone())
         .filter(|modalities| !modalities.is_empty())
         .unwrap_or_else(|| vec!["text".to_string()]);
-    if !modalities.iter().any(|item| item.eq_ignore_ascii_case("text")) {
+    if !modalities
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case("text"))
+    {
         modalities.insert(0, "text".to_string());
     }
     if advertise_vision_images
@@ -1149,7 +1145,8 @@ mod tests {
         let catalog =
             std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
         assert!(config.contains("model_catalog_json = "));
-        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+        assert!(catalog
+            .contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
 
         std::fs::remove_dir_all(&dir).expect("remove vision catalog test dir");
     }
@@ -1169,7 +1166,8 @@ mod tests {
             std::process::id()
         ));
         if dir.exists() {
-            std::fs::remove_dir_all(&dir).expect("clean stale upstream modalities catalog test dir");
+            std::fs::remove_dir_all(&dir)
+                .expect("clean stale upstream modalities catalog test dir");
         }
 
         write_codex_with_gateway(&provider, &dir, false, &api_providers)
@@ -1177,7 +1175,8 @@ mod tests {
 
         let catalog =
             std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
-        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+        assert!(catalog
+            .contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
 
         std::fs::remove_dir_all(&dir).expect("remove upstream modalities catalog test dir");
     }
@@ -1197,7 +1196,8 @@ mod tests {
             std::process::id()
         ));
         if dir.exists() {
-            std::fs::remove_dir_all(&dir).expect("clean stale fallback modalities catalog test dir");
+            std::fs::remove_dir_all(&dir)
+                .expect("clean stale fallback modalities catalog test dir");
         }
 
         write_codex_with_gateway(&provider, &dir, true, &api_providers)
@@ -1205,7 +1205,8 @@ mod tests {
 
         let catalog =
             std::fs::read_to_string(dir.join("model-catalog.json")).expect("read catalog");
-        assert!(catalog.contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
+        assert!(catalog
+            .contains("\"input_modalities\": [\n        \"text\",\n        \"image\"\n      ]"));
 
         std::fs::remove_dir_all(&dir).expect("remove fallback modalities catalog test dir");
     }

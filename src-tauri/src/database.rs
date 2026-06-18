@@ -10,6 +10,7 @@ use crate::models::{
 };
 use crate::session_manager;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -33,15 +34,166 @@ impl Database {
 
     pub fn dashboard(&self) -> Result<DashboardState, AppError> {
         let settings = self.settings()?;
-        let api_providers = self.api_providers()?;
+        let mut api_providers = self.api_providers()?;
+        let cached_metadata = self.cached_model_metadata(i64::MAX)?;
+        for provider in &mut api_providers {
+            crate::models::enrich_remote_models_from_catalog(
+                &mut provider.models,
+                cached_metadata.clone(),
+            );
+        }
         let providers = self.providers()?;
 
         Ok(DashboardState {
             api_providers,
-            sessions: self.live_sessions(&settings.codex_config_dir),
+            sessions: Vec::new(),
             providers,
             settings,
         })
+    }
+
+    pub fn cached_sessions(&self) -> Result<Vec<SessionRecord>, AppError> {
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT id, provider_id, provider_name, provider_model, agent, session_id,
+              workspace_path, title, summary, source_path, resume_command, status, notes,
+              message_count, started_at, last_active_at
+            FROM session_index
+            ORDER BY last_active_at DESC, updated_at DESC
+            "#,
+        )?;
+        let rows = statement.query_map([], map_session_record)?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn refresh_session_index(&self, rebuild: bool) -> Result<Vec<SessionRecord>, AppError> {
+        if rebuild {
+            self.connection.execute("DELETE FROM session_index", [])?;
+        }
+
+        let settings = self.settings()?;
+        let files =
+            session_manager::collect_all_session_files(&PathBuf::from(settings.codex_config_dir));
+        let mut current_paths = HashSet::new();
+
+        for path in files {
+            let source_path = path.to_string_lossy().to_string();
+            current_paths.insert(source_path.clone());
+
+            let metadata = match fs::metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            let file_size = metadata.len() as i64;
+            let modified_at = file_modified_millis(&metadata);
+
+            if !rebuild && self.session_index_fresh(&source_path, file_size, modified_at)? {
+                continue;
+            }
+
+            let Some(record) = session_manager::session_record_for_index(&path) else {
+                continue;
+            };
+            self.upsert_session_index(&record, file_size, modified_at)?;
+        }
+
+        let indexed_paths = self.indexed_session_paths()?;
+        for indexed_path in indexed_paths {
+            if !current_paths.contains(&indexed_path) {
+                self.connection.execute(
+                    "DELETE FROM session_index WHERE source_path = ?1",
+                    params![indexed_path],
+                )?;
+            }
+        }
+
+        self.cached_sessions()
+    }
+
+    fn session_index_fresh(
+        &self,
+        source_path: &str,
+        file_size: i64,
+        modified_at: i64,
+    ) -> Result<bool, AppError> {
+        let cached = self
+            .connection
+            .query_row(
+                "SELECT file_size, modified_at FROM session_index WHERE source_path = ?1",
+                params![source_path],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        Ok(matches!(cached, Some((size, modified)) if size == file_size && modified == modified_at))
+    }
+
+    fn indexed_session_paths(&self) -> Result<Vec<String>, AppError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT source_path FROM session_index")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    fn upsert_session_index(
+        &self,
+        record: &SessionRecord,
+        file_size: i64,
+        modified_at: i64,
+    ) -> Result<(), AppError> {
+        let now = current_time_string();
+        self.connection.execute(
+            r#"
+            INSERT INTO session_index (
+              id, provider_id, provider_name, provider_model, agent, session_id,
+              workspace_path, title, summary, source_path, resume_command, status, notes,
+              message_count, started_at, last_active_at, file_size, modified_at, updated_at
+            ) VALUES (
+              ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19
+            )
+            ON CONFLICT(source_path) DO UPDATE SET
+              id = excluded.id,
+              provider_id = excluded.provider_id,
+              provider_name = excluded.provider_name,
+              provider_model = excluded.provider_model,
+              agent = excluded.agent,
+              session_id = excluded.session_id,
+              workspace_path = excluded.workspace_path,
+              title = excluded.title,
+              summary = excluded.summary,
+              resume_command = excluded.resume_command,
+              status = excluded.status,
+              notes = excluded.notes,
+              message_count = excluded.message_count,
+              started_at = excluded.started_at,
+              last_active_at = excluded.last_active_at,
+              file_size = excluded.file_size,
+              modified_at = excluded.modified_at,
+              updated_at = excluded.updated_at
+            "#,
+            params![
+                record.id,
+                record.provider_id,
+                record.provider_name,
+                record.provider_model,
+                record.agent,
+                record.session_id,
+                record.workspace_path,
+                record.title,
+                record.summary,
+                record.source_path,
+                record.resume_command,
+                record.status,
+                record.notes,
+                record.message_count,
+                record.started_at,
+                record.last_active_at,
+                file_size,
+                modified_at,
+                now,
+            ],
+        )?;
+        Ok(())
     }
 
     pub fn providers(&self) -> Result<Vec<Provider>, AppError> {
@@ -229,6 +381,72 @@ impl Database {
         let saved = self.api_provider_by_id(&provider_id)?;
         self.sync_linked_providers_from_api_provider(&saved, &now)?;
         Ok(saved)
+    }
+
+    pub fn cached_model_metadata(&self, max_age_millis: i64) -> Result<Vec<RemoteModel>, AppError> {
+        let min_updated_at = current_time_millis().saturating_sub(max_age_millis);
+        let mut statement = self.connection.prepare(
+            r#"
+            SELECT model_id, name, owned_by, description, capabilities_json,
+              input_modalities_json, output_modalities_json
+            FROM model_metadata_cache
+            WHERE updated_at >= ?1
+            "#,
+        )?;
+        let rows = statement.query_map(params![min_updated_at], |row| {
+            Ok(RemoteModel {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                owned_by: row.get(2)?,
+                description: row.get(3)?,
+                capabilities: json_column(row.get(4)?),
+                input_modalities: json_column(row.get(5)?),
+                output_modalities: json_column(row.get(6)?),
+            })
+        })?;
+        Ok(rows.filter_map(Result::ok).collect())
+    }
+
+    pub fn upsert_model_metadata_cache(
+        &self,
+        source: &str,
+        models: &[RemoteModel],
+    ) -> Result<(), AppError> {
+        let now = current_time_millis();
+        for model in models {
+            if model.input_modalities.is_empty() && model.output_modalities.is_empty() {
+                continue;
+            }
+            self.connection.execute(
+                r#"
+                INSERT INTO model_metadata_cache (
+                  model_id, name, owned_by, description, capabilities_json,
+                  input_modalities_json, output_modalities_json, source, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                ON CONFLICT(model_id) DO UPDATE SET
+                  name = excluded.name,
+                  owned_by = excluded.owned_by,
+                  description = excluded.description,
+                  capabilities_json = excluded.capabilities_json,
+                  input_modalities_json = excluded.input_modalities_json,
+                  output_modalities_json = excluded.output_modalities_json,
+                  source = excluded.source,
+                  updated_at = excluded.updated_at
+                "#,
+                params![
+                    &model.id,
+                    &model.name,
+                    &model.owned_by,
+                    &model.description,
+                    serde_json::to_string(&model.capabilities)?,
+                    serde_json::to_string(&model.input_modalities)?,
+                    serde_json::to_string(&model.output_modalities)?,
+                    source,
+                    now,
+                ],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn delete_api_provider(&self, id: &str) -> Result<bool, AppError> {
@@ -535,6 +753,40 @@ impl Database {
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS session_index (
+              source_path TEXT PRIMARY KEY,
+              id TEXT NOT NULL,
+              provider_id TEXT NOT NULL DEFAULT '',
+              provider_name TEXT NOT NULL DEFAULT '',
+              provider_model TEXT NOT NULL DEFAULT '',
+              agent TEXT NOT NULL DEFAULT '',
+              session_id TEXT NOT NULL DEFAULT '',
+              workspace_path TEXT NOT NULL DEFAULT '',
+              title TEXT NOT NULL DEFAULT '',
+              summary TEXT,
+              resume_command TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'active',
+              notes TEXT NOT NULL DEFAULT '',
+              message_count INTEGER NOT NULL DEFAULT 0,
+              started_at TEXT NOT NULL DEFAULT '',
+              last_active_at TEXT NOT NULL DEFAULT '',
+              file_size INTEGER NOT NULL DEFAULT 0,
+              modified_at INTEGER NOT NULL DEFAULT 0,
+              updated_at TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS model_metadata_cache (
+              model_id TEXT PRIMARY KEY,
+              name TEXT,
+              owned_by TEXT,
+              description TEXT,
+              capabilities_json TEXT NOT NULL DEFAULT '[]',
+              input_modalities_json TEXT NOT NULL DEFAULT '[]',
+              output_modalities_json TEXT NOT NULL DEFAULT '[]',
+              source TEXT NOT NULL DEFAULT '',
+              updated_at INTEGER NOT NULL DEFAULT 0
+            );
+
             CREATE TABLE IF NOT EXISTS deleted_api_provider_seeds (
               id TEXT PRIMARY KEY,
               deleted_at TEXT NOT NULL
@@ -777,6 +1029,12 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_api_providers_updated_at
             ON api_providers(updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_session_index_last_active
+            ON session_index(last_active_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_model_metadata_cache_updated_at
+            ON model_metadata_cache(updated_at DESC);
 
             UPDATE api_providers
             SET provider_type = CASE
@@ -1315,14 +1573,6 @@ impl Database {
         )?;
         Ok(())
     }
-
-    fn live_sessions(&self, codex_config_dir: &str) -> Vec<SessionRecord> {
-        let mut all = session_manager::scan_codex_sessions(&PathBuf::from(codex_config_dir));
-        all.extend(session_manager::scan_claude_sessions());
-        all.extend(session_manager::scan_gemini_sessions());
-        all.sort_by(|l, r| r.last_active_at.cmp(&l.last_active_at));
-        all
-    }
 }
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<(), AppError> {
@@ -1341,10 +1591,23 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Re
 }
 
 fn current_time_string() -> String {
+    current_time_millis().to_string()
+}
+
+fn current_time_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis().to_string())
-        .unwrap_or_else(|_| "0".to_string())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+fn file_modified_millis(metadata: &fs::Metadata) -> i64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn json_column<T: serde::de::DeserializeOwned + Default>(value: String) -> T {
@@ -1476,6 +1739,27 @@ fn map_api_provider(row: &rusqlite::Row<'_>) -> Result<ApiProvider, rusqlite::Er
         enabled: row.get::<_, i64>(9)? == 1,
         created_at: row.get(10)?,
         updated_at: row.get(11)?,
+    })
+}
+
+fn map_session_record(row: &rusqlite::Row<'_>) -> Result<SessionRecord, rusqlite::Error> {
+    Ok(SessionRecord {
+        id: row.get(0)?,
+        provider_id: row.get(1)?,
+        provider_name: row.get(2)?,
+        provider_model: row.get(3)?,
+        agent: row.get(4)?,
+        session_id: row.get(5)?,
+        workspace_path: row.get(6)?,
+        title: row.get(7)?,
+        summary: row.get(8)?,
+        source_path: row.get(9)?,
+        resume_command: row.get(10)?,
+        status: row.get(11)?,
+        notes: row.get(12)?,
+        message_count: row.get(13)?,
+        started_at: row.get(14)?,
+        last_active_at: row.get(15)?,
     })
 }
 

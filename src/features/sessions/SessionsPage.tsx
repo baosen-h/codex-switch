@@ -17,6 +17,7 @@ import type { AgentFilter, SessionsPageProps } from "./types";
 
 export function SessionsPage({
   sessions,
+  isIndexing,
   onBuildHandoff,
   onLoadMessages,
   onDelete,
@@ -201,6 +202,7 @@ export function SessionsPage({
         <SessionFilters
           query={query}
           agentFilter={agentFilter}
+          isIndexing={isIndexing}
           labels={{
             search: t("search"),
             searchPlaceholder: t("searchPlaceholder"),
@@ -210,6 +212,7 @@ export function SessionsPage({
             agentClaude: t("agentClaude"),
             agentGemini: t("agentGemini"),
             refreshSessions: t("refreshSessions"),
+            indexingSessions: lang === "zh" ? "正在索引..." : "Indexing...",
           }}
           onQueryChange={setQuery}
           onAgentFilterChange={setAgentFilter}

@@ -1145,9 +1145,9 @@ fn stage_skill(result: &MarketplaceResult) -> Result<PathBuf, AppError> {
             .unwrap_or("https://clawhub.ai");
         download_bytes(&client, &clawhub_download_url(base_url, slug)?, "")?
     } else {
-        return Err(artifact_error.unwrap_or_else(|| AppError::message(
-            "This Skill result does not provide an installable artifact",
-        )));
+        return Err(artifact_error.unwrap_or_else(|| {
+            AppError::message("This Skill result does not provide an installable artifact")
+        }));
     };
     verify_skill_artifact(result, &bytes)?;
     extract_zip(&bytes, &staging)?;
@@ -2135,7 +2135,10 @@ mod tests {
 
     #[test]
     fn github_branch_candidates_include_common_defaults() {
-        assert_eq!(github_branch_candidates("trunk"), vec!["trunk", "main", "master"]);
+        assert_eq!(
+            github_branch_candidates("trunk"),
+            vec!["trunk", "main", "master"]
+        );
         assert_eq!(github_branch_candidates("main"), vec!["main", "master"]);
         assert_eq!(github_branch_candidates("master"), vec!["master", "main"]);
     }
@@ -2144,7 +2147,11 @@ mod tests {
     fn github_skill_path_candidates_cover_common_layouts() {
         assert_eq!(
             github_skill_path_candidates("readme-i18n"),
-            vec!["readme-i18n", "skills/readme-i18n", ".claude/skills/readme-i18n"]
+            vec![
+                "readme-i18n",
+                "skills/readme-i18n",
+                ".claude/skills/readme-i18n"
+            ]
         );
         assert_eq!(
             github_skill_path_candidates("skills/pdf"),

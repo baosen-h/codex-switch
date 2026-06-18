@@ -81,6 +81,9 @@ function App() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [appUpdate, setAppUpdate] = useState<AppUpdateInfo | null>(null);
+  const [sessionsIndexing, setSessionsIndexing] = useState(false);
+  const sessionsIndexingRef = useRef(false);
+  const sessionsAutoRefreshStarted = useRef(false);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -94,7 +97,10 @@ function App() {
   const refresh = useCallback(async (nextMessage?: string) => {
     try {
       const dashboard = await appApi.getDashboard();
-      setData(dashboard);
+      setData((current) => ({
+        ...dashboard,
+        sessions: dashboard.sessions.length ? dashboard.sessions : current.sessions,
+      }));
       if (nextMessage) showToast.current(nextMessage, "ok");
     } catch (caught) {
       showToast.current(
@@ -103,6 +109,37 @@ function App() {
       );
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadCachedSessions = useCallback(async () => {
+    try {
+      const sessions = await appApi.getCachedSessions();
+      setData((current) => ({ ...current, sessions }));
+    } catch (caught) {
+      showToast.current(
+        caught instanceof Error ? caught.message : "Failed to load cached sessions.",
+        "err",
+      );
+    }
+  }, []);
+
+  const refreshSessionIndex = useCallback(async (nextMessage?: string) => {
+    if (sessionsIndexingRef.current) return;
+    sessionsIndexingRef.current = true;
+    setSessionsIndexing(true);
+    try {
+      const sessions = await appApi.refreshSessions();
+      setData((current) => ({ ...current, sessions }));
+      if (nextMessage) showToast.current(nextMessage, "ok");
+    } catch (caught) {
+      showToast.current(
+        caught instanceof Error ? caught.message : "Failed to refresh sessions.",
+        "err",
+      );
+    } finally {
+      sessionsIndexingRef.current = false;
+      setSessionsIndexing(false);
     }
   }, []);
 
@@ -119,7 +156,21 @@ function App() {
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadCachedSessions();
+  }, [loadCachedSessions, refresh]);
+
+  useEffect(() => {
+    if (sessionsAutoRefreshStarted.current) return;
+    sessionsAutoRefreshStarted.current = true;
+    const timer = window.setTimeout(() => void refreshSessionIndex(), 1200);
+    return () => window.clearTimeout(timer);
+  }, [refreshSessionIndex]);
+
+  useEffect(() => {
+    if (activePage !== "sessions") return;
+    void loadCachedSessions();
+    void refreshSessionIndex();
+  }, [activePage, loadCachedSessions, refreshSessionIndex]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -256,7 +307,7 @@ function App() {
           sessions: current.sessions.filter((item) => item.id !== session.id),
         }));
       },
-    );
+    ).then(() => void refreshSessionIndex());
 
   const handleLaunchSession = async (session: SessionRecord) =>
     runAction(
@@ -309,11 +360,12 @@ function App() {
   ) : activePage === "sessions" ? (
     <SessionsPage
       sessions={data.sessions}
+      isIndexing={sessionsIndexing}
       onBuildHandoff={appApi.buildSessionHandoff}
       onLoadMessages={appApi.getSessionMessages}
       onDelete={handleDeleteSession}
       onLaunchSession={handleLaunchSession}
-      onRefresh={() => refresh("Sessions refreshed.")}
+      onRefresh={() => refreshSessionIndex("Sessions refreshed.")}
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "capabilities" ? (

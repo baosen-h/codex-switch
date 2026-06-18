@@ -40,6 +40,15 @@ export const appApi = {
   getDashboard(): Promise<DashboardState> {
     return invoke("get_dashboard");
   },
+  getCachedSessions(): Promise<SessionRecord[]> {
+    return invoke("get_cached_sessions");
+  },
+  refreshSessions(): Promise<SessionRecord[]> {
+    return invoke("refresh_sessions");
+  },
+  rebuildSessionIndex(): Promise<SessionRecord[]> {
+    return invoke("rebuild_session_index");
+  },
   saveProvider(provider: Provider): Promise<Provider> {
     return invoke("save_provider", { provider });
   },

@@ -19,14 +19,15 @@ use commands::{
     activate_provider, build_session_handoff, check_app_update, delete_api_provider,
     delete_marketplace_source, delete_mcp_preset, delete_mcp_server, delete_provider,
     delete_session, delete_skill, detect_marketplace_runtimes, download_and_install_update,
-    fetch_web_urls, generate_image, get_capabilities_state, get_dashboard, get_marketplace_sources,
-    get_session_messages, import_skill, install_marketplace_mcp,
+    fetch_web_urls, generate_image, get_cached_sessions, get_capabilities_state, get_dashboard,
+    get_marketplace_sources, get_session_messages, import_skill, install_marketplace_mcp,
     install_marketplace_skill, launch_codex, launch_provider, launch_session, list_provider_models,
     open_external_url, pick_directory, preview_marketplace_skill, preview_mcp_config,
-    preview_mcp_json, preview_skill, save_api_provider, save_marketplace_source, save_mcp_preset,
-    save_mcp_server, save_provider, save_settings, save_skill, search_marketplace,
-    search_skill_market, search_web, send_chat_message, sync_mcp_capabilities,
-    sync_skill_capabilities, test_marketplace_source, test_mcp_server, AppState,
+    preview_mcp_json, preview_skill, rebuild_session_index, refresh_sessions, save_api_provider,
+    save_marketplace_source, save_mcp_preset, save_mcp_server, save_provider, save_settings,
+    save_skill, search_marketplace, search_skill_market, search_web, send_chat_message,
+    sync_mcp_capabilities, sync_skill_capabilities, test_marketplace_source, test_mcp_server,
+    AppState,
 };
 use models::Provider;
 use oauth::{complete_openai_oauth, complete_openai_oauth_callback, start_openai_oauth};
@@ -104,6 +105,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_dashboard,
+            get_cached_sessions,
+            refresh_sessions,
+            rebuild_session_index,
             save_api_provider,
             delete_api_provider,
             save_provider,

@@ -2,6 +2,7 @@ import type { HandoffMode, HandoffPreview, SessionMessage, SessionRecord } from 
 
 export interface SessionsPageProps {
   sessions: SessionRecord[];
+  isIndexing: boolean;
   onBuildHandoff: (sourcePath: string, mode: HandoffMode) => Promise<HandoffPreview>;
   onLoadMessages: (sourcePath: string) => Promise<SessionMessage[]>;
   onDelete: (session: SessionRecord) => Promise<void>;

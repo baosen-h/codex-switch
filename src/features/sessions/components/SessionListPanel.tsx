@@ -114,7 +114,9 @@ export function SessionListPanel({
                             <strong>{session.title || "Untitled session"}</strong>
                             <div className="session-badges">
                               <span className="session-badge session-badge--agent">{session.providerName}</span>
-                              <span className="session-badge session-badge--count">{session.messageCount} {labels.messagesSuffix}</span>
+                              {session.messageCount > 0 ? (
+                                <span className="session-badge session-badge--count">{session.messageCount} {labels.messagesSuffix}</span>
+                              ) : null}
                               {session.lastActiveAt ? (
                                 <span className="session-badge session-badge--time">{timeAgo(session.lastActiveAt, lang)}</span>
                               ) : null}

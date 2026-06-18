@@ -14,9 +14,9 @@ use crate::models::{
     ChatAttachment, ChatMessage, ChatRequest, ChatResponse, DashboardState, HandoffPreview,
     ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, MarketplaceInstallRequest,
     MarketplaceResult, MarketplaceSearchResponse, MarketplaceSource, McpImportPreview, McpPreset,
-    McpServer, McpTestResult, ModelListRequest, Provider, RemoteModel,
-    RuntimeAvailability, SessionMessage, SessionRecord, Skill, SkillMarketPreview,
-    SkillMarketResult, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
+    McpServer, McpTestResult, ModelListRequest, Provider, RemoteModel, RuntimeAvailability,
+    SessionMessage, SessionRecord, Skill, SkillMarketPreview, SkillMarketResult,
+    UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -25,7 +25,7 @@ use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -37,6 +37,8 @@ use tauri::{AppHandle, Emitter, State};
 pub struct AppState {
     pub db: Arc<Mutex<Database>>,
 }
+
+const MODEL_METADATA_CACHE_TTL_MILLIS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 impl AppState {
     pub fn new() -> Result<Self, AppError> {
@@ -52,15 +54,50 @@ fn notify_tray(app: &AppHandle) {
 
 #[tauri::command]
 pub fn get_dashboard(state: State<'_, AppState>) -> Result<DashboardState, String> {
-    let mut dashboard = state
+    state
         .db
         .lock()
         .map_err(|_| "Failed to lock database".to_string())?
         .dashboard()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())
+}
 
-    enrich_dashboard_models(&mut dashboard);
-    Ok(dashboard)
+#[tauri::command]
+pub fn get_cached_sessions(state: State<'_, AppState>) -> Result<Vec<SessionRecord>, String> {
+    state
+        .db
+        .lock()
+        .map_err(|_| "Failed to lock database".to_string())?
+        .cached_sessions()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn refresh_sessions(state: State<'_, AppState>) -> Result<Vec<SessionRecord>, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || {
+        db.lock()
+            .map_err(|_| "Failed to lock database".to_string())?
+            .refresh_session_index(false)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn rebuild_session_index(
+    state: State<'_, AppState>,
+) -> Result<Vec<SessionRecord>, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || {
+        db.lock()
+            .map_err(|_| "Failed to lock database".to_string())?
+            .refresh_session_index(true)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -249,13 +286,20 @@ pub fn activate_provider(
 }
 
 #[tauri::command]
-pub async fn list_provider_models(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
-    tauri::async_runtime::spawn_blocking(move || list_provider_models_blocking(request))
+pub async fn list_provider_models(
+    state: State<'_, AppState>,
+    request: ModelListRequest,
+) -> Result<Vec<RemoteModel>, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || list_provider_models_blocking(db, request))
         .await
         .map_err(|error| format!("Model list task failed: {error}"))?
 }
 
-fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<RemoteModel>, String> {
+fn list_provider_models_blocking(
+    db: Arc<Mutex<Database>>,
+    request: ModelListRequest,
+) -> Result<Vec<RemoteModel>, String> {
     let provider_type = normalized_provider_type(&request.provider_type);
     let endpoint = model_list_endpoint(&provider_type, &request.base_url)?;
     let api_key = request.api_key.trim();
@@ -293,10 +337,8 @@ fn list_provider_models_blocking(request: ModelListRequest) -> Result<Vec<Remote
             .unwrap_or_else(|| format!("Model list request failed with HTTP status {status}")));
     }
 
-    Ok(enrich_models_with_openrouter_metadata(
-        &client,
-        extract_models(&body),
-    ))
+    let models = extract_models(&body);
+    Ok(enrich_models_with_openrouter_metadata(&db, &client, models))
 }
 
 #[tauri::command]
@@ -2408,6 +2450,7 @@ fn extract_models(value: &Value) -> Vec<RemoteModel> {
 }
 
 fn enrich_models_with_openrouter_metadata(
+    db: &Arc<Mutex<Database>>,
     client: &Client,
     mut models: Vec<RemoteModel>,
 ) -> Vec<RemoteModel> {
@@ -2418,7 +2461,28 @@ fn enrich_models_with_openrouter_metadata(
         return models;
     }
 
-    let response = client
+    let cached_catalog = db
+        .lock()
+        .ok()
+        .and_then(|db| {
+            db.cached_model_metadata(MODEL_METADATA_CACHE_TTL_MILLIS)
+                .ok()
+        })
+        .unwrap_or_default();
+    enrich_models_from_catalog(&mut models, cached_catalog);
+    if models
+        .iter()
+        .all(|model| !model.input_modalities.is_empty() || !model.output_modalities.is_empty())
+    {
+        return models;
+    }
+
+    let openrouter_client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| client.clone());
+
+    let response = openrouter_client
         .get("https://openrouter.ai/api/v1/models")
         .header("Accept", "application/json")
         .header("User-Agent", USER_AGENT)
@@ -2433,100 +2497,17 @@ fn enrich_models_with_openrouter_metadata(
         return models;
     };
 
-    enrich_models_from_catalog(&mut models, extract_models(&body));
+    let catalog = extract_models(&body);
+    if let Ok(db) = db.lock() {
+        let _ = db.upsert_model_metadata_cache("openrouter", &catalog);
+    }
+    enrich_models_from_catalog(&mut models, catalog);
 
     models
 }
 
-fn enrich_dashboard_models(dashboard: &mut DashboardState) {
-    if dashboard
-        .api_providers
-        .iter()
-        .flat_map(|provider| provider.models.iter())
-        .all(|model| !model.input_modalities.is_empty() || !model.output_modalities.is_empty())
-    {
-        return;
-    }
-
-    let Ok(client) = Client::builder().timeout(Duration::from_secs(8)).build() else {
-        return;
-    };
-    let response = client
-        .get("https://openrouter.ai/api/v1/models")
-        .header("Accept", "application/json")
-        .header("User-Agent", USER_AGENT)
-        .send();
-    let Ok(response) = response else {
-        return;
-    };
-    if !response.status().is_success() {
-        return;
-    }
-    let Ok(body) = response.json::<Value>() else {
-        return;
-    };
-    let catalog = extract_models(&body);
-
-    for provider in &mut dashboard.api_providers {
-        enrich_models_from_catalog(&mut provider.models, catalog.clone());
-    }
-}
-
 fn enrich_models_from_catalog(models: &mut [RemoteModel], catalog: Vec<RemoteModel>) {
-    let mut by_id = HashMap::new();
-    let mut by_suffix = HashMap::new();
-    for model in catalog {
-        let normalized_id = model.id.to_ascii_lowercase();
-        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
-            if let Some((_, suffix)) = normalized_id.rsplit_once('/') {
-                by_suffix
-                    .entry(suffix.to_string())
-                    .or_insert_with(|| model.clone());
-                by_suffix
-                    .entry(model_match_key(suffix))
-                    .or_insert_with(|| model.clone());
-            }
-            by_id
-                .entry(model_match_key(&normalized_id))
-                .or_insert_with(|| model.clone());
-            by_id.entry(normalized_id).or_insert(model);
-        }
-    }
-
-    for model in models {
-        if !model.input_modalities.is_empty() || !model.output_modalities.is_empty() {
-            continue;
-        }
-
-        let key = model.id.to_ascii_lowercase();
-        let compact_key = model_match_key(&key);
-        let source = by_id
-            .get(&key)
-            .or_else(|| by_suffix.get(&key))
-            .or_else(|| by_id.get(&compact_key))
-            .or_else(|| by_suffix.get(&compact_key));
-        if let Some(source) = source {
-            if model.name.is_none() {
-                model.name = source.name.clone();
-            }
-            if model.owned_by.is_none() {
-                model.owned_by = source.owned_by.clone();
-            }
-            if model.description.is_none() {
-                model.description = source.description.clone();
-            }
-            model.input_modalities = source.input_modalities.clone();
-            model.output_modalities = source.output_modalities.clone();
-        }
-    }
-}
-
-fn model_match_key(model_id: &str) -> String {
-    model_id
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .flat_map(|ch| ch.to_lowercase())
-        .collect()
+    crate::models::enrich_remote_models_from_catalog(models, catalog);
 }
 
 fn model_from_value(value: &Value) -> Option<RemoteModel> {
@@ -2987,7 +2968,10 @@ mod tests {
 
         enrich_models_from_catalog(&mut models, catalog);
 
-        assert_eq!(model_match_key("openai/gpt-5.5"), "openaigpt55");
+        assert_eq!(
+            crate::models::model_match_key("openai/gpt-5.5"),
+            "openaigpt55"
+        );
         assert_eq!(models[0].input_modalities, vec!["file", "image", "text"]);
         assert_eq!(models[0].output_modalities, vec!["text"]);
         assert_eq!(
