@@ -1,0 +1,51 @@
+name: Issue
+description: Report a bug, ask a question, or suggest an improvement.
+title: "[Issue]: "
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - Bug
+        - Enhancement
+        - Question
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the issue or request.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: For bugs, write the steps if you know them.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: false
+
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      placeholder: "0.3.4"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Attach anything useful. Do not include API keys, tokens, passwords, or private local paths.
+    validations:
+      required: false
