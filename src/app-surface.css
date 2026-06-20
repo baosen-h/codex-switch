@@ -642,7 +642,7 @@ h3 { font-size: 15px; }
   background: var(--p1);
 }
 .session-filter-row {
-  grid-template-columns: minmax(0, 1fr) 180px 34px auto;
+  grid-template-columns: minmax(0, 1fr) 180px 34px 34px auto;
   gap: 10px;
 }
 .session-filter-row input,

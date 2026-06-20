@@ -12,6 +12,7 @@ use crate::models::{
 use keyring::Entry;
 use reqwest::blocking::Client;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, CONTENT_TYPE};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -42,7 +43,6 @@ const BUILTIN_SKILL_NAMES: &[&str] = &[
 
 pub fn state(db: &Database) -> Result<CapabilitiesState, AppError> {
     discover_local_capabilities(db)?;
-    remove_hidden_system_skills(db)?;
     remove_missing_external_skills(db)?;
     let servers = db.mcp_servers()?;
     let skills = db.skills()?;
@@ -75,12 +75,18 @@ fn discover_local_capabilities(db: &Database) -> Result<(), AppError> {
     discover_mcp_file(db, &codex_dir.join("config.toml"), AGENT_CODEX)?;
     discover_mcp_file(db, &claude_config, AGENT_CLAUDE)?;
     discover_mcp_file(db, &gemini_dir.join("settings.json"), AGENT_GEMINI)?;
-    discover_skill_root(db, &codex_dir.join("skills"), AGENT_CODEX)?;
+    let system_skill_overrides = read_codex_skill_config(&codex_dir.join("config.toml"))?;
+    discover_skill_root_as(
+        db,
+        &system_skill_root(),
+        AGENT_CODEX,
+        "system",
+        "reference",
+        &system_skill_overrides,
+    )?;
+    discover_skill_root(db, &codex_skill_root(), AGENT_CODEX)?;
     discover_skill_root(db, &claude_dir.join("skills"), AGENT_CLAUDE)?;
     discover_skill_root(db, &gemini_dir.join("skills"), AGENT_GEMINI)?;
-    if let Some(home) = dirs::home_dir() {
-        discover_skill_root(db, &home.join(".agents").join("skills"), "")?;
-    }
     Ok(())
 }
 
@@ -209,6 +215,17 @@ fn mcp_from_spec(target_key: &str, spec: &Value, agent: &str) -> Option<McpServe
 }
 
 fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), AppError> {
+    discover_skill_root_as(db, root, agent, "external", "reference", &BTreeMap::new())
+}
+
+fn discover_skill_root_as(
+    db: &Database,
+    root: &Path,
+    agent: &str,
+    source_kind: &str,
+    sync_mode: &str,
+    codex_overrides: &BTreeMap<String, bool>,
+) -> Result<(), AppError> {
     if !root.is_dir() {
         return Ok(());
     }
@@ -226,7 +243,18 @@ fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), Ap
             .iter_mut()
             .find(|item| item.name.eq_ignore_ascii_case(&name))
         {
-            let changed = !agent.is_empty() && set_target(&mut skill.targets, agent);
+            let mut changed = !agent.is_empty() && set_target(&mut skill.targets, agent);
+            if agent == AGENT_CODEX {
+                let skill_md = path.join("SKILL.md").to_string_lossy().to_string();
+                if let Some(enabled) = codex_overrides
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(&skill_md))
+                    .map(|(_, value)| *value)
+                {
+                    changed |= skill.targets.codex != enabled;
+                    skill.targets.codex = enabled;
+                }
+            }
             if changed {
                 *skill = db.save_skill(skill.clone())?;
             }
@@ -235,14 +263,24 @@ fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), Ap
             if !agent.is_empty() {
                 set_target(&mut targets, agent);
             }
+            if agent == AGENT_CODEX {
+                let skill_md = path.join("SKILL.md").to_string_lossy().to_string();
+                if let Some(enabled) = codex_overrides
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case(&skill_md))
+                    .map(|(_, value)| *value)
+                {
+                    targets.codex = enabled;
+                }
+            }
             let saved = db.save_skill(Skill {
                 id: String::new(),
                 name,
                 description,
                 instructions,
                 source_path: path.to_string_lossy().to_string(),
-                source_kind: "external".to_string(),
-                sync_mode: "reference".to_string(),
+                source_kind: source_kind.to_string(),
+                sync_mode: sync_mode.to_string(),
                 targets,
                 created_at: String::new(),
                 updated_at: String::new(),
@@ -254,9 +292,6 @@ fn discover_skill_root(db: &Database, root: &Path, agent: &str) -> Result<(), Ap
 }
 
 fn collect_skill_dirs(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), AppError> {
-    if root.file_name().and_then(|name| name.to_str()) == Some(".system") {
-        return Ok(());
-    }
     if root.join("SKILL.md").is_file() {
         output.push(root.to_path_buf());
         return Ok(());
@@ -264,6 +299,9 @@ fn collect_skill_dirs(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), AppE
     for entry in fs::read_dir(root)?.filter_map(Result::ok) {
         let path = entry.path();
         if path.is_dir() {
+            if path.file_name().and_then(|name| name.to_str()) == Some(".system") {
+                continue;
+            }
             collect_skill_dirs(&path, output)?;
         }
     }
@@ -398,11 +436,33 @@ pub fn save_skill(
     db: &Database,
     mut skill: Skill,
 ) -> Result<(Skill, CapabilitySyncResult), AppError> {
+    if skill.source_kind == "system" {
+        let mut existing = db
+            .skills()?
+            .into_iter()
+            .find(|item| item.id == skill.id && item.source_kind == "system")
+            .ok_or_else(|| AppError::message("System Skill was not found"))?;
+        existing.targets.codex = skill.targets.codex;
+        existing.targets.claude = false;
+        existing.targets.gemini = false;
+        save_system_skill_config(db, &existing)?;
+        let saved = db.save_skill(existing)?;
+        return Ok((saved, sync_skills(db)?));
+    }
     validate_skill(db, &skill)?;
     if skill.id.trim().is_empty() {
         skill.id = Uuid::new_v4().to_string();
     }
-    if skill.source_kind == "app" {
+    if skill.source_kind == "app" && skill.sync_mode == "copy" {
+        let source = Path::new(&skill.source_path);
+        if !source.join("SKILL.md").is_file() {
+            return Err(AppError::message(format!(
+                "Skill source is missing: {}",
+                skill.name
+            )));
+        }
+        write_skill_md_metadata_only(source, &skill)?;
+    } else if skill.source_kind == "app" {
         let target = app_data_dir()?.join("skills").join(&skill.name);
         if skill.source_path.trim().is_empty() {
             skill.source_path = target.to_string_lossy().to_string();
@@ -420,15 +480,19 @@ pub fn delete_skill(db: &Database, id: &str) -> Result<CapabilitySyncResult, App
     let skill = db.skills()?.into_iter().find(|item| item.id == id);
     let mut trash_path = String::new();
     if let Some(ref item) = skill {
+        if item.source_kind == "system" {
+            return Err(AppError::message("System Skills cannot be deleted"));
+        }
         remove_skill_targets(db, item)?;
         if item.source_kind == "app" {
             let source = PathBuf::from(&item.source_path);
             if source.exists() {
-                let trash = app_data_dir()?.join("trash").join("skills").join(format!(
-                    "{}-{}",
-                    sanitize_segment(&item.name),
-                    item.id
-                ));
+                let trash =
+                    unique_trash_path(&app_data_dir()?.join("trash").join("skills").join(format!(
+                        "{}-{}",
+                        sanitize_segment(&item.name),
+                        item.id
+                    )));
                 if let Some(parent) = trash.parent() {
                     fs::create_dir_all(parent)?;
                 }
@@ -472,6 +536,7 @@ pub fn sync_mcp(db: &Database, only_id: Option<&str>) -> Result<CapabilitySyncRe
 }
 
 pub fn sync_skills(db: &Database) -> Result<CapabilitySyncResult, AppError> {
+    reconcile_copied_skill_metadata(db)?;
     let skills = db.skills()?;
     let settings = db.settings()?;
     let mut results = Vec::new();
@@ -496,13 +561,55 @@ pub fn sync_skills(db: &Database) -> Result<CapabilitySyncResult, AppError> {
     Ok(CapabilitySyncResult { results })
 }
 
+fn reconcile_copied_skill_metadata(db: &Database) -> Result<(), AppError> {
+    for mut skill in db.skills()? {
+        if skill.source_kind != "app" || skill.sync_mode != "copy" {
+            continue;
+        }
+        let source = PathBuf::from(&skill.source_path);
+        let Some(metadata) = read_skill_json_metadata(&source) else {
+            continue;
+        };
+        let mut changed = false;
+        if should_prefer_package_skill_name(&skill.name, &metadata.name) {
+            skill.name = metadata.name;
+            changed = true;
+        }
+        if skill.description.trim().is_empty() && !metadata.description.trim().is_empty() {
+            skill.description = metadata.description;
+            changed = true;
+        }
+        if changed {
+            write_skill_md_metadata_only(&source, &skill)?;
+            db.save_skill(skill)?;
+        }
+    }
+    Ok(())
+}
+
 fn available_targets(db: &Database) -> Result<CapabilityTargets, AppError> {
     let settings = db.settings()?;
     Ok(CapabilityTargets {
-        codex: resolve_codex_dir(&settings.codex_config_dir).exists(),
+        codex: resolve_codex_dir(&settings.codex_config_dir).exists()
+            || codex_skill_root().parent().is_some_and(Path::exists),
         claude: resolve_claude_dir(&settings.claude_config_dir).exists(),
         gemini: resolve_gemini_dir(&settings.gemini_config_dir).exists(),
     })
+}
+
+fn codex_skill_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".agents")
+        .join("skills")
+}
+
+fn system_skill_root() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".codex-switcher")
+        .join("skills")
+        .join(".system")
 }
 
 fn validate_server(db: &Database, server: &McpServer) -> Result<(), AppError> {
@@ -882,6 +989,102 @@ fn sync_codex_mcp(path: &Path, servers: &Map<String, Value>) -> Result<(), AppEr
     atomic_write(path, doc.to_string().as_bytes())
 }
 
+fn save_system_skill_config(db: &Database, skill: &Skill) -> Result<(), AppError> {
+    let settings = db.settings()?;
+    let config_path = resolve_codex_dir(&settings.codex_config_dir).join("config.toml");
+    let text = fs::read_to_string(&config_path).unwrap_or_default();
+    let mut doc = if text.trim().is_empty() {
+        toml_edit::DocumentMut::new()
+    } else {
+        text.parse::<toml_edit::DocumentMut>()
+            .map_err(|error| AppError::message(format!("Invalid Codex TOML: {error}")))?
+    };
+    let skill_md = PathBuf::from(&skill.source_path).join("SKILL.md");
+    let skill_path = skill_md.to_string_lossy().to_string();
+    let mut configs = existing_skill_config_entries(&doc);
+    let mut found = false;
+    for (path, enabled) in &mut configs {
+        if path.eq_ignore_ascii_case(&skill_path) {
+            *path = skill_path.clone();
+            *enabled = skill.targets.codex;
+            found = true;
+        }
+    }
+    if !found {
+        configs.push((skill_path, skill.targets.codex));
+    }
+    write_skill_config_entries(&mut doc, configs);
+    atomic_write(&config_path, doc.to_string().as_bytes())
+}
+
+fn read_codex_skill_config(path: &Path) -> Result<BTreeMap<String, bool>, AppError> {
+    let text = fs::read_to_string(path).unwrap_or_default();
+    read_codex_skill_config_from_text(&text)
+}
+
+fn read_codex_skill_config_from_text(text: &str) -> Result<BTreeMap<String, bool>, AppError> {
+    if text.trim().is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| AppError::message(format!("Invalid Codex TOML: {error}")))?;
+    Ok(existing_skill_config_entries(&doc)
+        .into_iter()
+        .collect::<BTreeMap<_, _>>())
+}
+
+fn existing_skill_config_entries(doc: &toml_edit::DocumentMut) -> Vec<(String, bool)> {
+    doc.get("skills")
+        .and_then(|item| item.as_table())
+        .and_then(|table| table.get("config"))
+        .and_then(|item| item.as_array_of_tables())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|table| {
+                    let path = table.get("path")?.as_str()?.to_string();
+                    let enabled = table
+                        .get("enabled")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(true);
+                    Some((path, enabled))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn write_skill_config_entries(doc: &mut toml_edit::DocumentMut, entries: Vec<(String, bool)>) {
+    if entries.is_empty() {
+        if let Some(skills) = doc
+            .as_table_mut()
+            .get_mut("skills")
+            .and_then(|item| item.as_table_mut())
+        {
+            skills.remove("config");
+        }
+        return;
+    }
+    let mut configs = toml_edit::ArrayOfTables::new();
+    for (path, enabled) in entries {
+        let mut table = toml_edit::Table::new();
+        table["path"] = toml_edit::value(path);
+        table["enabled"] = toml_edit::value(enabled);
+        configs.push(table);
+    }
+    let skills = doc
+        .as_table_mut()
+        .entry("skills")
+        .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()));
+    if !skills.is_table() {
+        *skills = toml_edit::Item::Table(toml_edit::Table::new());
+    }
+    if let Some(table) = skills.as_table_mut() {
+        table["config"] = toml_edit::Item::ArrayOfTables(configs);
+    }
+}
+
 fn json_to_codex_table(spec: &Value) -> Result<toml_edit::Table, AppError> {
     let object = spec
         .as_object()
@@ -928,17 +1131,21 @@ fn sync_skill_agent(
     settings: &crate::models::AppSettings,
     agent: &str,
 ) -> Result<String, AppError> {
-    let base = match agent {
-        AGENT_CODEX => resolve_codex_dir(&settings.codex_config_dir),
-        AGENT_CLAUDE => resolve_claude_dir(&settings.claude_config_dir),
-        _ => resolve_gemini_dir(&settings.gemini_config_dir),
+    let skill_root = match agent {
+        AGENT_CODEX => codex_skill_root(),
+        AGENT_CLAUDE => resolve_claude_dir(&settings.claude_config_dir).join("skills"),
+        _ => resolve_gemini_dir(&settings.gemini_config_dir).join("skills"),
     };
-    if !base.exists() {
+    let base = skill_root
+        .parent()
+        .ok_or_else(|| AppError::message(format!("{agent} skill directory is unavailable")))?;
+    if agent == AGENT_CODEX {
+        fs::create_dir_all(base)?;
+    } else if !base.exists() {
         return Err(AppError::message(format!(
             "{agent} config directory is unavailable"
         )));
     }
-    let skill_root = base.join("skills");
     fs::create_dir_all(&skill_root)?;
     let managed_index_path = skill_root.join(".codex-switch-managed.json");
     let previous: Vec<String> = fs::read_to_string(&managed_index_path)
@@ -947,6 +1154,7 @@ fn sync_skill_agent(
         .unwrap_or_default();
     let enabled = skills
         .iter()
+        .filter(|skill| skill.source_kind != "system")
         .filter(|skill| match agent {
             AGENT_CODEX => skill.targets.codex,
             AGENT_CLAUDE => skill.targets.claude,
@@ -961,7 +1169,7 @@ fn sync_skill_agent(
         if !desired.iter().any(|name| name.eq_ignore_ascii_case(&old)) {
             let target = skill_root.join(old);
             if target.exists() {
-                fs::remove_dir_all(target)?;
+                remove_dir_all_context(&target, agent)?;
             }
         }
     }
@@ -978,9 +1186,20 @@ fn sync_skill_agent(
             continue;
         }
         if target.exists() {
-            fs::remove_dir_all(&target)?;
+            remove_dir_all_context(&target, agent)?;
         }
-        copy_dir(&source, &target)?;
+        copy_dir(&source, &target).map_err(|error| {
+            AppError::message(format!(
+                "Failed to sync Skill '{}' to {agent}: {error}",
+                skill.name
+            ))
+        })?;
+        if !target.join("SKILL.md").is_file() {
+            return Err(AppError::message(format!(
+                "Skill sync failed for {}: copied target has no SKILL.md",
+                skill.name
+            )));
+        }
     }
     atomic_write(
         &managed_index_path,
@@ -991,12 +1210,12 @@ fn sync_skill_agent(
 
 fn remove_skill_targets(db: &Database, skill: &Skill) -> Result<(), AppError> {
     let settings = db.settings()?;
-    for base in [
-        resolve_codex_dir(&settings.codex_config_dir),
-        resolve_claude_dir(&settings.claude_config_dir),
-        resolve_gemini_dir(&settings.gemini_config_dir),
+    for skill_root in [
+        codex_skill_root(),
+        resolve_claude_dir(&settings.claude_config_dir).join("skills"),
+        resolve_gemini_dir(&settings.gemini_config_dir).join("skills"),
     ] {
-        let target = base.join("skills").join(&skill.name);
+        let target = skill_root.join(&skill.name);
         if target.exists() && !same_path(Path::new(&skill.source_path), &target) {
             fs::remove_dir_all(target)?;
         }
@@ -1016,19 +1235,6 @@ fn remove_missing_external_skills(db: &Database) -> Result<(), AppError> {
     }
     if !db.skills()?.is_empty() {
         let _ = sync_skills(db);
-    }
-    Ok(())
-}
-
-fn remove_hidden_system_skills(db: &Database) -> Result<(), AppError> {
-    let hidden = db
-        .skills()?
-        .into_iter()
-        .filter(|skill| is_hidden_system_skill_path(&skill.source_path))
-        .collect::<Vec<_>>();
-    for skill in hidden {
-        remove_skill_targets(db, &skill)?;
-        db.delete_skill_record(&skill.id, "")?;
     }
     Ok(())
 }
@@ -1118,6 +1324,51 @@ fn render_skill_md(skill: &Skill) -> String {
 fn write_skill_md(dir: &Path, skill: &Skill) -> Result<(), AppError> {
     fs::create_dir_all(dir)?;
     atomic_write(&dir.join("SKILL.md"), render_skill_md(skill).as_bytes())
+}
+
+fn write_skill_md_metadata_only(dir: &Path, skill: &Skill) -> Result<(), AppError> {
+    let current = fs::read_to_string(dir.join("SKILL.md"))?;
+    let (_, _, body) = parse_skill_md(&current)?;
+    let mut lines = vec![
+        "---".to_string(),
+        format!("name: {}", yaml_string(&skill.name)),
+    ];
+    if !skill.description.trim().is_empty() {
+        lines.push(format!("description: {}", yaml_string(&skill.description)));
+    }
+    lines.push("---".to_string());
+    lines.push(String::new());
+    lines.push(body.trim().to_string());
+    lines.push(String::new());
+    atomic_write(&dir.join("SKILL.md"), lines.join("\n").as_bytes())
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillJsonMetadata {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+fn read_skill_json_metadata(path: &Path) -> Option<SkillJsonMetadata> {
+    let text = fs::read_to_string(path.join("skill.json")).ok()?;
+    let metadata = serde_json::from_str::<SkillJsonMetadata>(&text).ok()?;
+    if metadata.name.trim().is_empty() {
+        return None;
+    }
+    Some(metadata)
+}
+
+fn should_prefer_package_skill_name(current_name: &str, package_name: &str) -> bool {
+    let current_name = current_name.trim();
+    let package_name = package_name.trim();
+    if package_name.is_empty() || current_name.eq_ignore_ascii_case(package_name) {
+        return false;
+    }
+    current_name.is_empty()
+        || current_name.starts_with("codex-switch-skill-preview-")
+        || current_name.eq_ignore_ascii_case("skill")
 }
 
 fn yaml_string(value: &str) -> String {
@@ -1549,6 +1800,40 @@ fn copy_dir(source: &Path, target: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+fn remove_dir_all_context(path: &Path, agent: &str) -> Result<(), AppError> {
+    fs::remove_dir_all(path).map_err(|error| {
+        AppError::message(format!(
+            "Failed to remove stale Skill target for {agent}: {} ({error})",
+            path.to_string_lossy()
+        ))
+    })
+}
+
+fn unique_trash_path(base: &Path) -> PathBuf {
+    if !base.exists() {
+        return base.to_path_buf();
+    }
+    for attempt in 1..1000 {
+        let candidate = base.with_file_name(format!(
+            "{}-{}",
+            base.file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("skill"),
+            attempt
+        ));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    base.with_file_name(format!(
+        "{}-{}",
+        base.file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("skill"),
+        Uuid::new_v4()
+    ))
+}
+
 fn same_path(left: &Path, right: &Path) -> bool {
     let normalized = |path: &Path| {
         path.canonicalize()
@@ -1617,6 +1902,46 @@ mod tests {
             Path::new("C:/Users/me/.codex-switcher/skills/.system/imagegen"),
             "imagegen",
         ));
+    }
+
+    #[test]
+    fn codex_skill_root_uses_agents_directory() {
+        let root = codex_skill_root();
+        assert_eq!(
+            root.file_name().and_then(|value| value.to_str()),
+            Some("skills")
+        );
+        assert_eq!(
+            root.parent()
+                .and_then(Path::file_name)
+                .and_then(|value| value.to_str()),
+            Some(".agents")
+        );
+    }
+
+    #[test]
+    fn writes_skill_config_without_existing_skills_table() {
+        let mut doc = "model = \"gpt-5\"\n"
+            .parse::<toml_edit::DocumentMut>()
+            .unwrap();
+        write_skill_config_entries(
+            &mut doc,
+            vec![(
+                "C:\\Users\\TT\\.codex-switcher\\skills\\.system\\imagegen\\SKILL.md".to_string(),
+                false,
+            )],
+        );
+        let text = doc.to_string();
+        assert!(text.contains("[[skills.config]]"));
+        assert!(text.contains("enabled = false"));
+        assert_eq!(
+            read_codex_skill_config_from_text(&text)
+                .unwrap()
+                .values()
+                .next()
+                .copied(),
+            Some(false)
+        );
     }
 
     #[test]

@@ -119,6 +119,18 @@ function sourceLabels(targets: CapabilityTargets, localLabel: string, sourcePath
   return labels.length ? labels : [localLabel];
 }
 
+type Translate = ReturnType<typeof useI18n>["t"];
+
+function skillSourceLabel(skill: Skill, t: Translate) {
+  if (skill.sourceKind === "system") return t("system");
+  return skill.sourceKind === "external" ? t("reference") : t("managed");
+}
+
+function skillSourceValue(skill: Skill, t: Translate) {
+  if (skill.sourceKind === "system") return t("systemSkill");
+  return skill.sourceKind === "external" ? t("externalReference") : t("managedByApp");
+}
+
 function SourceBadges({ labels }: { labels: string[] }) {
   return (
     <span className="capability-source-badges">
@@ -779,6 +791,7 @@ function SkillManager({
   const [message, setMessage] = useState("");
   const [marketMessage, setMarketMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const isSystemSkill = draft.sourceKind === "system";
   const previewReady = Boolean(draft.name.trim() && draft.instructions.trim());
   const filteredSkills = useMemo(
     () => state.skills.filter((skill) => {
@@ -857,7 +870,7 @@ function SkillManager({
             <button className={`capability-list-item ${skill.id === draft.id && editorMode === "skill" ? "active" : ""}`} key={skill.id} onClick={() => { setEditorMode("skill"); setReviewResult(null); setDraft(structuredClone(skill)); setPreview(""); }} type="button">
               <span>
                 <strong>{skill.name}</strong>
-                <small>{skill.sourceKind === "external" ? t("reference") : t("managed")}</small>
+                <small>{skillSourceLabel(skill, t)}</small>
                 <SourceBadges labels={sourceLabels(skill.targets, t("local"), skill.sourcePath)} />
               </span>
               <ChevronRight size={15} />
@@ -889,17 +902,18 @@ function SkillManager({
           ) : null}
           {editorMode === "skill" ? <>
           <div className="capability-form-grid capability-editor-fields">
-            <label className="field"><span>{t("name")}</span><input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-            <label className="field"><span>{t("source")}</span><input disabled value={draft.sourceKind === "external" ? t("externalReference") : t("managedByApp")} /></label>
-            <label className="field field-full"><span>{t("description")}</span><input value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
-            <label className="field field-full"><span>{t("instructions")}</span><textarea className="capability-skill-editor" value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>
+            <label className="field"><span>{t("name")}</span><input disabled={isSystemSkill} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label className="field"><span>{t("source")}</span><input disabled value={skillSourceValue(draft, t)} /></label>
+            <label className="field field-full"><span>{t("description")}</span><input disabled={isSystemSkill} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label>
+            <label className="field field-full"><span>{t("instructions")}</span><textarea className="capability-skill-editor" disabled={isSystemSkill} value={draft.instructions} onChange={(event) => setDraft({ ...draft, instructions: event.target.value })} /></label>
           </div>
           {draft.sourcePath ? <p className="capability-source-path">{draft.sourcePath}</p> : null}
-          <section className="capability-editor-section"><strong>{t("enabledAgents")}</strong><TargetToggles value={draft.targets} available={state.availableTargets} onChange={(targets) => setDraft({ ...draft, targets })} /></section>
+          {isSystemSkill ? <p className="capability-message">{t("systemSkillReadOnly")}</p> : null}
+          <section className="capability-editor-section"><strong>{t("enabledAgents")}</strong><TargetToggles value={draft.targets} available={isSystemSkill ? { codex: state.availableTargets.codex, claude: false, gemini: false } : state.availableTargets} onChange={(targets) => setDraft({ ...draft, targets: isSystemSkill ? { codex: targets.codex, claude: false, gemini: false } : targets })} /></section>
           {preview ? <pre className="capability-preview capability-skill-preview">{preview}</pre> : null}
           {message ? <p className={`capability-message ${message.includes("synced") ? "ok" : ""}`}>{message}</p> : null}
           <footer className="capability-editor-actions">
-            {draft.id ? <button className="danger-button" disabled={busy} onClick={() => {
+            {draft.id && !isSystemSkill ? <button className="danger-button" disabled={busy} onClick={() => {
               if (!window.confirm(t("confirmDeleteSkill"))) return;
               void act(async () => { await appApi.deleteSkill(draft.id); setDraft(emptySkill()); await onReload(); });
             }} type="button"><Trash2 size={15} /> {t("delete")}</button> : <span />}

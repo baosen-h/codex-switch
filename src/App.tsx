@@ -36,6 +36,7 @@ const emptyState: DashboardState = {
     visionClaudeEnabled: true,
     visionGeminiEnabled: true,
     webSearch: {
+      enabled: false,
       searchProviderId: "",
       searchApiUrl: "",
       searchApiKeys: [],
@@ -142,6 +143,33 @@ function App() {
       setSessionsIndexing(false);
     }
   }, []);
+
+  const repairSessionVisibility = useCallback(async () => {
+    if (sessionsIndexingRef.current) return;
+    sessionsIndexingRef.current = true;
+    setSessionsIndexing(true);
+    try {
+      const result = await appApi.repairCodexSessionVisibility();
+      const sessions = await appApi.getCachedSessions();
+      setData((current) => ({ ...current, sessions }));
+      const indexChanged =
+        result.addedSessionIndexEntries + result.updatedSessionIndexEntries;
+      showToast.current(
+        lang === "zh"
+          ? `已修复 Codex 可见性：扫描 ${result.scannedSessions} 个会话，更新 ${result.updatedThreads} 条，新增 ${result.insertedThreads} 条，索引 ${indexChanged} 条。`
+          : `Repaired Codex visibility: scanned ${result.scannedSessions}, updated ${result.updatedThreads}, inserted ${result.insertedThreads}, indexed ${indexChanged}.`,
+        "ok",
+      );
+    } catch (caught) {
+      showToast.current(
+        caught instanceof Error ? caught.message : "Failed to repair Codex session visibility.",
+        "err",
+      );
+    } finally {
+      sessionsIndexingRef.current = false;
+      setSessionsIndexing(false);
+    }
+  }, [lang]);
 
   const checkUpdate = useCallback(async () => {
     try {
@@ -366,6 +394,7 @@ function App() {
       onDelete={handleDeleteSession}
       onLaunchSession={handleLaunchSession}
       onRefresh={() => refreshSessionIndex("Sessions refreshed.")}
+      onRepairVisibility={repairSessionVisibility}
       onNotify={(message, type) => showToast.current(message, type)}
     />
   ) : activePage === "capabilities" ? (

@@ -110,6 +110,61 @@ impl Database {
         self.cached_sessions()
     }
 
+    pub fn repair_codex_session_visibility(
+        &self,
+        codex_config_dir: PathBuf,
+    ) -> Result<crate::models::SessionVisibilityRepairResult, AppError> {
+        let result = session_manager::repair_codex_session_visibility(&codex_config_dir)
+            .map_err(AppError::message)?;
+        self.refresh_codex_session_cache(&codex_config_dir)?;
+        Ok(result)
+    }
+
+    fn refresh_codex_session_cache(
+        &self,
+        codex_config_dir: &std::path::Path,
+    ) -> Result<(), AppError> {
+        let files = session_manager::collect_codex_session_files(codex_config_dir);
+        let mut current_paths = HashSet::new();
+
+        for path in files {
+            let source_path = path.to_string_lossy().to_string();
+            current_paths.insert(source_path.clone());
+
+            let metadata = match fs::metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(_) => continue,
+            };
+            let file_size = metadata.len() as i64;
+            let modified_at = file_modified_millis(&metadata);
+
+            if self.session_index_fresh(&source_path, file_size, modified_at)? {
+                continue;
+            }
+
+            let Some(record) = session_manager::session_record_for_index(&path) else {
+                continue;
+            };
+            self.upsert_session_index(&record, file_size, modified_at)?;
+        }
+
+        let codex_root = codex_config_dir
+            .join("sessions")
+            .to_string_lossy()
+            .to_string();
+        let indexed_paths = self.indexed_session_paths()?;
+        for indexed_path in indexed_paths {
+            if indexed_path.starts_with(&codex_root) && !current_paths.contains(&indexed_path) {
+                self.connection.execute(
+                    "DELETE FROM session_index WHERE source_path = ?1",
+                    params![indexed_path],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn session_index_fresh(
         &self,
         source_path: &str,
@@ -633,7 +688,7 @@ impl Database {
             vision_codex_enabled: self.setting("vision_codex_enabled")? == "true",
             vision_claude_enabled: self.setting("vision_claude_enabled")? == "true",
             vision_gemini_enabled: self.setting("vision_gemini_enabled")? == "true",
-            web_search: serde_json::from_str(&self.setting("web_search")?).unwrap_or_default(),
+            web_search: load_web_search_settings(&self.setting("web_search")?),
         })
     }
 
@@ -1625,6 +1680,19 @@ fn json_column<T: serde::de::DeserializeOwned + Default>(value: String) -> T {
     serde_json::from_str(&value).unwrap_or_default()
 }
 
+fn load_web_search_settings(value: &str) -> WebSearchSettings {
+    let parsed = serde_json::from_str::<serde_json::Value>(value);
+    let Ok(json) = parsed else {
+        return WebSearchSettings::default();
+    };
+    let has_enabled = json.get("enabled").is_some();
+    let mut settings: WebSearchSettings = serde_json::from_value(json).unwrap_or_default();
+    if !has_enabled && !settings.search_provider_id.trim().is_empty() {
+        settings.enabled = true;
+    }
+    settings.normalized()
+}
+
 fn capability_target_key(name: &str, id: &str) -> String {
     let slug = name
         .chars()
@@ -1806,6 +1874,7 @@ fn normalized_wire_api(wire_api: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::env;
 
     fn empty_api_provider(id: &str, base_url: &str, api_key: &str, wire_api: &str) -> ApiProvider {
@@ -1896,6 +1965,43 @@ mod tests {
     }
 
     #[test]
+    fn web_search_loader_keeps_legacy_configured_search_enabled() {
+        let settings = load_web_search_settings(
+            r#"{
+              "searchProviderId": " Tavily ",
+              "searchApiUrl": "https://api.tavily.com/search",
+              "searchApiKeys": ["key"],
+              "fetchProviderId": "direct",
+              "maxResults": 5,
+              "excludeDomains": [],
+              "cutoffTokens": 4000
+            }"#,
+        );
+
+        assert!(settings.enabled);
+        assert_eq!(settings.search_provider_id, "tavily");
+    }
+
+    #[test]
+    fn web_search_loader_respects_explicit_disabled() {
+        let settings = load_web_search_settings(
+            r#"{
+              "enabled": false,
+              "searchProviderId": "tavily",
+              "searchApiUrl": "https://api.tavily.com/search",
+              "searchApiKeys": ["key"],
+              "fetchProviderId": "direct",
+              "maxResults": 5,
+              "excludeDomains": [],
+              "cutoffTokens": 4000
+            }"#,
+        );
+
+        assert!(!settings.enabled);
+        assert_eq!(settings.search_provider_id, "tavily");
+    }
+
+    #[test]
     fn saving_api_provider_updates_linked_agent_provider() {
         with_temp_home(|| {
             let db = Database::new()?;
@@ -1940,6 +2046,57 @@ mod tests {
                 .config_text
                 .contains("\"access_token\": \"access-token\""));
             assert!(!saved_agent.config_text.contains("OPENAI_API_KEY"));
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn repair_codex_visibility_updates_cached_codex_sessions() {
+        with_temp_home(|| {
+            let db = Database::new()?;
+            let codex_home = env::temp_dir().join(format!(
+                "codex-switch-repair-cache-test-{}",
+                current_time_string()
+            ));
+            let session_dir = codex_home.join("sessions").join("2026").join("06");
+            fs::create_dir_all(&session_dir)?;
+            let session_path =
+                session_dir.join("rollout-2026-06-20T00-00-00-session-cache-test.jsonl");
+            let lines = vec![
+                json!({
+                    "type": "session_meta",
+                    "timestamp": "2026-06-20T00:00:00Z",
+                    "payload": {
+                        "id": "session-cache-test",
+                        "cwd": "F:\\Desktop\\Draft",
+                        "model_provider": "custom"
+                    }
+                })
+                .to_string(),
+                json!({
+                    "type": "response_item",
+                    "timestamp": "2026-06-20T00:00:01Z",
+                    "payload": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Repair cache session title"}]
+                    }
+                })
+                .to_string(),
+            ];
+            fs::write(&session_path, format!("{}\n", lines.join("\n")))?;
+
+            let result = db.repair_codex_session_visibility(codex_home.clone())?;
+            assert_eq!(result.scanned_sessions, 1);
+
+            let sessions = db.cached_sessions()?;
+            assert!(sessions.iter().any(|session| {
+                session.session_id == "session-cache-test"
+                    && session.title == "Repair cache session title"
+            }));
+
+            let _ = fs::remove_dir_all(codex_home);
             Ok(())
         })
         .unwrap();

@@ -282,8 +282,8 @@ pub fn install_skill(
     }
     let staging = stage_skill(&request.result)?;
     let skill_dir = locate_skill_dir(&staging, &request.result)?;
-    let (name, description, instructions) = read_skill_md(&skill_dir)?;
-    let target = app_data_dir()?.join("skills").join(&name);
+    let (name, description, instructions) = read_marketplace_skill_metadata(&skill_dir)?;
+    let target = app_data_dir()?.join("skills").join(sanitize(&name));
     let backup = app_data_dir()?.join("backups").join("skills").join(format!(
         "{}-{}",
         sanitize(&name),
@@ -302,6 +302,7 @@ pub fn install_skill(
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
     }
+    write_marketplace_skill_md_metadata(&target, &name, &description, &instructions)?;
     let installed_hash = hash_directory(&target)?;
     let skill = Skill {
         id: request.result.installed_id.clone(),
@@ -1733,6 +1734,113 @@ fn read_skill_md(path: &Path) -> Result<(String, String, String), AppError> {
     Ok((name, description, instructions))
 }
 
+fn read_marketplace_skill_metadata(path: &Path) -> Result<(String, String, String), AppError> {
+    let (frontmatter_name, frontmatter_description, instructions) = read_skill_md(path)?;
+    let package = read_skill_json_metadata(path);
+    let name = package
+        .as_ref()
+        .and_then(|metadata| {
+            if should_prefer_skill_json_name(&frontmatter_name, &metadata.name) {
+                Some(metadata.name.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(frontmatter_name);
+    let description = package
+        .as_ref()
+        .and_then(|metadata| {
+            if frontmatter_description.trim().is_empty() && !metadata.description.trim().is_empty()
+            {
+                Some(metadata.description.clone())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(frontmatter_description);
+    Ok((name, description, instructions))
+}
+
+fn write_marketplace_skill_md_metadata(
+    path: &Path,
+    name: &str,
+    description: &str,
+    instructions: &str,
+) -> Result<(), AppError> {
+    let mut lines = vec!["---".to_string(), format!("name: {}", yaml_string(name))];
+    if !description.trim().is_empty() {
+        lines.push(format!("description: {}", yaml_string(description)));
+    }
+    lines.push("---".to_string());
+    lines.push(String::new());
+    lines.push(
+        skill_body_without_frontmatter(instructions)
+            .trim()
+            .to_string(),
+    );
+    lines.push(String::new());
+    fs::write(path.join("SKILL.md"), lines.join("\n"))?;
+    Ok(())
+}
+
+fn skill_body_without_frontmatter(instructions: &str) -> &str {
+    let normalized_start = instructions
+        .strip_prefix('\u{feff}')
+        .unwrap_or(instructions);
+    if !normalized_start.trim_start().starts_with("---") {
+        return instructions;
+    }
+    let leading = normalized_start.len() - normalized_start.trim_start().len();
+    let trimmed = &normalized_start[leading..];
+    let Some(remainder) = trimmed.strip_prefix("---") else {
+        return instructions;
+    };
+    let remainder = remainder
+        .strip_prefix("\r\n")
+        .or_else(|| remainder.strip_prefix('\n'));
+    let Some(remainder) = remainder else {
+        return instructions;
+    };
+    for marker in ["\n---\n", "\r\n---\r\n", "\n---\r\n", "\r\n---\n"] {
+        if let Some(index) = remainder.find(marker) {
+            return &remainder[index + marker.len()..];
+        }
+    }
+    instructions
+}
+
+#[derive(Debug, Deserialize)]
+struct SkillJsonMetadata {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+
+fn read_skill_json_metadata(path: &Path) -> Option<SkillJsonMetadata> {
+    let text = fs::read_to_string(path.join("skill.json")).ok()?;
+    let metadata = serde_json::from_str::<SkillJsonMetadata>(&text).ok()?;
+    if metadata.name.trim().is_empty() {
+        return None;
+    }
+    Some(metadata)
+}
+
+fn should_prefer_skill_json_name(frontmatter_name: &str, package_name: &str) -> bool {
+    let frontmatter_name = frontmatter_name.trim();
+    let package_name = package_name.trim();
+    if package_name.is_empty() {
+        return false;
+    }
+    frontmatter_name.is_empty()
+        || frontmatter_name.starts_with("codex-switch-skill-preview-")
+        || frontmatter_name.eq_ignore_ascii_case("skill")
+}
+
+fn yaml_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 fn list_relative_files(root: &Path) -> Result<Vec<String>, AppError> {
     fn walk(root: &Path, path: &Path, output: &mut Vec<String>) -> Result<(), AppError> {
         for entry in fs::read_dir(path)?.filter_map(Result::ok) {
@@ -2017,6 +2125,45 @@ mod tests {
             results[0].canonical_id,
             "github:github/awesome-copilot/git-commit"
         );
+    }
+
+    #[test]
+    fn marketplace_skill_metadata_prefers_skill_json_for_preview_names() {
+        let root = staging_dir("metadata-test").unwrap();
+        fs::write(
+            root.join("SKILL.md"),
+            r#"---
+name: "codex-switch-skill-preview-123"
+---
+
+# Voice Skill
+
+Use Edge TTS.
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("skill.json"),
+            r#"{
+              "name": "Voice (Edge TTS)",
+              "description": "Text-to-speech using Microsoft Edge TTS."
+            }"#,
+        )
+        .unwrap();
+
+        let (name, description, instructions) = read_marketplace_skill_metadata(&root).unwrap();
+        assert_eq!(name, "Voice (Edge TTS)");
+        assert_eq!(description, "Text-to-speech using Microsoft Edge TTS.");
+        assert!(instructions.contains("codex-switch-skill-preview-123"));
+
+        write_marketplace_skill_md_metadata(&root, &name, &description, &instructions).unwrap();
+        let rewritten = fs::read_to_string(root.join("SKILL.md")).unwrap();
+        assert!(rewritten.contains(r#"name: "Voice (Edge TTS)""#));
+        assert!(rewritten.contains(r#"description: "Text-to-speech using Microsoft Edge TTS.""#));
+        assert!(rewritten.contains("# Voice Skill"));
+        assert!(!rewritten.contains("codex-switch-skill-preview-123"));
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

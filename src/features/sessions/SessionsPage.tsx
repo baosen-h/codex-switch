@@ -23,6 +23,7 @@ export function SessionsPage({
   onDelete,
   onLaunchSession,
   onRefresh,
+  onRepairVisibility,
   onNotify,
 }: SessionsPageProps) {
   const { t, lang } = useI18n();
@@ -212,11 +213,13 @@ export function SessionsPage({
             agentClaude: t("agentClaude"),
             agentGemini: t("agentGemini"),
             refreshSessions: t("refreshSessions"),
+            repairVisibility: t("repairVisibility"),
             indexingSessions: lang === "zh" ? "正在索引..." : "Indexing...",
           }}
           onQueryChange={setQuery}
           onAgentFilterChange={setAgentFilter}
           onRefresh={() => void onRefresh()}
+          onRepairVisibility={() => void onRepairVisibility()}
         />
 
         <div className="sessions-layout sessions-layout-connected">

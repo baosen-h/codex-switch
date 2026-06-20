@@ -27,6 +27,7 @@ export const themeOptions: Array<{ value: AppTheme; labelKey: TranslationKey }> 
 ];
 
 export const defaultWebSearchSettings: AppSettings["webSearch"] = {
+  enabled: false,
   searchProviderId: "",
   searchApiUrl: "",
   searchApiKeys: [],
@@ -57,6 +58,8 @@ export function splitMultilineList(value: string): string[] {
 }
 
 export function isWebSearchConfigurationValid(webSearch: AppSettings["webSearch"]): boolean {
+  if (!webSearch.enabled) return true;
+
   const searchProviderOption = searchProviderOptions.find(
     (provider) => provider.id === webSearch.searchProviderId,
   );
@@ -65,9 +68,9 @@ export function isWebSearchConfigurationValid(webSearch: AppSettings["webSearch"
   );
 
   return (
-    (!webSearch.searchProviderId ||
-      Boolean(searchProviderOption) &&
-        (!searchProviderOption?.requiresKey || webSearch.searchApiKeys.some((key) => key.trim()))) &&
+    Boolean(webSearch.searchProviderId) &&
+    Boolean(searchProviderOption) &&
+    (!searchProviderOption?.requiresKey || webSearch.searchApiKeys.some((key) => key.trim())) &&
     Boolean(fetchProviderOption) &&
     (!fetchProviderOption?.requiresKey || webSearch.fetchApiKeys.some((key) => key.trim()))
   );

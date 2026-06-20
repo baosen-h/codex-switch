@@ -24,10 +24,11 @@ use commands::{
     install_marketplace_skill, launch_codex, launch_provider, launch_session, list_provider_models,
     open_external_url, pick_directory, preview_marketplace_skill, preview_mcp_config,
     preview_mcp_json, preview_skill, rebuild_session_index, refresh_model_metadata,
-    refresh_sessions, save_api_provider, save_marketplace_source, save_mcp_preset, save_mcp_server,
-    save_provider, save_settings, save_skill, search_marketplace, search_skill_market, search_web,
-    send_chat_message, set_manual_model_metadata, sync_mcp_capabilities, sync_skill_capabilities,
-    test_marketplace_source, test_mcp_server, AppState,
+    refresh_sessions, repair_codex_session_visibility, save_api_provider, save_marketplace_source,
+    save_mcp_preset, save_mcp_server, save_provider, save_settings, save_skill, search_marketplace,
+    search_skill_market, search_web, send_chat_message, set_manual_model_metadata,
+    sync_mcp_capabilities, sync_skill_capabilities, test_marketplace_source, test_mcp_server,
+    AppState,
 };
 use models::Provider;
 use oauth::{complete_openai_oauth, complete_openai_oauth_callback, start_openai_oauth};
@@ -108,6 +109,7 @@ pub fn run() {
             get_cached_sessions,
             refresh_sessions,
             rebuild_session_index,
+            repair_codex_session_visibility,
             save_api_provider,
             delete_api_provider,
             save_provider,

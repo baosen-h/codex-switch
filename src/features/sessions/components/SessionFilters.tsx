@@ -1,4 +1,4 @@
-import { RefreshIcon } from "../../../components/ui";
+import { RefreshIcon, VisionIcon } from "../../../components/ui";
 import type { AgentFilter } from "../types";
 
 interface SessionFiltersProps {
@@ -14,11 +14,13 @@ interface SessionFiltersProps {
     agentClaude: string;
     agentGemini: string;
     refreshSessions: string;
+    repairVisibility: string;
     indexingSessions: string;
   };
   onQueryChange: (query: string) => void;
   onAgentFilterChange: (filter: AgentFilter) => void;
   onRefresh: () => void;
+  onRepairVisibility: () => void;
 }
 
 export function SessionFilters({
@@ -29,6 +31,7 @@ export function SessionFilters({
   onQueryChange,
   onAgentFilterChange,
   onRefresh,
+  onRepairVisibility,
 }: SessionFiltersProps) {
   return (
     <div className="session-connected-top">
@@ -61,6 +64,15 @@ export function SessionFilters({
           title={isIndexing ? labels.indexingSessions : labels.refreshSessions}
         >
           <RefreshIcon />
+        </button>
+        <button
+          className="session-refresh-button session-repair-button"
+          disabled={isIndexing}
+          onClick={onRepairVisibility}
+          type="button"
+          title={labels.repairVisibility}
+        >
+          <VisionIcon />
         </button>
         {isIndexing ? <span className="session-index-status">{labels.indexingSessions}</span> : null}
       </div>

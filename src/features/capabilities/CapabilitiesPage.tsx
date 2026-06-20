@@ -74,6 +74,8 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
   const visionValid = !draft.visionFallbackEnabled || Boolean(visionProvider && visionModel);
   const webSearch = draft.webSearch ?? defaultWebSearchSettings;
   const webSearchValid = isWebSearchConfigurationValid(webSearch);
+  const webSearchEnabled = Boolean(webSearch.enabled);
+  const webSearchReady = webSearchEnabled && webSearchValid && Boolean(webSearch.searchProviderId);
   const canSave = visionValid && webSearchValid;
 
   const updateSetting = <K extends keyof AppSettings>(field: K, value: AppSettings[K]) => {
@@ -119,7 +121,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
       key: "search" as const,
       label: t("capabilitySearch"),
       hint: t("capabilitySearchHint"),
-      configured: webSearchValid && Boolean(webSearch.searchProviderId),
+      configured: webSearchReady,
       Icon: Search,
     },
     {
@@ -273,15 +275,32 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
               <header className="capability-header">
                 <span className="capability-header-icon"><Search size={22} /></span>
                 <div><h1>{t("capabilitySearch")}</h1><p>{t("capabilitySearchHint")}</p></div>
-                <span className={`capability-state ${webSearchValid && webSearch.searchProviderId ? "ready" : ""}`}>
+                <span className={`capability-state ${webSearchReady ? "ready" : ""}`}>
                   <CheckCircle2 size={14} />
-                  {webSearchValid && webSearch.searchProviderId
+                  {webSearchReady
                     ? t("capabilityConfigured")
                     : t("capabilityNeedsSetup")}
                 </span>
               </header>
 
               <section className="capability-setting-group">
+                <div className="capability-setting-row">
+                  <div className="capability-setting-title">
+                    <span className="setting-row-icon"><Search size={17} /></span>
+                    <div><strong>{t("capabilitySearch")}</strong><small>{t("capabilitySearchHint")}</small></div>
+                  </div>
+                  <label className="switch-control">
+                    <input
+                      checked={webSearchEnabled}
+                      onChange={(event) => updateWebSearch("enabled", event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span />
+                  </label>
+                </div>
+              </section>
+
+              <section className={`capability-setting-group ${webSearchEnabled ? "" : "disabled"}`}>
                 <div className="capability-setting-row">
                   <div className="capability-setting-title">
                     <span className="setting-row-icon"><Search size={17} /></span>
@@ -293,6 +312,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                       providerName={searchProvider?.name ?? t("notConfigured")}
                     />
                     <select
+                      disabled={!webSearchEnabled}
                       value={webSearch.searchProviderId}
                       onChange={(event) => {
                         const providerId = event.target.value;
@@ -328,6 +348,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                       providerName={fetchProvider?.name ?? t("notConfigured")}
                     />
                     <select
+                      disabled={!webSearchEnabled}
                       value={webSearch.fetchProviderId}
                       onChange={(event) => {
                         const providerId = event.target.value;
@@ -354,10 +375,11 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
               </section>
 
               {searchProvider ? (
-                <section className="capability-setting-group capability-form-stack">
+                <section className={`capability-setting-group capability-form-stack ${webSearchEnabled ? "" : "disabled"}`}>
                   <label className="field">
                     <span>{searchProvider.name} API URL</span>
                     <input
+                      disabled={!webSearchEnabled}
                       value={webSearch.searchApiUrl}
                       onChange={(event) => updateWebSearch("searchApiUrl", event.target.value)}
                     />
@@ -366,6 +388,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                     <label className="field">
                       <span>{searchProvider.name} {t("apiKeys")}</span>
                       <input
+                        disabled={!webSearchEnabled}
                         type="password"
                         placeholder={t("apiKeyPlaceholder")}
                         value={webSearch.searchApiKeys[0] ?? ""}
@@ -380,10 +403,11 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
               ) : null}
 
               {fetchProvider?.id === "jina" ? (
-                <section className="capability-setting-group capability-form-stack">
+                <section className={`capability-setting-group capability-form-stack ${webSearchEnabled ? "" : "disabled"}`}>
                   <label className="field">
                     <span>Jina Reader API URL</span>
                     <input
+                      disabled={!webSearchEnabled}
                       value={webSearch.fetchApiUrl}
                       onChange={(event) => updateWebSearch("fetchApiUrl", event.target.value)}
                     />
@@ -391,6 +415,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                   <label className="field">
                     <span>Jina Reader {t("apiKeys")}</span>
                     <input
+                      disabled={!webSearchEnabled}
                       type="password"
                       placeholder={t("apiKeyPlaceholder")}
                       value={webSearch.fetchApiKeys[0] ?? ""}
@@ -403,10 +428,11 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 </section>
               ) : null}
 
-              <section className="capability-setting-group capability-form-grid">
+              <section className={`capability-setting-group capability-form-grid ${webSearchEnabled ? "" : "disabled"}`}>
                 <label className="field">
                   <span>{t("maximumResults")}</span>
                   <input
+                    disabled={!webSearchEnabled}
                     min={1}
                     max={20}
                     type="number"
@@ -417,6 +443,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 <label className="field">
                   <span>{t("contentTokenLimit")}</span>
                   <input
+                    disabled={!webSearchEnabled}
                     min={500}
                     max={32000}
                     step={500}
@@ -428,6 +455,7 @@ export function CapabilitiesPage({ apiProviders, settings, onSave }: Capabilitie
                 <label className="field field-full">
                   <span>{t("excludedDomains")}</span>
                   <textarea
+                    disabled={!webSearchEnabled}
                     rows={3}
                     placeholder={"example.com\nspam.example"}
                     value={webSearch.excludeDomains.join("\n")}

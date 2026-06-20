@@ -8,6 +8,7 @@ export interface SessionsPageProps {
   onDelete: (session: SessionRecord) => Promise<void>;
   onLaunchSession: (session: SessionRecord) => Promise<void>;
   onRefresh: () => void | Promise<void>;
+  onRepairVisibility: () => void | Promise<void>;
   onNotify: (message: string, type: "ok" | "err") => void;
 }
 

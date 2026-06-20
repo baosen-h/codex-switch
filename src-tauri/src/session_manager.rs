@@ -1,18 +1,71 @@
-use crate::models::{SessionMessage, SessionRecord};
-use serde_json::Value;
-use std::fs::File;
+use crate::models::{SessionMessage, SessionRecord, SessionVisibilityRepairResult};
+use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::{json, Value};
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn collect_all_session_files(codex_config_dir: &Path) -> Vec<PathBuf> {
-    let mut files = collect_files(&codex_config_dir.join("sessions"), "jsonl");
+    let mut files = collect_codex_session_files(codex_config_dir);
     files.extend(collect_claude_files());
     files.extend(collect_gemini_files_from_default_root());
     files
 }
 
+pub fn collect_codex_session_files(codex_config_dir: &Path) -> Vec<PathBuf> {
+    collect_files(&codex_config_dir.join("sessions"), "jsonl")
+}
+
 pub fn session_record_for_index(path: &Path) -> Option<SessionRecord> {
     session_record_for_path(path).ok()
+}
+
+pub fn repair_codex_session_visibility(
+    codex_config_dir: &Path,
+) -> Result<SessionVisibilityRepairResult, String> {
+    let session_files = collect_codex_session_files(codex_config_dir);
+    let sessions = session_files
+        .iter()
+        .filter_map(|path| {
+            let record = parse_codex_session(path)?;
+            Some(RepairableCodexSession::from_record(record, path))
+        })
+        .collect::<Vec<_>>();
+
+    let mut result = SessionVisibilityRepairResult {
+        scanned_sessions: sessions.len(),
+        ..SessionVisibilityRepairResult::default()
+    };
+
+    if sessions.is_empty() {
+        return Ok(result);
+    }
+
+    for db_path in codex_state_db_paths(codex_config_dir) {
+        match repair_codex_state_database(&db_path, &sessions) {
+            Ok((inserted, updated)) => {
+                result.repaired_databases += 1;
+                result.inserted_threads += inserted;
+                result.updated_threads += updated;
+            }
+            Err(_) => {
+                result.skipped_databases += 1;
+            }
+        }
+    }
+
+    match reconcile_codex_session_index(codex_config_dir, &sessions) {
+        Ok((added, updated)) => {
+            result.added_session_index_entries = added;
+            result.updated_session_index_entries = updated;
+        }
+        Err(_) => {
+            result.skipped_databases += 1;
+        }
+    }
+
+    Ok(result)
 }
 
 pub fn load_codex_messages(path: &Path) -> Result<Vec<SessionMessage>, String> {
@@ -310,6 +363,519 @@ fn count_lines(path: &Path) -> i64 {
         }
     }
     count
+}
+
+#[derive(Debug, Clone)]
+struct RepairableCodexSession {
+    id: String,
+    rollout_path: String,
+    created_at: i64,
+    updated_at: i64,
+    created_at_ms: i64,
+    updated_at_ms: i64,
+    source: String,
+    model_provider: String,
+    cwd: String,
+    title: String,
+    first_user_message: String,
+    preview: String,
+    model: String,
+}
+
+impl RepairableCodexSession {
+    fn from_record(record: SessionRecord, path: &Path) -> Self {
+        let file_modified = path
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(system_time_seconds)
+            .unwrap_or(0);
+        let created_at = parse_timestamp_seconds(&record.started_at).unwrap_or(file_modified);
+        let updated_at = parse_timestamp_seconds(&record.last_active_at).unwrap_or(created_at);
+        let created_at_ms = parse_timestamp_millis(&record.started_at)
+            .or_else(|| created_at.checked_mul(1000))
+            .unwrap_or(0);
+        let updated_at_ms = parse_timestamp_millis(&record.last_active_at)
+            .or_else(|| updated_at.checked_mul(1000))
+            .unwrap_or(created_at_ms);
+        let title = if record.title.trim().is_empty() {
+            "Untitled".to_string()
+        } else {
+            record.title
+        };
+        let first_user_message = title.clone();
+
+        Self {
+            id: record.session_id,
+            rollout_path: normalize_windows_path(path),
+            created_at,
+            updated_at,
+            created_at_ms,
+            updated_at_ms,
+            source: "cli".to_string(),
+            model_provider: if record.provider_id.trim().is_empty() {
+                "custom".to_string()
+            } else {
+                record.provider_id
+            },
+            cwd: normalize_codex_cwd(&record.workspace_path),
+            preview: first_user_message.clone(),
+            title,
+            first_user_message,
+            model: record.provider_model,
+        }
+    }
+}
+
+fn repair_codex_state_database(
+    db_path: &Path,
+    sessions: &[RepairableCodexSession],
+) -> Result<(usize, usize), String> {
+    if !db_path.exists() {
+        return Ok((0, 0));
+    }
+
+    backup_codex_state_database(db_path)?;
+
+    let mut conn = Connection::open(db_path).map_err(|error| error.to_string())?;
+    if !codex_threads_table_exists(&conn)? {
+        return Err("Codex state database has no threads table".to_string());
+    }
+    let columns = read_codex_threads_columns(&conn)?;
+
+    let tx = conn.transaction().map_err(|error| error.to_string())?;
+    let mut inserted = 0;
+    let mut updated = 0;
+
+    for session in sessions {
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM threads WHERE id = ?1 LIMIT 1",
+                params![&session.id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?
+            .is_some();
+
+        if exists {
+            let changed = update_codex_thread_row(&tx, &columns, session)?;
+            updated += changed;
+        } else {
+            insert_codex_thread_row(&tx, &columns, session)?;
+            inserted += 1;
+        }
+    }
+
+    tx.commit().map_err(|error| error.to_string())?;
+    Ok((inserted, updated))
+}
+
+fn codex_threads_table_exists(conn: &Connection) -> Result<bool, String> {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'threads' LIMIT 1",
+        [],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|value| value.is_some())
+    .map_err(|error| error.to_string())
+}
+
+fn read_codex_threads_columns(conn: &Connection) -> Result<Vec<String>, String> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(threads)")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+fn column_exists(columns: &[String], name: &str) -> bool {
+    columns.iter().any(|column| column == name)
+}
+
+fn update_codex_thread_row(
+    tx: &rusqlite::Transaction<'_>,
+    columns: &[String],
+    session: &RepairableCodexSession,
+) -> Result<usize, String> {
+    let mut assignments = Vec::new();
+    if column_exists(columns, "rollout_path") {
+        assignments.push("rollout_path = ?2".to_string());
+    }
+    if column_exists(columns, "updated_at") {
+        assignments.push("updated_at = MAX(updated_at, ?4)".to_string());
+    }
+    if column_exists(columns, "source") {
+        assignments.push("source = CASE WHEN source = '' THEN ?5 ELSE source END".to_string());
+    }
+    if column_exists(columns, "model_provider") {
+        assignments.push(
+            "model_provider = CASE WHEN model_provider = '' THEN ?6 ELSE model_provider END"
+                .to_string(),
+        );
+    }
+    if column_exists(columns, "cwd") {
+        assignments.push("cwd = CASE WHEN cwd = '' THEN ?7 ELSE cwd END".to_string());
+    }
+    if column_exists(columns, "title") {
+        assignments.push(
+            "title = CASE WHEN title IS NULL OR title = '' THEN ?8 ELSE title END".to_string(),
+        );
+    }
+    if column_exists(columns, "archived") {
+        assignments.push("archived = 0".to_string());
+    }
+    if column_exists(columns, "archived_at") {
+        assignments.push("archived_at = NULL".to_string());
+    }
+    if column_exists(columns, "first_user_message") {
+        assignments.push(
+            "first_user_message = CASE WHEN first_user_message IS NULL OR first_user_message = '' THEN ?9 ELSE first_user_message END"
+                .to_string(),
+        );
+    }
+    if column_exists(columns, "preview") {
+        assignments.push(
+            "preview = CASE WHEN preview IS NULL OR preview = '' THEN ?10 ELSE preview END"
+                .to_string(),
+        );
+    }
+    if column_exists(columns, "model") {
+        assignments.push(
+            "model = CASE WHEN model IS NULL OR model = '' THEN ?11 ELSE model END".to_string(),
+        );
+    }
+    if column_exists(columns, "thread_source") {
+        assignments.push(
+            "thread_source = CASE WHEN thread_source IS NULL OR thread_source = '' THEN 'user' ELSE thread_source END"
+                .to_string(),
+        );
+    }
+    if column_exists(columns, "has_user_event") {
+        assignments.push("has_user_event = 1".to_string());
+    }
+    if column_exists(columns, "created_at_ms") {
+        assignments.push(
+            "created_at_ms = CASE WHEN created_at_ms IS NULL THEN ?12 ELSE created_at_ms END"
+                .to_string(),
+        );
+    }
+    if column_exists(columns, "updated_at_ms") {
+        assignments.push("updated_at_ms = MAX(COALESCE(updated_at_ms, 0), ?13)".to_string());
+    }
+    if assignments.is_empty() {
+        return Ok(0);
+    }
+
+    let sql = format!(
+        "UPDATE threads SET {} WHERE id = ?1",
+        assignments.join(", ")
+    );
+    tx.execute(
+        &sql,
+        params![
+            &session.id,
+            &session.rollout_path,
+            session.created_at,
+            session.updated_at,
+            &session.source,
+            &session.model_provider,
+            &session.cwd,
+            &session.title,
+            &session.first_user_message,
+            &session.preview,
+            &session.model,
+            session.created_at_ms,
+            session.updated_at_ms,
+        ],
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn insert_codex_thread_row(
+    tx: &rusqlite::Transaction<'_>,
+    columns: &[String],
+    session: &RepairableCodexSession,
+) -> Result<(), String> {
+    let mut names = vec!["id"];
+    let mut placeholders = vec!["?1"];
+    if column_exists(columns, "rollout_path") {
+        names.push("rollout_path");
+        placeholders.push("?2");
+    }
+    if column_exists(columns, "created_at") {
+        names.push("created_at");
+        placeholders.push("?3");
+    }
+    if column_exists(columns, "updated_at") {
+        names.push("updated_at");
+        placeholders.push("?4");
+    }
+    if column_exists(columns, "source") {
+        names.push("source");
+        placeholders.push("?5");
+    }
+    if column_exists(columns, "model_provider") {
+        names.push("model_provider");
+        placeholders.push("?6");
+    }
+    if column_exists(columns, "cwd") {
+        names.push("cwd");
+        placeholders.push("?7");
+    }
+    if column_exists(columns, "title") {
+        names.push("title");
+        placeholders.push("?8");
+    }
+    if column_exists(columns, "sandbox_policy") {
+        names.push("sandbox_policy");
+        placeholders.push("''");
+    }
+    if column_exists(columns, "approval_mode") {
+        names.push("approval_mode");
+        placeholders.push("''");
+    }
+    if column_exists(columns, "tokens_used") {
+        names.push("tokens_used");
+        placeholders.push("0");
+    }
+    if column_exists(columns, "has_user_event") {
+        names.push("has_user_event");
+        placeholders.push("1");
+    }
+    if column_exists(columns, "archived") {
+        names.push("archived");
+        placeholders.push("0");
+    }
+    if column_exists(columns, "first_user_message") {
+        names.push("first_user_message");
+        placeholders.push("?9");
+    }
+    if column_exists(columns, "model") {
+        names.push("model");
+        placeholders.push("?10");
+    }
+    if column_exists(columns, "thread_source") {
+        names.push("thread_source");
+        placeholders.push("'user'");
+    }
+    if column_exists(columns, "preview") {
+        names.push("preview");
+        placeholders.push("?11");
+    }
+    if column_exists(columns, "created_at_ms") {
+        names.push("created_at_ms");
+        placeholders.push("?12");
+    }
+    if column_exists(columns, "updated_at_ms") {
+        names.push("updated_at_ms");
+        placeholders.push("?13");
+    }
+
+    let sql = format!(
+        "INSERT INTO threads ({}) VALUES ({})",
+        names.join(", "),
+        placeholders.join(", ")
+    );
+    tx.execute(
+        &sql,
+        params![
+            &session.id,
+            &session.rollout_path,
+            session.created_at,
+            session.updated_at,
+            &session.source,
+            &session.model_provider,
+            &session.cwd,
+            &session.title,
+            &session.first_user_message,
+            &session.model,
+            &session.preview,
+            session.created_at_ms,
+            session.updated_at_ms,
+        ],
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
+fn reconcile_codex_session_index(
+    codex_config_dir: &Path,
+    sessions: &[RepairableCodexSession],
+) -> Result<(usize, usize), String> {
+    let path = codex_config_dir.join("session_index.jsonl");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create Codex session index directory: {error}"))?;
+    }
+
+    let mut lines = if path.exists() {
+        fs::read_to_string(&path)
+            .map_err(|error| format!("Failed to read Codex session index: {error}"))?
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+
+    let mut sessions_by_id = sessions
+        .iter()
+        .map(|session| (session.id.as_str(), session))
+        .collect::<std::collections::HashMap<_, _>>();
+    let updated = 0;
+
+    for line in &mut lines {
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some(id) = value.get("id").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        let Some(session) = sessions_by_id.remove(id.as_str()) else {
+            continue;
+        };
+        let _ = session;
+    }
+
+    let mut added = 0;
+    let mut remaining = sessions_by_id.into_values().collect::<Vec<_>>();
+    remaining.sort_by(|left, right| left.id.cmp(&right.id));
+    for session in remaining {
+        lines.push(
+            serde_json::to_string(&session_index_entry(session)).map_err(|error| {
+                format!("Failed to serialize Codex session index entry: {error}")
+            })?,
+        );
+        added += 1;
+    }
+
+    if added > 0 || updated > 0 || !path.exists() {
+        backup_codex_session_index(&path)?;
+        let mut output = lines.join("\n");
+        output.push('\n');
+        fs::write(&path, output)
+            .map_err(|error| format!("Failed to write Codex session index: {error}"))?;
+    }
+
+    Ok((added, updated))
+}
+
+fn session_index_entry(session: &RepairableCodexSession) -> Value {
+    json!({
+        "id": session.id,
+        "thread_name": session.title,
+        "updated_at": format_timestamp_millis_rfc3339(session.updated_at_ms),
+    })
+}
+
+fn backup_codex_session_index(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let backup_path = path.with_extension(format!("jsonl.codex-switch-backup-{timestamp}"));
+    fs::copy(path, backup_path)
+        .map(|_| ())
+        .map_err(|error| format!("Failed to back up Codex session index: {error}"))
+}
+
+fn backup_codex_state_database(db_path: &Path) -> Result<(), String> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let backup_path = db_path.with_extension(format!("sqlite.codex-switch-backup-{timestamp}"));
+    fs::copy(db_path, backup_path)
+        .map(|_| ())
+        .map_err(|error| format!("Failed to back up Codex state database: {error}"))
+}
+
+fn codex_state_db_paths(codex_config_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for path in [
+        codex_config_dir.join("state_5.sqlite"),
+        codex_config_dir.join("sqlite").join("state_5.sqlite"),
+    ] {
+        if path.exists() && !paths.iter().any(|item| item == &path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+fn parse_timestamp_seconds(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(number) = trimmed.parse::<i64>() {
+        return Some(if number > 10_000_000_000 {
+            number / 1000
+        } else {
+            number
+        });
+    }
+    chrono::DateTime::parse_from_rfc3339(trimmed)
+        .ok()
+        .map(|value| value.timestamp())
+}
+
+fn parse_timestamp_millis(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(number) = trimmed.parse::<i64>() {
+        return Some(if number > 10_000_000_000 {
+            number
+        } else {
+            number * 1000
+        });
+    }
+    chrono::DateTime::parse_from_rfc3339(trimmed)
+        .ok()
+        .map(|value| value.timestamp_millis())
+}
+
+fn format_timestamp_millis_rfc3339(value: i64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(value)
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339()
+}
+
+fn system_time_seconds(value: SystemTime) -> Option<i64> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_secs() as i64)
+}
+
+fn normalize_windows_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .trim_start_matches(r"\\?\")
+        .to_string()
+}
+
+fn normalize_codex_cwd(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if cfg!(windows) && !trimmed.starts_with(r"\\?\") {
+        format!(r"\\?\{trimmed}")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 #[cfg(test)]
@@ -939,6 +1505,159 @@ mod tests {
             started_at: ts.clone(),
             last_active_at: ts,
         })
+    }
+
+    #[test]
+    fn visibility_repair_preserves_existing_sidebar_text_while_unhiding() {
+        let root = tmp_dir("codex-repair-existing");
+        let db_path = root.join("state_5.sqlite");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                source TEXT,
+                model_provider TEXT,
+                cwd TEXT,
+                title TEXT,
+                sandbox_policy TEXT,
+                approval_mode TEXT,
+                tokens_used INTEGER,
+                has_user_event INTEGER,
+                archived INTEGER,
+                archived_at INTEGER,
+                first_user_message TEXT,
+                model TEXT,
+                thread_source TEXT,
+                preview TEXT,
+                created_at_ms INTEGER,
+                updated_at_ms INTEGER
+            );
+            INSERT INTO threads (
+                id, rollout_path, created_at, updated_at, source, model_provider, cwd, title,
+                sandbox_policy, approval_mode, tokens_used, has_user_event, archived,
+                archived_at, first_user_message, model, thread_source, preview
+            ) VALUES (
+                'session-title-test', '', 1, 1, '', '', '',
+                'New chat', '', '', 0, 0, 1, 123,
+                'Existing first message', '', '', 'Existing preview'
+            );
+            "#,
+        )
+        .unwrap();
+        drop(conn);
+
+        let sessions = vec![RepairableCodexSession {
+            id: "session-title-test".to_string(),
+            rollout_path: root.join("rollout.jsonl").to_string_lossy().to_string(),
+            created_at: 10,
+            updated_at: 20,
+            created_at_ms: 10_123,
+            updated_at_ms: 20_456,
+            source: "cli".to_string(),
+            model_provider: "codex".to_string(),
+            cwd: normalize_codex_cwd(r"C:\workspace"),
+            title: "Real user title appears after repair".to_string(),
+            first_user_message: "Real user title appears after repair".to_string(),
+            preview: "Real user title appears after repair".to_string(),
+            model: "gpt-5".to_string(),
+        }];
+
+        let result = repair_codex_state_database(&db_path, &sessions).unwrap();
+        assert_eq!(result, (0, 1));
+
+        let conn = Connection::open(&db_path).unwrap();
+        let row = conn
+            .query_row(
+                "SELECT title, first_user_message, preview, archived, archived_at, has_user_event, created_at_ms, updated_at_ms FROM threads WHERE id = 'session-title-test'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<i64>>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                    ))
+                },
+            )
+            .unwrap();
+
+        assert_eq!(row.0, "New chat");
+        assert_eq!(row.1, "Existing first message");
+        assert_eq!(row.2, "Existing preview");
+        assert_eq!(row.3, 0);
+        assert_eq!(row.4, None);
+        assert_eq!(row.5, 1);
+        assert_eq!(row.6, 10_123);
+        assert_eq!(row.7, 20_456);
+    }
+
+    #[test]
+    fn visibility_repair_reconciles_codex_session_index() {
+        let root = tmp_dir("codex-session-index");
+        fs::write(
+            root.join("session_index.jsonl"),
+            "{\"id\":\"session-title-test\",\"thread_name\":\"New chat\",\"updated_at\":\"2026-06-19T00:00:00Z\"}\n",
+        )
+        .unwrap();
+
+        let sessions = vec![
+            RepairableCodexSession {
+                id: "session-title-test".to_string(),
+                rollout_path: root.join("rollout-1.jsonl").to_string_lossy().to_string(),
+                created_at: 10,
+                updated_at: 20,
+                created_at_ms: 10_000,
+                updated_at_ms: 20_000,
+                source: "cli".to_string(),
+                model_provider: "codex".to_string(),
+                cwd: String::new(),
+                title: "Real user title appears after repair".to_string(),
+                first_user_message: "Real user title appears after repair".to_string(),
+                preview: "Real user title appears after repair".to_string(),
+                model: "gpt-5".to_string(),
+            },
+            RepairableCodexSession {
+                id: "missing-session".to_string(),
+                rollout_path: root.join("rollout-2.jsonl").to_string_lossy().to_string(),
+                created_at: 30,
+                updated_at: 40,
+                created_at_ms: 30_000,
+                updated_at_ms: 40_000,
+                source: "cli".to_string(),
+                model_provider: "codex".to_string(),
+                cwd: String::new(),
+                title: "Missing session title".to_string(),
+                first_user_message: "Missing session title".to_string(),
+                preview: "Missing session title".to_string(),
+                model: "gpt-5".to_string(),
+            },
+        ];
+
+        let result = reconcile_codex_session_index(&root, &sessions).unwrap();
+        assert_eq!(result, (1, 0));
+
+        let lines = fs::read_to_string(root.join("session_index.jsonl")).unwrap();
+        assert!(lines.contains("\"thread_name\":\"New chat\""));
+        assert!(lines.contains("\"thread_name\":\"Missing session title\""));
+        let backup_count = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("session_index.jsonl.codex-switch-backup-")
+            })
+            .count();
+        assert_eq!(backup_count, 1);
     }
 
     #[test]

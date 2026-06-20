@@ -15,8 +15,8 @@ use crate::models::{
     ImageGenerationRequest, ImageGenerationResponse, LaunchRequest, MarketplaceInstallRequest,
     MarketplaceResult, MarketplaceSearchResponse, MarketplaceSource, McpImportPreview, McpPreset,
     McpServer, McpTestResult, ModelListRequest, Provider, RemoteModel, RuntimeAvailability,
-    SessionMessage, SessionRecord, Skill, SkillMarketPreview, SkillMarketResult,
-    UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
+    SessionMessage, SessionRecord, SessionVisibilityRepairResult, Skill, SkillMarketPreview,
+    SkillMarketResult, UpdateDownloadProgress, WebSearchResponse, WebSearchSettings,
 };
 use crate::session_manager;
 use base64::Engine;
@@ -94,6 +94,23 @@ pub async fn rebuild_session_index(
         db.lock()
             .map_err(|_| "Failed to lock database".to_string())?
             .refresh_session_index(true)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+pub async fn repair_codex_session_visibility(
+    state: State<'_, AppState>,
+) -> Result<SessionVisibilityRepairResult, String> {
+    let db = Arc::clone(&state.db);
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = db
+            .lock()
+            .map_err(|_| "Failed to lock database".to_string())?;
+        let settings = db.settings().map_err(|error| error.to_string())?;
+        db.repair_codex_session_visibility(resolve_codex_dir(&settings.codex_config_dir))
             .map_err(|error| error.to_string())
     })
     .await
@@ -427,6 +444,9 @@ pub async fn search_web(
             .settings()
             .map_err(|error| error.to_string())?
             .web_search;
+        if !settings.enabled {
+            return Err("Web search is disabled".to_string());
+        }
         crate::web_search::search_keywords(&settings, &keywords)
     })
     .await
@@ -446,6 +466,9 @@ pub async fn fetch_web_urls(
             .settings()
             .map_err(|error| error.to_string())?
             .web_search;
+        if !settings.enabled {
+            return Err("Web search is disabled".to_string());
+        }
         crate::web_search::fetch_urls(&settings, &urls)
     })
     .await
@@ -465,6 +488,7 @@ fn send_chat_message_blocking(
 
     if !is_anthropic_protocol(&provider_type)
         && provider_type != "gemini"
+        && web_search.enabled
         && !web_search.search_provider_id.trim().is_empty()
     {
         let body = send_openai_chat_with_web(&client, &request, web_search)?;

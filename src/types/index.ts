@@ -147,6 +147,16 @@ export interface SessionMessage {
   timestamp?: string;
 }
 
+export interface SessionVisibilityRepairResult {
+  scannedSessions: number;
+  repairedDatabases: number;
+  insertedThreads: number;
+  updatedThreads: number;
+  skippedDatabases: number;
+  addedSessionIndexEntries: number;
+  updatedSessionIndexEntries: number;
+}
+
 export type HandoffMode = "fast" | "slow";
 
 export interface HandoffPreview {
@@ -177,6 +187,7 @@ export interface WebSearchResponse {
 }
 
 export interface WebSearchSettings {
+  enabled: boolean;
   searchProviderId: string;
   searchApiUrl: string;
   searchApiKeys: string[];
@@ -307,7 +318,7 @@ export interface Skill {
   description: string;
   instructions: string;
   sourcePath: string;
-  sourceKind: "app" | "external";
+  sourceKind: "app" | "external" | "system";
   syncMode: "copy" | "reference";
   targets: CapabilityTargets;
   createdAt: string;

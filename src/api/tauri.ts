@@ -28,6 +28,7 @@ import type {
   RemoteModel,
   SessionMessage,
   SessionRecord,
+  SessionVisibilityRepairResult,
   StartOpenAiOauthResult,
   Skill,
   SkillMarketPreview,
@@ -48,6 +49,9 @@ export const appApi = {
   },
   rebuildSessionIndex(): Promise<SessionRecord[]> {
     return invoke("rebuild_session_index");
+  },
+  repairCodexSessionVisibility(): Promise<SessionVisibilityRepairResult> {
+    return invoke("repair_codex_session_visibility");
   },
   saveProvider(provider: Provider): Promise<Provider> {
     return invoke("save_provider", { provider });

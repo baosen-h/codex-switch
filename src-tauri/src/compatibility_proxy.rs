@@ -350,7 +350,7 @@ fn should_enable_local_web(
     settings: &WebSearchSettings,
     _chat_body: &[u8],
 ) -> bool {
-    !settings.search_provider_id.trim().is_empty()
+    settings.enabled && !settings.search_provider_id.trim().is_empty()
 }
 
 fn prepare_local_web_agent_body(body: &mut Vec<u8>) -> Result<(), String> {
@@ -1559,6 +1559,7 @@ mod tests {
     #[test]
     fn streaming_codex_requests_can_enter_local_web_loop() {
         let settings = WebSearchSettings {
+            enabled: true,
             search_provider_id: "tavily".to_string(),
             ..WebSearchSettings::default()
         };

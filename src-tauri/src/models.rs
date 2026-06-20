@@ -30,6 +30,7 @@ pub struct WebSearchResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WebSearchSettings {
+    pub enabled: bool,
     pub search_provider_id: String,
     pub search_api_url: String,
     pub search_api_keys: Vec<String>,
@@ -44,6 +45,7 @@ pub struct WebSearchSettings {
 impl Default for WebSearchSettings {
     fn default() -> Self {
         Self {
+            enabled: false,
             search_provider_id: String::new(),
             search_api_url: String::new(),
             search_api_keys: Vec::new(),
@@ -330,6 +332,18 @@ pub struct SessionMessage {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionVisibilityRepairResult {
+    pub scanned_sessions: usize,
+    pub repaired_databases: usize,
+    pub inserted_threads: usize,
+    pub updated_threads: usize,
+    pub skipped_databases: usize,
+    pub added_session_index_entries: usize,
+    pub updated_session_index_entries: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -691,6 +705,7 @@ mod tests {
     #[test]
     fn web_search_settings_normalize_values() {
         let settings = WebSearchSettings {
+            enabled: true,
             search_provider_id: " Tavily ".to_string(),
             search_api_url: " https://api.tavily.com ".to_string(),
             search_api_keys: vec![" key-1 ".to_string(), "key-1".to_string(), String::new()],
@@ -704,6 +719,7 @@ mod tests {
         .normalized();
 
         assert_eq!(settings.search_provider_id, "tavily");
+        assert!(settings.enabled);
         assert_eq!(settings.search_api_url, "https://api.tavily.com");
         assert_eq!(settings.search_api_keys, vec!["key-1"]);
         assert_eq!(settings.fetch_provider_id, "direct");
