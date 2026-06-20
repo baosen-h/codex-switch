@@ -28,7 +28,7 @@ All provider records and capability metadata stay on the machine in local storag
 - Agents: generate and switch Codex, Claude Code, and Gemini runtime configs from saved provider records.
 - Talking: chat with text, files, and images when the selected model supports them.
 - Drawing: generate and edit images with supported OpenAI-compatible image endpoints.
-- Sessions: inspect local sessions, preview transcripts, copy resume commands, and generate handoff text.
+- Sessions: inspect local sessions, preview transcripts, copy resume commands, generate handoff text, and repair hidden Codex sessions.
 - Vision fallback: let text-only models such as DeepSeek, MiMo, and GLM understand image input through a configured vision model.
 - Automatic web search: add local `web__search` and `web__fetch` tools for models or providers, such as DeepSeek, MiMo, and GLM, that do not have native web search.
 - Capabilities: discover, test, install, and sync MCP servers and Skills across Codex, Claude Code, and Gemini.
@@ -70,7 +70,7 @@ All provider records and capability metadata stay on the machine in local storag
     <td><img src="docs/images/setting-en.png" alt="Settings" width="100%" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>Browse local transcripts and copy resume or handoff commands.</sub></td>
+    <td align="center"><sub>Browse local transcripts, copy resume or handoff commands, and restore hidden Codex sessions with Repair Visibility.</sub></td>
     <td align="center"><sub>Configure app paths, appearance, updates, vision fallback, and web search.</sub></td>
   </tr>
 </table>

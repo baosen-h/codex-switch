@@ -28,7 +28,7 @@ Provider 记录和能力配置都保存在本机。API Key 不会发送到任何
 - Agents：根据已保存的 Provider 记录生成并切换 Codex、Claude Code 和 Gemini 运行配置。
 - Talking：在模型支持时进行文本、文件和图片对话。
 - Drawing：使用兼容 OpenAI 图片接口的模型生成和编辑图片。
-- Sessions：查看本地会话、预览 transcript、复制 resume 命令、生成 handoff 文本。
+- Sessions：查看本地会话、预览 transcript、复制 resume 命令、生成 handoff 文本，并修复被隐藏的 Codex 会话。
 - 视觉回退：通过配置的视觉模型，让 DeepSeek、MiMo、GLM 等纯文本模型也能理解图片输入。
 - 自动联网搜索：为 DeepSeek、MiMo、GLM 等没有原生联网搜索能力的模型或服务商提供本地 `web__search` 和 `web__fetch` 工具。
 - Capabilities：发现、测试、安装并同步 Codex、Claude Code 和 Gemini 的 MCP 服务与 Skills。
@@ -70,7 +70,7 @@ Provider 记录和能力配置都保存在本机。API Key 不会发送到任何
     <td><img src="docs/images/setting.png" alt="Settings" width="100%" /></td>
   </tr>
   <tr>
-    <td align="center"><sub>浏览本地 transcript，并复制 resume 或 handoff 命令。</sub></td>
+    <td align="center"><sub>浏览本地 transcript、复制 resume 或 handoff 命令，并通过 Repair Visibility 恢复被隐藏的 Codex 会话。</sub></td>
     <td align="center"><sub>配置应用路径、外观、更新、视觉回退和联网搜索。</sub></td>
   </tr>
 </table>
