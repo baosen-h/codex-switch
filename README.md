@@ -256,6 +256,25 @@ local drawing image files + Drawing record rail
 
 Drawing focuses on OpenAI-compatible image endpoints. Anthropic-compatible and Gemini providers are rejected in this page because their image generation routes are not wired here. The feature keeps prompt state, provider/model selection, generation/edit requests, local records, saved image paths, and image zoom behavior inside the Drawing feature boundary.
 
+### Sessions and Repair Visibility
+
+```text
+SessionsPage.tsx
+        |
+        v
+appApi.getCachedSessions / refreshSessions / repairCodexSessionVisibility
+        |
+        v
+commands.rs -> database.rs -> session_manager.rs
+        |
+        +--> cached sessions       -> fast first page load
+        +--> manual refresh        -> rescan Codex / Claude / Gemini session files
+        +--> Repair Visibility     -> read Codex sessions, update Codex state/index records,
+                                      then refresh only Codex Switch's Codex session cache
+```
+
+Sessions are indexed locally so the page can open quickly without rescanning every transcript on startup. Manual refresh still performs a full local session scan when the user asks for it. Repair Visibility is for Codex sessions that still exist on disk but do not appear in Codex's session list. It reads the configured Codex session files, repairs the Codex state/index records needed for visibility, and then updates Codex Switch's cached Codex sessions without rebuilding all agent session data.
+
 ### Compatibility Proxy
 
 ```text

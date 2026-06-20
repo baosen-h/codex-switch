@@ -256,6 +256,25 @@ extract_images -> persist_generated_images
 
 Drawing 面向 OpenAI-compatible 图片接口。Anthropic-compatible 和 Gemini Provider 会在这个页面被拒绝，因为这里还没有接入它们的图片生成路由。该功能把 prompt 状态、Provider/模型选择、生成和编辑请求、本地记录、保存后的图片路径、图片缩放交互都限制在 Drawing 功能边界内。
 
+### Sessions 与 Repair Visibility
+
+```text
+SessionsPage.tsx
+        │
+        ▼
+appApi.getCachedSessions / refreshSessions / repairCodexSessionVisibility
+        │
+        ▼
+commands.rs -> database.rs -> session_manager.rs
+        │
+        ├── 缓存会话            -> 首次打开 Sessions 更快
+        ├── 手动刷新            -> 重新扫描 Codex / Claude / Gemini 会话文件
+        └── Repair Visibility   -> 读取 Codex sessions，修复 Codex state/index 记录，
+                                   然后只刷新 Codex Switch 的 Codex 会话缓存
+```
+
+Sessions 会在本地建立索引，所以页面打开时不需要每次都重新扫描所有 transcript。用户点击手动刷新时，仍然会重新扫描本地会话文件。Repair Visibility 用于处理 Codex 会话文件仍在本地、但没有出现在 Codex 会话列表里的情况。它会读取配置目录下的 Codex session 文件，修复 Codex 可见性需要的 state/index 记录，然后只更新 Codex Switch 中的 Codex 会话缓存，不会重建所有 Agent 的会话数据。
+
 ### 兼容代理
 
 ```text
