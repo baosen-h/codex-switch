@@ -278,6 +278,7 @@ fn normalize_request(data: &mut Value) {
     }
 
     repair_tool_message_links(&mut messages);
+    sanitize_assistant_messages(&mut messages);
 
     let obj = match data.as_object_mut() {
         Some(o) => o,
@@ -727,6 +728,51 @@ fn repair_tool_message_links(messages: &mut Vec<Value>) {
     }
 
     synthesize_missing_tool_outputs(&mut repaired, &mut pending);
+    *messages = repaired;
+}
+
+fn sanitize_assistant_messages(messages: &mut Vec<Value>) {
+    let mut repaired: Vec<Value> = Vec::with_capacity(messages.len());
+    for mut message in messages.drain(..) {
+        if message.get("role").and_then(Value::as_str) != Some("assistant") {
+            repaired.push(message);
+            continue;
+        }
+
+        let Some(obj) = message.as_object_mut() else {
+            continue;
+        };
+        let valid_tool_calls = obj
+            .get("tool_calls")
+            .and_then(Value::as_array)
+            .is_some_and(|calls| !calls.is_empty());
+        if !valid_tool_calls {
+            obj.remove("tool_calls");
+        }
+
+        let has_content = obj.get("content").is_some_and(|content| match content {
+            Value::Null => false,
+            Value::String(_) => true,
+            Value::Array(parts) => !parts.is_empty(),
+            _ => true,
+        });
+        if valid_tool_calls || has_content {
+            repaired.push(message);
+            continue;
+        }
+
+        let has_reasoning = obj
+            .get("reasoning_content")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty());
+        let has_signature = obj.get("thought_signature").is_some();
+        if has_reasoning || has_signature {
+            obj.insert("content".to_string(), Value::String(String::new()));
+            repaired.push(message);
+        } else {
+            eprintln!("[relay_translate] dropped empty assistant message before upstream request");
+        }
+    }
     *messages = repaired;
 }
 
@@ -2017,6 +2063,58 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[0]["content"], "be terse");
+    }
+
+    #[test]
+    fn empty_assistant_history_is_dropped_before_chat_request() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": []
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "continue"
+                }
+            ],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        let messages = v["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[0]["content"], "continue");
+    }
+
+    #[test]
+    fn reasoning_only_assistant_history_gets_valid_content() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": [
+                {
+                    "type": "reasoning",
+                    "encrypted_content": "must pass back"
+                },
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": "continue"
+                }
+            ],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        let messages = v["messages"].as_array().unwrap();
+        assert_eq!(messages[0]["role"], "assistant");
+        assert_eq!(messages[0]["content"], "");
+        assert_eq!(messages[0]["reasoning_content"], "must pass back");
+        assert_eq!(messages[1]["role"], "user");
     }
 
     #[test]
