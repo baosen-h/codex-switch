@@ -9,6 +9,7 @@ mod handoff;
 mod marketplace;
 mod models;
 mod oauth;
+mod relay_tools;
 mod relay_translate;
 mod session_manager;
 mod vision_fallback;

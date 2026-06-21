@@ -1211,94 +1211,42 @@ fn synthetic_sse_from_response(response_body: &[u8]) -> Vec<u8> {
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("resp_synthetic");
-    let output_text = first_response_output_text(&response);
-    let item_id =
-        first_response_message_id(&response).unwrap_or_else(|| format!("msg_{}", unix_secs()));
     let created = serde_json::json!({
         "type": "response.created",
-        "response": response,
+        "response": response.clone(),
         "sequence_number": 0
     });
     let mut sequence_number = 1u64;
     let mut events = format!("event: response.created\ndata: {created}\n\n");
-    if !output_text.is_empty() {
-        let output_item_added = serde_json::json!({
-            "type": "response.output_item.added",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "status": "in_progress",
-                "content": [{"type": "output_text", "text": ""}]
-            },
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        let content_part_added = serde_json::json!({
-            "type": "response.content_part.added",
-            "response_id": response_id,
-            "item_id": item_id,
-            "output_index": 0,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": "", "annotations": []},
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        let text_delta = serde_json::json!({
-            "type": "response.output_text.delta",
-            "response_id": response_id,
-            "item_id": item_id,
-            "output_index": 0,
-            "content_index": 0,
-            "delta": output_text,
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        let text_done = serde_json::json!({
-            "type": "response.output_text.done",
-            "response_id": response_id,
-            "item_id": item_id,
-            "output_index": 0,
-            "content_index": 0,
-            "text": output_text,
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        let content_part_done = serde_json::json!({
-            "type": "response.content_part.done",
-            "response_id": response_id,
-            "item_id": item_id,
-            "output_index": 0,
-            "content_index": 0,
-            "part": {"type": "output_text", "text": output_text, "annotations": []},
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        let output_item_done = serde_json::json!({
-            "type": "response.output_item.done",
-            "response_id": response_id,
-            "output_index": 0,
-            "item": {
-                "id": item_id,
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [{"type": "output_text", "text": output_text}]
-            },
-            "sequence_number": sequence_number
-        });
-        sequence_number += 1;
-        events.push_str(&format!(
-            "event: response.output_item.added\ndata: {output_item_added}\n\n\
-event: response.content_part.added\ndata: {content_part_added}\n\n\
-event: response.output_text.delta\ndata: {text_delta}\n\n\
-event: response.output_text.done\ndata: {text_done}\n\n\
-event: response.content_part.done\ndata: {content_part_done}\n\n\
-event: response.output_item.done\ndata: {output_item_done}\n\n"
-        ));
+
+    if let Some(output) = response.get("output").and_then(Value::as_array) {
+        for (output_index, item) in output.iter().enumerate() {
+            match item.get("type").and_then(Value::as_str) {
+                Some("message") => append_synthetic_message_events(
+                    &mut events,
+                    response_id,
+                    output_index,
+                    item,
+                    &mut sequence_number,
+                ),
+                Some("function_call") => append_synthetic_function_call_events(
+                    &mut events,
+                    response_id,
+                    output_index,
+                    item,
+                    &mut sequence_number,
+                ),
+                _ => append_synthetic_item_events(
+                    &mut events,
+                    response_id,
+                    output_index,
+                    item,
+                    &mut sequence_number,
+                ),
+            }
+        }
     }
+
     let completed = serde_json::json!({
         "type": "response.completed",
         "response": created.get("response").cloned().unwrap_or(Value::Null),
@@ -1308,13 +1256,195 @@ event: response.output_item.done\ndata: {output_item_done}\n\n"
     events.into_bytes()
 }
 
-fn first_response_output_text(response: &Value) -> String {
-    response
-        .get("output")
+fn append_synthetic_message_events(
+    events: &mut String,
+    response_id: &str,
+    output_index: usize,
+    item: &Value,
+    sequence_number: &mut u64,
+) {
+    let output_text = response_item_output_text(item);
+    if output_text.is_empty() {
+        append_synthetic_item_events(events, response_id, output_index, item, sequence_number);
+        return;
+    }
+
+    let item_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("msg_{}", unix_secs()));
+    let output_item_added = serde_json::json!({
+        "type": "response.output_item.added",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": {
+            "id": item_id,
+            "type": "message",
+            "role": "assistant",
+            "status": "in_progress",
+            "content": [{"type": "output_text", "text": ""}]
+        },
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.added", output_item_added);
+
+    let content_part_added = serde_json::json!({
+        "type": "response.content_part.added",
+        "response_id": response_id,
+        "item_id": item_id,
+        "output_index": output_index,
+        "content_index": 0,
+        "part": {"type": "output_text", "text": "", "annotations": []},
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.content_part.added", content_part_added);
+
+    let text_delta = serde_json::json!({
+        "type": "response.output_text.delta",
+        "response_id": response_id,
+        "item_id": item_id,
+        "output_index": output_index,
+        "content_index": 0,
+        "delta": output_text,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_text.delta", text_delta);
+
+    let text_done = serde_json::json!({
+        "type": "response.output_text.done",
+        "response_id": response_id,
+        "item_id": item_id,
+        "output_index": output_index,
+        "content_index": 0,
+        "text": output_text,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_text.done", text_done);
+
+    let content_part_done = serde_json::json!({
+        "type": "response.content_part.done",
+        "response_id": response_id,
+        "item_id": item_id,
+        "output_index": output_index,
+        "content_index": 0,
+        "part": {"type": "output_text", "text": output_text, "annotations": []},
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.content_part.done", content_part_done);
+
+    let mut done_item = item.clone();
+    if let Some(done_obj) = done_item.as_object_mut() {
+        done_obj.insert("status".to_string(), Value::String("completed".to_string()));
+    }
+    let output_item_done = serde_json::json!({
+        "type": "response.output_item.done",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": done_item,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.done", output_item_done);
+}
+
+fn append_synthetic_function_call_events(
+    events: &mut String,
+    response_id: &str,
+    output_index: usize,
+    item: &Value,
+    sequence_number: &mut u64,
+) {
+    let item_id = item
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| item.get("call_id").and_then(Value::as_str))
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("fc_{}", unix_secs()));
+    let arguments = item
+        .get("arguments")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            item.get("arguments")
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+        });
+
+    let mut added_item = item.clone();
+    if let Some(added_obj) = added_item.as_object_mut() {
+        added_obj.insert(
+            "status".to_string(),
+            Value::String("in_progress".to_string()),
+        );
+        added_obj.insert("arguments".to_string(), Value::String(String::new()));
+    }
+    let output_item_added = serde_json::json!({
+        "type": "response.output_item.added",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": added_item,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.added", output_item_added);
+
+    let arguments_done = serde_json::json!({
+        "type": "response.function_call_arguments.done",
+        "response_id": response_id,
+        "item_id": item_id,
+        "output_index": output_index,
+        "arguments": arguments,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(
+        events,
+        "response.function_call_arguments.done",
+        arguments_done,
+    );
+
+    let mut done_item = item.clone();
+    if let Some(done_obj) = done_item.as_object_mut() {
+        done_obj.insert("status".to_string(), Value::String("completed".to_string()));
+    }
+    let output_item_done = serde_json::json!({
+        "type": "response.output_item.done",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": done_item,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.done", output_item_done);
+}
+
+fn append_synthetic_item_events(
+    events: &mut String,
+    response_id: &str,
+    output_index: usize,
+    item: &Value,
+    sequence_number: &mut u64,
+) {
+    let output_item_added = serde_json::json!({
+        "type": "response.output_item.added",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": item,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.added", output_item_added);
+
+    let output_item_done = serde_json::json!({
+        "type": "response.output_item.done",
+        "response_id": response_id,
+        "output_index": output_index,
+        "item": item,
+        "sequence_number": next_sequence(sequence_number)
+    });
+    push_synthetic_event(events, "response.output_item.done", output_item_done);
+}
+
+fn response_item_output_text(item: &Value) -> String {
+    item.get("content")
         .and_then(Value::as_array)
         .into_iter()
-        .flatten()
-        .filter_map(|item| item.get("content").and_then(Value::as_array))
         .flatten()
         .find_map(|content| {
             content
@@ -1326,17 +1456,14 @@ fn first_response_output_text(response: &Value) -> String {
         .unwrap_or_default()
 }
 
-fn first_response_message_id(response: &Value) -> Option<String> {
-    response
-        .get("output")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find_map(|item| {
-            (item.get("type").and_then(Value::as_str) == Some("message"))
-                .then(|| item.get("id").and_then(Value::as_str).map(str::to_string))
-                .flatten()
-        })
+fn next_sequence(sequence_number: &mut u64) -> u64 {
+    let current = *sequence_number;
+    *sequence_number = sequence_number.saturating_add(1);
+    current
+}
+
+fn push_synthetic_event(events: &mut String, event: &str, data: Value) {
+    events.push_str(&format!("event: {event}\ndata: {data}\n\n"));
 }
 
 fn unix_secs() -> u64 {
@@ -1636,6 +1763,32 @@ mod tests {
         assert!(sse.contains("event: response.content_part.added"));
         assert!(sse.contains("event: response.output_text.delta"));
         assert!(sse.contains("hello from synthetic sse"));
+        assert!(sse.contains("event: response.completed"));
+    }
+
+    #[test]
+    fn synthetic_response_sse_includes_function_call_events() {
+        let response = serde_json::json!({
+            "id": "resp_test",
+            "object": "response",
+            "status": "completed",
+            "output": [{
+                "id": "call_shell",
+                "type": "function_call",
+                "status": "completed",
+                "name": "shell_command",
+                "arguments": "{\"command\":\"Get-ChildItem\"}",
+                "call_id": "call_shell"
+            }]
+        });
+        let body = serde_json::to_vec(&response).unwrap();
+        let sse = String::from_utf8(synthetic_sse_from_response(&body)).unwrap();
+
+        assert!(sse.contains("event: response.output_item.added"));
+        assert!(sse.contains("event: response.function_call_arguments.done"));
+        assert!(sse.contains("event: response.output_item.done"));
+        assert!(sse.contains("\"name\":\"shell_command\""));
+        assert!(sse.contains("Get-ChildItem"));
         assert!(sse.contains("event: response.completed"));
     }
 

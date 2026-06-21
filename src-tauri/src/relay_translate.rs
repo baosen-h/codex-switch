@@ -14,6 +14,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 
+use crate::relay_tools::{self, RelayToolContext};
+
 #[derive(Debug)]
 pub enum TranslateError {
     InvalidJson(String),
@@ -62,6 +64,8 @@ struct ToolCallInProgress {
     call_id: String,
     name: String,
     arguments: String,
+    item_added: bool,
+    emitted_arguments_len: usize,
 }
 
 impl TranslatorState {
@@ -847,13 +851,7 @@ fn transform_payload(payload: &mut Value, model_after_rewrite: &str) {
     // `custom` into plain `function`, reshape `web_search` for GLM, drop
     // server-side-only types (image_generation / code_interpreter / 等).
     if let Some(tools) = obj.get_mut("tools") {
-        if let Some(arr) = tools.as_array_mut() {
-            let mut transformed: Vec<Value> = Vec::with_capacity(arr.len());
-            for tool in arr.drain(..) {
-                transform_tool(tool, is_glm, model_after_rewrite, &mut transformed);
-            }
-            *arr = transformed;
-        }
+        relay_tools::transform_tools(tools, RelayToolContext::new(is_glm, model_after_rewrite));
     }
 
     if is_mimo {
@@ -952,251 +950,13 @@ fn apply_mimo_quirks(obj: &mut Map<String, Value>, model: &str) {
 }
 
 fn apply_deepseek_quirks(obj: &mut Map<String, Value>) {
-    match obj.get("tool_choice") {
-        Some(Value::String(value)) if value == "auto" || value == "none" => {}
-        Some(_) => {
-            obj.insert("tool_choice".to_string(), Value::String("auto".to_string()));
-        }
-        None => {}
-    }
+    relay_tools::normalize_deepseek_tool_choice_in_payload(obj);
     obj.entry("thinking".to_string())
         .or_insert_with(|| json!({ "type": "enabled" }));
     obj.entry("reasoning_effort".to_string())
         .or_insert_with(|| Value::String("high".to_string()));
     obj.entry("response_format".to_string())
         .or_insert_with(|| json!({ "type": "text" }));
-}
-
-/// Server-side-only 工具：只有 OpenAI/Azure 自家能跑，第三方 chat_completions
-/// 上游一律拒收（多数返 400 "type is illegal"），我们这里直接 drop。
-fn is_server_side_only_tool(t: &str) -> bool {
-    matches!(
-        t,
-        "code_interpreter"
-            | "file_search"
-            | "image_generation"
-            | "computer_use_preview"
-            | "computer_use"
-    )
-}
-
-/// Codex 的 `local_shell` builtin 映射成普通 function tool。
-/// codex 客户端能识别 `shell` function_call；返回侧保持 function_call，
-/// 避免把真实函数工具（例如 `shell_command`）误转成 builtin 形态。
-fn local_shell_as_function() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "shell",
-            "description": "Execute a shell command on the local machine. Returns stdout, stderr, and exit code.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Argv array; first element is the program, rest are arguments."
-                    },
-                    "workdir": {"type": "string", "description": "Working directory (optional)."},
-                    "timeout_ms": {"type": "number", "description": "Timeout in ms (optional, default 30000)."}
-                },
-                "required": ["command"]
-            }
-        }
-    })
-}
-
-/// 把一个 codex Responses 工具描述翻译成 chat_completions tools 数组的若干条目，
-/// push 到 `out`。返回多条（namespace 展开）/ 一条（普通）/ 零条（dropped）。
-///
-/// 已覆盖的工具类型：
-///   - `function`     —— 原样透传（移除 `strict`，chat 协议没这字段）
-///   - `local_shell`  —— 映射成 `shell` function tool
-///   - `custom`       —— 映射成 freeform `input` 参数的 function（grammar 校验丢失但
-///                       模型仍然能调用）
-///   - `namespace`    —— 递归展开内部 tools（MCP / 分组工具的 wrapper）
-///   - `web_search`   —— 只在 GLM 时映射到 search_pro_jina；其他 drop
-///   - 其它 server-side-only —— drop
-fn transform_tool(tool: Value, is_glm: bool, model: &str, out: &mut Vec<Value>) {
-    let ttype = tool
-        .get("type")
-        .and_then(Value::as_str)
-        .map(String::from)
-        .unwrap_or_default();
-    match ttype.as_str() {
-        "function" => {
-            if let Some(t) = function_tool_as_chat(tool) {
-                out.push(t);
-            } else {
-                eprintln!("[relay_translate] drop function tool without name");
-            }
-        }
-        "local_shell" => {
-            out.push(local_shell_as_function());
-        }
-        "custom" => {
-            // codex / OpenAI 的 freeform "custom" tool（带 grammar 等）。
-            // chat_completions 上游没法约束 grammar，转成 input: string 参数的
-            // 普通 function 让模型能调用就行；描述里追加原 format 提示。
-            let name = tool.get("name").and_then(Value::as_str).map(String::from);
-            let Some(name) = name else {
-                eprintln!("[relay_translate] drop custom tool without name");
-                return;
-            };
-            let format_type = tool
-                .pointer("/format/type")
-                .and_then(Value::as_str)
-                .map(String::from);
-            let desc_base = tool
-                .get("description")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let description = match format_type {
-                Some(ft) => format!(
-                    "{}{}(originally a \"{}\"-format custom tool; output should follow that format).",
-                    desc_base,
-                    if desc_base.is_empty() { "" } else { " " },
-                    ft
-                ),
-                None => desc_base.to_string(),
-            };
-            out.push(json!({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "input": {"type": "string", "description": "Input text for the tool."}
-                        },
-                        "additionalProperties": true,
-                    }
-                }
-            }));
-        }
-        "tool_search" => {
-            let description = tool
-                .get("description")
-                .cloned()
-                .filter(|value| !value.is_null());
-            let parameters = tool
-                .get("parameters")
-                .cloned()
-                .filter(|value| !value.is_null());
-            let mut function = Map::new();
-            function.insert("name".to_string(), Value::String("tool_search".to_string()));
-            if let Some(description) = description {
-                function.insert("description".to_string(), description);
-            }
-            if let Some(parameters) = parameters {
-                function.insert("parameters".to_string(), parameters);
-            }
-            out.push(json!({
-                "type": "function",
-                "function": Value::Object(function),
-            }));
-        }
-        "namespace" => {
-            // MCP / 分组工具 wrapper：{ type: "namespace", name?, tools: [...] }
-            let nested = tool.get("tools").and_then(Value::as_array).cloned();
-            match nested {
-                Some(arr) if !arr.is_empty() => {
-                    for inner in arr {
-                        transform_tool(inner, is_glm, model, out);
-                    }
-                }
-                _ => {
-                    let nsname = tool
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("(unnamed)");
-                    eprintln!("[relay_translate] drop empty namespace tool {:?}", nsname);
-                }
-            }
-        }
-        "web_search" | "web_search_preview" => {
-            // 只 GLM 有 search_pro_jina 这个 chat-side 工具名；MiMo 用插件、
-            // 其他三方多数没有 web search 对等品，让 codex 退到 shell 替代。
-            if is_glm {
-                out.push(json!({
-                    "type": "web_search",
-                    "web_search": {
-                        "enable": true,
-                        "search_engine": "search_pro_jina",
-                    }
-                }));
-            } else {
-                eprintln!(
-                    "[relay_translate] dropping web_search tool (no native shape for model={})",
-                    model
-                );
-            }
-        }
-        other if is_server_side_only_tool(other) => {
-            eprintln!(
-                "[relay_translate] drop server-side-only tool type={:?} (no chat_completions equivalent)",
-                other
-            );
-        }
-        other => {
-            eprintln!(
-                "[relay_translate] drop unknown tool type={:?} name={:?}",
-                other,
-                tool.get("name").or_else(|| tool.pointer("/function/name")),
-            );
-        }
-    }
-}
-
-fn function_tool_as_chat(tool: Value) -> Option<Value> {
-    let obj = tool.as_object()?;
-    if let Some(function) = obj.get("function").and_then(Value::as_object) {
-        let name = function
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|name| !name.trim().is_empty())?;
-        let mut function = function.clone();
-        function.insert("name".to_string(), Value::String(name.to_string()));
-        match function.get("strict") {
-            Some(Value::Bool(_)) => {}
-            _ => {
-                function.remove("strict");
-            }
-        }
-        return Some(json!({
-            "type": "function",
-            "function": Value::Object(function),
-        }));
-    }
-
-    let name = obj
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|name| !name.trim().is_empty())?;
-    let mut function = Map::new();
-    function.insert("name".to_string(), Value::String(name.to_string()));
-    if let Some(description) = obj
-        .get("description")
-        .cloned()
-        .filter(|value| !value.is_null())
-    {
-        function.insert("description".to_string(), description);
-    }
-    if let Some(parameters) = obj
-        .get("parameters")
-        .cloned()
-        .filter(|value| !value.is_null())
-    {
-        function.insert("parameters".to_string(), parameters);
-    }
-    if let Some(strict @ Value::Bool(_)) = obj.get("strict").cloned() {
-        function.insert("strict".to_string(), strict);
-    }
-    Some(json!({
-        "type": "function",
-        "function": Value::Object(function),
-    }))
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1308,6 +1068,7 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
 
     // 1) Tool calls (incremental)
     if let Some(tcs) = delta.get("tool_calls").and_then(Value::as_array) {
+        let alias_shell = relay_tools::response_shell_alias_enabled(&state.request_metadata);
         for tc_delta in tcs {
             let idx = tc_delta.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
 
@@ -1331,17 +1092,60 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
                         call_id: call_id.clone(),
                         name: initial_name.clone(),
                         arguments: String::new(),
+                        item_added: false,
+                        emitted_arguments_len: 0,
                     },
                 );
+            }
+
+            let mut item_added_event: Option<(usize, String, String)> = None;
+            let mut arguments_delta_event: Option<(usize, String, String)> = None;
+            {
+                let tc = state.tool_calls.get_mut(&idx).expect("just inserted");
+                if let Some(fn_delta) = tc_delta.get("function") {
+                    if let Some(name_part) = fn_delta.get("name").and_then(Value::as_str) {
+                        if tc.name.is_empty() || name_part != tc.name {
+                            tc.name.push_str(name_part);
+                        }
+                        if alias_shell && tc.name == "shell" {
+                            tc.name = "shell_command".to_string();
+                        }
+                    }
+                    if let Some(args_part) = fn_delta.get("arguments") {
+                        let appended = match args_part {
+                            Value::String(s) => s.clone(),
+                            other => serde_json::to_string(other).unwrap_or_default(),
+                        };
+                        if !appended.is_empty() {
+                            tc.arguments.push_str(&appended);
+                        }
+                    }
+                }
+
+                if !tc.item_added && !tc.name.is_empty() {
+                    tc.item_added = true;
+                    item_added_event = Some((tc.output_index, tc.call_id.clone(), tc.name.clone()));
+                }
+
+                if tc.item_added && tc.emitted_arguments_len < tc.arguments.len() {
+                    let delta = tc.arguments[tc.emitted_arguments_len..].to_string();
+                    tc.emitted_arguments_len = tc.arguments.len();
+                    if !delta.is_empty() {
+                        arguments_delta_event = Some((tc.output_index, tc.call_id.clone(), delta));
+                    }
+                }
+            }
+
+            if let Some((output_idx, call_id, name)) = item_added_event {
                 let mut item_view = json!({
                     "id": call_id,
                     "type": "function_call",
                     "status": "in_progress",
-                    "name": initial_name,
+                    "name": name,
                     "arguments": "",
                     "call_id": call_id,
                 });
-                attach_namespace(&mut item_view, state, &initial_name);
+                attach_namespace(&mut item_view, state, &name);
                 out.push(encode_event(
                     state,
                     "response.output_item.added",
@@ -1353,36 +1157,20 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
                 ));
             }
 
-            let tc = state.tool_calls.get_mut(&idx).expect("just inserted");
-            if let Some(fn_delta) = tc_delta.get("function") {
-                if let Some(name_part) = fn_delta.get("name").and_then(Value::as_str) {
-                    if tc.name.is_empty() || name_part != tc.name {
-                        tc.name.push_str(name_part);
-                    }
-                }
-                if let Some(args_part) = fn_delta.get("arguments") {
-                    let appended = match args_part {
-                        Value::String(s) => s.clone(),
-                        other => serde_json::to_string(other).unwrap_or_default(),
-                    };
-                    if !appended.is_empty() {
-                        let output_idx = tc.output_index;
-                        let call_id = tc.call_id.clone();
-                        tc.arguments.push_str(&appended);
-                        // Emit incremental delta — codex CLI uses this to stream
-                        // tool-call argument JSON live.
-                        out.push(encode_event(
-                            state,
-                            "response.function_call_arguments.delta",
-                            json!({
-                                "response_id": state.response_id,
-                                "item_id": call_id,
-                                "output_index": output_idx,
-                                "delta": appended,
-                            }),
-                        ));
-                    }
-                }
+            if let Some((output_idx, call_id, delta)) = arguments_delta_event {
+                // Emit incremental delta after the tool item has a concrete name.
+                // Some upstreams split id/name/arguments across chunks; sending an
+                // empty-name output item first can make Codex drop the tool turn.
+                out.push(encode_event(
+                    state,
+                    "response.function_call_arguments.delta",
+                    json!({
+                        "response_id": state.response_id,
+                        "item_id": call_id,
+                        "output_index": output_idx,
+                        "delta": delta,
+                    }),
+                ));
             }
         }
     }
@@ -1611,16 +1399,19 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
         ));
     }
     for tc in state.tool_calls.values() {
-        let safe_arguments = salvage_tool_call_arguments(&tc.arguments);
+        let response_name =
+            relay_tools::canonical_response_tool_name(&state.request_metadata, &tc.name);
+        let safe_arguments =
+            relay_tools::normalize_response_tool_arguments(&response_name, &tc.arguments);
         let mut item = json!({
             "id": tc.call_id,
             "type": "function_call",
             "status": "completed",
-            "name": tc.name,
+            "name": response_name,
             "arguments": safe_arguments,
             "call_id": tc.call_id,
         });
-        attach_namespace(&mut item, state, &tc.name);
+        attach_namespace(&mut item, state, &response_name);
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
@@ -1722,28 +1513,23 @@ fn collect_final_output(state: &TranslatorState) -> Value {
         ));
     }
     for tc in state.tool_calls.values() {
-        let safe_arguments = salvage_tool_call_arguments(&tc.arguments);
+        let response_name =
+            relay_tools::canonical_response_tool_name(&state.request_metadata, &tc.name);
+        let safe_arguments =
+            relay_tools::normalize_response_tool_arguments(&response_name, &tc.arguments);
         let mut item = json!({
             "id": tc.call_id,
             "type": "function_call",
             "status": "completed",
-            "name": tc.name,
+            "name": response_name,
             "arguments": safe_arguments,
             "call_id": tc.call_id,
         });
-        attach_namespace(&mut item, state, &tc.name);
+        attach_namespace(&mut item, state, &response_name);
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
     Value::Array(closing.into_iter().map(|(_, v)| v).collect())
-}
-
-fn salvage_tool_call_arguments(raw: &str) -> String {
-    if raw.is_empty() || serde_json::from_str::<Value>(raw).is_ok() {
-        raw.to_string()
-    } else {
-        "{}".to_string()
-    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1783,28 +1569,26 @@ pub fn translate_sync_response(
                 .unwrap_or(Value::Object(Map::new()));
             let name = fn_obj
                 .get("name")
-                .cloned()
-                .unwrap_or(Value::String("".into()));
+                .and_then(Value::as_str)
+                .map(|name| {
+                    relay_tools::canonical_response_tool_name(&state.request_metadata, name)
+                })
+                .unwrap_or_default();
             let raw_args = fn_obj.get("arguments").cloned().unwrap_or(Value::Null);
             let args_string = match raw_args {
                 Value::String(s) => s,
                 other => serde_json::to_string(&other).unwrap_or_default(),
             };
-            let args_string = salvage_tool_call_arguments(&args_string);
+            let args_string = relay_tools::normalize_response_tool_arguments(&name, &args_string);
             let mut item = json!({
                 "id": id.clone(),
                 "type": "function_call",
                 "status": "completed",
-                "name": name,
+                "name": name.clone(),
                 "arguments": args_string.clone(),
                 "call_id": id,
             });
-            let name_str = item
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            attach_namespace(&mut item, state, &name_str);
+            attach_namespace(&mut item, state, &name);
             output_items.push(item);
         }
     }
@@ -2364,6 +2148,56 @@ mod tests {
     }
 
     #[test]
+    fn sse_tool_call_waits_for_name_before_added_event() {
+        let codex = json!({"model": "gpt-5", "input": "hi", "stream": true});
+        let (_body, mut state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+
+        let id_only = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_x",
+                        "function": {}
+                    }]
+                }
+            }]
+        });
+        let events1 = handle_chunk(&mut state, &serde_json::to_vec(&id_only).unwrap());
+        let first_blob: Vec<u8> = events1.into_iter().flatten().collect();
+        assert!(!contains_event(&first_blob, b"response.output_item.added"));
+
+        let name_and_args = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "function": {
+                            "name": "shell",
+                            "arguments": "{\"cmd\":\"ls\"}"
+                        }
+                    }]
+                }
+            }]
+        });
+        let events2 = handle_chunk(&mut state, &serde_json::to_vec(&name_and_args).unwrap());
+        let mut all: Vec<u8> = events2.into_iter().flatten().collect();
+        all.extend(emit_completed(&mut state));
+        assert!(contains_event(&all, b"response.output_item.added"));
+        assert!(contains_bytes(&all, b"\"name\":\"shell\""));
+        assert!(contains_event(
+            &all,
+            b"response.function_call_arguments.delta"
+        ));
+        assert!(contains_event(
+            &all,
+            b"response.function_call_arguments.done"
+        ));
+        assert!(contains_event(&all, b"response.completed"));
+    }
+
+    #[test]
     fn sse_reasoning_content_stream() {
         let codex = json!({"model": "gpt-5", "input": "hi", "stream": true});
         let (_body, mut state) =
@@ -2418,11 +2252,80 @@ mod tests {
         let (body, _state) =
             translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
         let v = parse(&body);
-        assert_eq!(v["tool_choice"], "auto");
+        assert_eq!(v["tool_choice"]["type"], "function");
+        assert_eq!(v["tool_choice"]["function"]["name"], "shell_command");
         assert_eq!(v["thinking"]["type"], "enabled");
         assert_eq!(v["reasoning_effort"], "high");
         assert_eq!(v["response_format"]["type"], "text");
-        assert_eq!(v["tools"][0]["function"]["name"], "shell");
+        assert_eq!(v["tools"][0]["function"]["name"], "shell_command");
+    }
+
+    #[test]
+    fn deepseek_required_tool_choice_is_preserved() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "inspect the folder",
+            "tool_choice": "required",
+            "tools": [{"type": "local_shell"}]
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let v = parse(&body);
+        assert_eq!(v["tool_choice"], "required");
+        assert_eq!(v["tools"][0]["function"]["name"], "shell_command");
+    }
+
+    #[test]
+    fn deepseek_forced_custom_tool_choice_targets_translated_function() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "apply this patch",
+            "tool_choice": {"type": "custom", "name": "apply_patch"},
+            "tools": [
+                {"type": "custom", "name": "apply_patch", "description": "Apply a patch.", "format": {"type": "grammar"}}
+            ]
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let v = parse(&body);
+        assert_eq!(v["tool_choice"]["type"], "function");
+        assert_eq!(v["tool_choice"]["function"]["name"], "apply_patch");
+        assert_eq!(v["tools"][0]["function"]["name"], "apply_patch");
+    }
+
+    #[test]
+    fn deepseek_forced_tool_search_choice_targets_translated_function() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "find tools",
+            "tool_choice": {"type": "tool_search", "name": "tool_search"},
+            "tools": [{
+                "type": "tool_search",
+                "description": "Search deferred tools.",
+                "parameters": {"type": "object"}
+            }]
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        assert_eq!(v["tool_choice"]["type"], "function");
+        assert_eq!(v["tool_choice"]["function"]["name"], "tool_search");
+        assert_eq!(v["tools"][0]["function"]["name"], "tool_search");
+    }
+
+    #[test]
+    fn deepseek_forced_dropped_tool_choice_falls_back_to_auto() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "generate an image",
+            "tool_choice": {"type": "image_generation", "name": "image_generation"},
+            "tools": [{"type": "image_generation"}]
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let v = parse(&body);
+        assert_eq!(v["tool_choice"], "auto");
+        assert!(v["tools"].as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -2749,8 +2652,8 @@ mod tests {
     }
 
     #[test]
-    fn local_shell_mapped_to_shell_function() {
-        // codex 的 `local_shell` builtin → 普通 `shell` function tool
+    fn local_shell_mapped_to_shell_command_function() {
+        // codex 的 `local_shell` builtin → 普通 `shell_command` function tool
         // （schema 完整，让 chat_completions 上游能正确生成 tool_call）
         let codex = json!({
             "model": "gpt-5",
@@ -2763,8 +2666,9 @@ mod tests {
         let tools = v["tools"].as_array().unwrap();
         assert_eq!(tools.len(), 1);
         let f = &tools[0]["function"];
-        assert_eq!(f["name"], "shell");
+        assert_eq!(f["name"], "shell_command");
         assert!(f["parameters"]["properties"]["command"].is_object());
+        assert_eq!(f["parameters"]["properties"]["command"]["type"], "string");
     }
 
     #[test]
@@ -2822,6 +2726,41 @@ mod tests {
         assert_eq!(output[0]["type"], "function_call");
         assert_eq!(output[0]["name"], "shell_command");
         assert_eq!(output[0]["call_id"], "call_shell_command");
+    }
+
+    #[test]
+    fn sync_local_shell_alias_returns_shell_command() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "inspect the folder",
+            "tools": [{"type": "local_shell"}],
+        });
+        let (_body, state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let chat = json!({
+            "id": "chatcmpl-tool",
+            "created": 1700000000,
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_shell",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": "{\"cmd\":\"Get-ChildItem\",\"cwd\":\".\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = translate_sync_response(&state, &serde_json::to_vec(&chat).unwrap()).unwrap();
+        let v = parse(&body);
+        let output = v["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "function_call");
+        assert_eq!(output[0]["name"], "shell_command");
+        let args: Value = serde_json::from_str(output[0]["arguments"].as_str().unwrap()).unwrap();
+        assert_eq!(args["command"], "Get-ChildItem");
+        assert_eq!(args["workdir"], ".");
     }
 
     #[test]
