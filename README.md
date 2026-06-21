@@ -300,6 +300,48 @@ vision_fallback and local web tools are applied before upstream calls when enabl
 
 Codex Switch starts a local in-process proxy on `127.0.0.1:47632`. Each request is matched to the current provider for the target agent. Codex `/v1/responses` requests either pass through to a Responses-capable provider or use `relay_translate` to call `/chat/completions` and translate the result back. Claude and Gemini gateway paths let those CLIs use the same configured provider and fallback logic.
 
+### Chat-Completions Relay
+
+```text
+Codex CLI /v1/responses request
+        |
+        v
+compatibility_proxy::handle_chat_completions_provider
+        |
+        +--> optional vision_fallback::preprocess_codex_body
+        |
+        v
+relay_translate::translate_request
+        |
+        +--> normalize Responses input -> chat messages
+        +--> preserve request metadata: tools, tool_choice, temperature, top_p
+        +--> convert developer messages -> system messages
+        +--> transform tools for /chat/completions
+             |
+             +--> local_shell        -> function shell_command
+             +--> custom/tool_search -> function tools
+             +--> namespace          -> nested function tools
+             +--> provider web_search when supported by upstream
+             +--> drop proxy-hosted, server-side-only, or unknown tools
+        +--> apply provider quirks for DeepSeek, MiMo, and GLM
+        |
+        v
+POST provider /chat/completions
+        |
+        v
+relay_translate::translate_sync_response or handle_chunk
+        |
+        +--> assistant text      -> Responses message item
+        +--> reasoning_content   -> Responses reasoning item
+        +--> tool_calls          -> response.function_call events
+        +--> shell call aliases  -> shell_command schema for Codex
+        |
+        v
+Codex receives Responses-shaped JSON or SSE
+```
+
+The relay is a protocol bridge, not a tool runner. Codex client tools such as `shell_command`, `apply_patch`, and MCP tools are translated into chat-completion function calls for the upstream model, then translated back into Responses function-call events so Codex can execute them. The proxy only executes proxy-hosted fallback tools, such as local web search.
+
 ### Vision Capability
 
 ```text
@@ -347,6 +389,59 @@ numbered source JSON returned to the model for final answer
 ```
 
 Automatic web search is configured once in Settings for models or providers that need local web access, such as DeepSeek, MiMo, or GLM. Supported search providers include Tavily, Zhipu, Exa, Bocha, SearXNG, and Jina. Fetching can use the built-in direct fetcher or Jina Reader. Direct fetching validates redirects, blocks private and reserved network addresses, accepts readable text formats only, and limits responses to 10 MB.
+
+### Local Web Tool Loop
+
+```text
+Codex /v1/responses request
+        |
+        v
+relay_translate::translate_request -> /chat/completions body
+        |
+        v
+should_enable_local_web
+        |
+        +--> Settings web search enabled
+        +--> search provider configured
+        |
+        v
+prepare_local_web_agent_body
+        |
+        +--> force stream=false for the upstream web loop
+        +--> set parallel_tool_calls=false
+        +--> remove provider-native web_search tool shapes
+        +--> inject web__search and web__fetch function tools
+        |
+        v
+run_local_web_agent, max 8 steps
+        |
+        +--> POST provider /chat/completions
+        +--> no tool_calls
+        |       |
+        |       v
+        |   final assistant answer
+        |
+        +--> web__search call
+        |       |
+        |       v
+        |   web_search::search_keywords -> numbered source JSON
+        |
+        +--> web__fetch call
+                |
+                v
+            web_search::fetch_urls -> numbered source JSON
+        |
+        v
+append assistant tool_call + tool result messages, then repeat
+        |
+        v
+relay_translate::translate_sync_response
+        |
+        v
+Codex receives final Responses JSON or synthetic Responses SSE
+```
+
+Only `web__search` and `web__fetch` are consumed inside this loop. If the model asks for normal Codex tools such as `shell_command`, the proxy returns those tool calls to Codex instead of trying to run them itself. This keeps local web search separate from Codex's normal tool execution path.
 
 ### MCP Capability
 

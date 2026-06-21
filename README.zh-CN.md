@@ -300,6 +300,48 @@ compatibility_proxy::handle_connection
 
 Codex Switch 会在 `127.0.0.1:47632` 启动一个进程内本地代理。每个请求都会匹配到目标 Agent 当前启用的 Provider。Codex 的 `/v1/responses` 请求会直通支持 Responses 的服务商，或通过 `relay_translate` 调用 `/chat/completions` 后再转换回 Codex 需要的结果。Claude 和 Gemini 网关路径让对应 CLI 也能使用同一套 Provider 与回退逻辑。
 
+### Chat-Completions 中继
+
+```text
+Codex CLI /v1/responses 请求
+        │
+        ▼
+compatibility_proxy::handle_chat_completions_provider
+        │
+        ├── 可选 vision_fallback::preprocess_codex_body
+        │
+        ▼
+relay_translate::translate_request
+        │
+        ├── 将 Responses input 归一化为 chat messages
+        ├── 保留请求元数据：tools、tool_choice、temperature、top_p
+        ├── 将 developer messages 转为 system messages
+        ├── 将工具转换为 /chat/completions 可理解的 function tools
+        │    │
+        │    ├── local_shell        -> function shell_command
+        │    ├── custom/tool_search -> function tools
+        │    ├── namespace          -> 嵌套 function tools
+        │    ├── 上游支持时保留 provider web_search
+        │    └── 丢弃 proxy-hosted、server-side-only 或未知工具
+        ├── 应用 DeepSeek、MiMo、GLM 的服务商兼容逻辑
+        │
+        ▼
+POST provider /chat/completions
+        │
+        ▼
+relay_translate::translate_sync_response 或 handle_chunk
+        │
+        ├── assistant text      -> Responses message item
+        ├── reasoning_content   -> Responses reasoning item
+        ├── tool_calls          -> response.function_call events
+        └── shell call aliases  -> Codex 的 shell_command schema
+        │
+        ▼
+Codex 收到 Responses 形态的 JSON 或 SSE
+```
+
+这个中继层只是协议转换层，不是通用工具执行器。`shell_command`、`apply_patch`、MCP 工具等 Codex 客户端工具，会先被转换成上游模型能看到的 function tool；模型返回 tool call 后，再被转换回 Codex 的 Responses function-call 事件，由 Codex 自己执行。代理只会执行它自己托管的回退工具，例如本地联网搜索。
+
 ### 视觉能力
 
 ```text
@@ -347,6 +389,59 @@ web_search.rs
 ```
 
 自动联网搜索在 Settings 中统一配置，用于需要本地联网能力的模型或服务商，例如 DeepSeek、MiMo、GLM。搜索 Provider 支持 Tavily、智谱、Exa、博查、SearXNG 和 Jina。网页抓取可以使用内置直连抓取器或 Jina Reader。直连抓取会检查重定向、阻止私有和保留网络地址、只接受可读文本格式，并把响应限制为 10 MB。
+
+### 本地联网工具循环
+
+```text
+Codex /v1/responses 请求
+        │
+        ▼
+relay_translate::translate_request -> /chat/completions body
+        │
+        ▼
+should_enable_local_web
+        │
+        ├── Settings 中已启用联网搜索
+        └── 已配置搜索 Provider
+        │
+        ▼
+prepare_local_web_agent_body
+        │
+        ├── 对上游 web loop 强制 stream=false
+        ├── 设置 parallel_tool_calls=false
+        ├── 移除 provider-native web_search 工具形态
+        └── 注入 web__search 和 web__fetch function tools
+        │
+        ▼
+run_local_web_agent，最多 8 步
+        │
+        ├── POST provider /chat/completions
+        ├── 没有 tool_calls
+        │       │
+        │       ▼
+        │   得到最终 assistant answer
+        │
+        ├── web__search call
+        │       │
+        │       ▼
+        │   web_search::search_keywords -> 带编号来源的 JSON
+        │
+        ├── web__fetch call
+                │
+                ▼
+            web_search::fetch_urls -> 带编号来源的 JSON
+        │
+        ▼
+追加 assistant tool_call + tool result messages，然后继续循环
+        │
+        ▼
+relay_translate::translate_sync_response
+        │
+        ▼
+Codex 收到最终 Responses JSON 或合成的 Responses SSE
+```
+
+这个循环只会在代理内部消费 `web__search` 和 `web__fetch`。如果模型请求的是 `shell_command` 这样的普通 Codex 工具，代理会把 tool call 返回给 Codex，而不是自己执行。这样本地联网搜索和 Codex 原本的工具执行路径保持分离。
 
 ### MCP 能力
 
