@@ -22,7 +22,7 @@ use crate::session_manager;
 use base64::Engine;
 use reqwest::blocking::multipart::{Form, Part};
 use reqwest::blocking::Client;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL, PRAGMA};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -1110,13 +1110,17 @@ pub async fn check_app_update(current_version: String) -> Result<Option<AppUpdat
 
 fn check_app_update_blocking(current_version: &str) -> Result<Option<AppUpdateInfo>, String> {
     let client = Client::builder()
-        .connect_timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(12))
         .build()
         .map_err(|error| error.to_string())?;
 
     let response: Value = client
         .get(LATEST_RELEASE_API_URL)
         .header("User-Agent", USER_AGENT)
+        .header("Accept", "application/vnd.github+json")
+        .header(CACHE_CONTROL, "no-cache")
+        .header(PRAGMA, "no-cache")
         .send()
         .map_err(|error| error.to_string())?
         .error_for_status()

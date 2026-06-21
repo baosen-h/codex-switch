@@ -62,6 +62,61 @@ pub fn canonical_response_tool_name(request_metadata: &Value, name: &str) -> Str
     }
 }
 
+pub fn response_tool_item(
+    request_metadata: &Value,
+    call_id: Value,
+    name: &str,
+    raw_args: &str,
+) -> Value {
+    let name = canonical_response_tool_name(request_metadata, name);
+    if is_custom_response_tool(request_metadata, &name) {
+        return json!({
+            "id": call_id.clone(),
+            "type": "custom_tool_call",
+            "status": "completed",
+            "name": name,
+            "input": custom_tool_input(raw_args),
+            "call_id": call_id,
+        });
+    }
+
+    json!({
+        "id": call_id.clone(),
+        "type": "function_call",
+        "status": "completed",
+        "name": name.clone(),
+        "arguments": normalize_response_tool_arguments(&name, raw_args),
+        "call_id": call_id,
+    })
+}
+
+pub fn response_tool_started_item(request_metadata: &Value, call_id: Value, name: &str) -> Value {
+    let name = canonical_response_tool_name(request_metadata, name);
+    if is_custom_response_tool(request_metadata, &name) {
+        return json!({
+            "id": call_id.clone(),
+            "type": "custom_tool_call",
+            "status": "in_progress",
+            "name": name,
+            "input": "",
+            "call_id": call_id,
+        });
+    }
+
+    json!({
+        "id": call_id.clone(),
+        "type": "function_call",
+        "status": "in_progress",
+        "name": name,
+        "arguments": "",
+        "call_id": call_id,
+    })
+}
+
+pub fn is_custom_response_tool(request_metadata: &Value, name: &str) -> bool {
+    original_tool_type(request_metadata, name) == Some("custom")
+}
+
 pub fn normalize_response_tool_arguments(name: &str, raw: &str) -> String {
     let safe = salvage_tool_call_arguments(raw);
     if name != "shell_command" {
@@ -95,6 +150,83 @@ pub fn normalize_response_tool_arguments(name: &str, raw: &str) -> String {
     }
 
     serde_json::to_string(&value).unwrap_or(safe)
+}
+
+pub fn response_tool_arguments(item: &Value) -> Option<Value> {
+    match item.get("type").and_then(Value::as_str) {
+        Some("function_call") | Some("local_shell_call") => item.get("arguments").cloned(),
+        _ => None,
+    }
+}
+
+pub fn response_tool_name(item: &Value) -> Option<&str> {
+    match item.get("type").and_then(Value::as_str) {
+        Some("function_call") | Some("local_shell_call") | Some("custom_tool_call") => {
+            item.get("name").and_then(Value::as_str)
+        }
+        _ => None,
+    }
+}
+
+fn original_tool_type<'a>(request_metadata: &'a Value, name: &str) -> Option<&'a str> {
+    request_metadata
+        .get("tools")
+        .and_then(|tools| find_tool_type_by_name(tools, name))
+}
+
+fn find_tool_type_by_name<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .find_map(|item| find_tool_type_by_name(item, name)),
+        Value::Object(obj) => {
+            let tool_type = obj.get("type").and_then(Value::as_str);
+            let tool_name = obj.get("name").and_then(Value::as_str).or_else(|| {
+                obj.get("function")
+                    .and_then(Value::as_object)
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+            });
+            if tool_name == Some(name) {
+                return tool_type;
+            }
+            obj.get("tools")
+                .and_then(|tools| find_tool_type_by_name(tools, name))
+        }
+        _ => None,
+    }
+}
+
+fn custom_tool_input(raw: &str) -> String {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("input")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    value
+                        .get("patch")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .or_else(|| {
+                    value
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .or_else(|| {
+                    value
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .or_else(|| value.as_str().map(str::to_string))
+                .or_else(|| single_string_field(&value))
+        })
+        .unwrap_or_else(|| raw.to_string())
 }
 
 fn transform_tool(tool: Value, context: RelayToolContext<'_>, out: &mut Vec<Value>) {
@@ -218,27 +350,49 @@ fn transform_custom_tool(tool: Value, out: &mut Vec<Value>) {
         .get("description")
         .and_then(Value::as_str)
         .unwrap_or("");
-    let description = match format_type {
-        Some(ft) => format!(
+    let description = match (name.as_str(), format_type.as_deref()) {
+        ("apply_patch", Some(ft)) => format!(
+            "{}{}Call this to edit files. Put the complete patch text in the `input` field exactly as it should be passed to the patch tool. The input must start with `*** Begin Patch` and end with `*** End Patch`. Do not explain the patch in text; call the tool with the patch input. This was originally a \"{}\"-format custom tool.",
+            desc_base,
+            if desc_base.is_empty() { "" } else { " " },
+            ft
+        ),
+        (_, Some(ft)) => format!(
             "{}{}(originally a \"{}\"-format custom tool; output should follow that format).",
             desc_base,
             if desc_base.is_empty() { "" } else { " " },
             ft
         ),
-        None => desc_base.to_string(),
+        (_, None) => desc_base.to_string(),
+    };
+    let parameters = if name == "apply_patch" {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Complete apply_patch payload. It must start with `*** Begin Patch` and end with `*** End Patch`."
+                }
+            },
+            "required": ["input"],
+            "additionalProperties": false
+        })
+    } else {
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {"type": "string", "description": "Input text for the tool."}
+            },
+            "required": ["input"],
+            "additionalProperties": true
+        })
     };
     out.push(json!({
         "type": "function",
         "function": {
             "name": name,
             "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "input": {"type": "string", "description": "Input text for the tool."}
-                },
-                "additionalProperties": true,
-            }
+            "parameters": parameters
         }
     }));
 }
@@ -247,23 +401,74 @@ fn transform_tool_search(tool: Value, out: &mut Vec<Value>) {
     let description = tool
         .get("description")
         .cloned()
-        .filter(|value| !value.is_null());
-    let parameters = tool
-        .get("parameters")
-        .cloned()
-        .filter(|value| !value.is_null());
+        .filter(|value| value.as_str().is_some_and(|text| !text.trim().is_empty()))
+        .unwrap_or_else(|| {
+            Value::String(
+                "Search the available deferred tools by natural-language query. Call this when the user asks what tools are available, asks to discover tools, or references a skill/tool that may need to be loaded.".to_string(),
+            )
+        });
+    let parameters = normalize_tool_search_parameters(
+        tool.get("parameters")
+            .cloned()
+            .filter(|value| value.is_object()),
+    );
     let mut function = Map::new();
     function.insert("name".to_string(), Value::String("tool_search".to_string()));
-    if let Some(description) = description {
-        function.insert("description".to_string(), description);
-    }
-    if let Some(parameters) = parameters {
-        function.insert("parameters".to_string(), parameters);
-    }
+    function.insert("description".to_string(), description);
+    function.insert("parameters".to_string(), parameters);
     out.push(json!({
         "type": "function",
         "function": Value::Object(function),
     }));
+}
+
+fn normalize_tool_search_parameters(parameters: Option<Value>) -> Value {
+    let mut object = parameters
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    object.insert("type".to_string(), Value::String("object".to_string()));
+
+    let properties = object
+        .entry("properties".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(properties) = properties.as_object_mut() {
+        properties.entry("query".to_string()).or_insert_with(|| {
+            json!({
+                "type": "string",
+                "description": "Natural-language search query for the tool catalog."
+            })
+        });
+    } else {
+        let mut properties = Map::new();
+        properties.insert(
+            "query".to_string(),
+            json!({
+                "type": "string",
+                "description": "Natural-language search query for the tool catalog."
+            }),
+        );
+        object.insert("properties".to_string(), Value::Object(properties));
+    }
+
+    match object.get_mut("required") {
+        Some(Value::Array(required)) => {
+            let has_query = required.iter().any(|value| value.as_str() == Some("query"));
+            if !has_query {
+                required.push(Value::String("query".to_string()));
+            }
+        }
+        _ => {
+            object.insert(
+                "required".to_string(),
+                Value::Array(vec![Value::String("query".to_string())]),
+            );
+        }
+    }
+    object
+        .entry("additionalProperties".to_string())
+        .or_insert(Value::Bool(false));
+
+    Value::Object(object)
 }
 
 fn local_shell_as_function() -> Value {
@@ -465,6 +670,14 @@ fn salvage_tool_call_arguments(raw: &str) -> String {
     } else {
         "{}".to_string()
     }
+}
+
+fn single_string_field(value: &Value) -> Option<String> {
+    let object = value.as_object()?;
+    if object.len() != 1 {
+        return None;
+    }
+    object.values().next()?.as_str().map(str::to_string)
 }
 
 fn command_value_to_string(value: &Value) -> Option<String> {

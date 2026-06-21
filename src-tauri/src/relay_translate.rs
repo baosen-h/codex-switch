@@ -1183,15 +1183,16 @@ pub fn handle_chunk(state: &mut TranslatorState, chunk: &[u8]) -> Vec<Vec<u8>> {
             }
 
             if let Some((output_idx, call_id, name)) = item_added_event {
-                let mut item_view = json!({
-                    "id": call_id,
-                    "type": "function_call",
-                    "status": "in_progress",
-                    "name": name,
-                    "arguments": "",
-                    "call_id": call_id,
-                });
-                attach_namespace(&mut item_view, state, &name);
+                let mut item_view = relay_tools::response_tool_started_item(
+                    &state.request_metadata,
+                    Value::String(call_id),
+                    &name,
+                );
+                if let Some(response_name) =
+                    relay_tools::response_tool_name(&item_view).map(str::to_string)
+                {
+                    attach_namespace(&mut item_view, state, &response_name);
+                }
                 out.push(encode_event(
                     state,
                     "response.output_item.added",
@@ -1445,36 +1446,25 @@ pub fn emit_completed(state: &mut TranslatorState) -> Vec<u8> {
         ));
     }
     for tc in state.tool_calls.values() {
-        let response_name =
-            relay_tools::canonical_response_tool_name(&state.request_metadata, &tc.name);
-        let safe_arguments =
-            relay_tools::normalize_response_tool_arguments(&response_name, &tc.arguments);
-        let mut item = json!({
-            "id": tc.call_id,
-            "type": "function_call",
-            "status": "completed",
-            "name": response_name,
-            "arguments": safe_arguments,
-            "call_id": tc.call_id,
-        });
-        attach_namespace(&mut item, state, &response_name);
+        let mut item = relay_tools::response_tool_item(
+            &state.request_metadata,
+            Value::String(tc.call_id.clone()),
+            &tc.name,
+            &tc.arguments,
+        );
+        if let Some(response_name) = relay_tools::response_tool_name(&item).map(str::to_string) {
+            attach_namespace(&mut item, state, &response_name);
+        }
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
 
     for (idx, item) in closing {
-        if matches!(
-            item.get("type").and_then(Value::as_str),
-            Some("function_call") | Some("local_shell_call")
-        ) {
+        if let Some(arguments) = relay_tools::response_tool_arguments(&item) {
             let item_id = item
                 .get("id")
                 .cloned()
                 .unwrap_or_else(|| Value::String(format!("fc_{}", unix_ms())));
-            let arguments = item
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| Value::String(String::new()));
             out.extend(encode_event(
                 state,
                 "response.function_call_arguments.done",
@@ -1559,19 +1549,15 @@ fn collect_final_output(state: &TranslatorState) -> Value {
         ));
     }
     for tc in state.tool_calls.values() {
-        let response_name =
-            relay_tools::canonical_response_tool_name(&state.request_metadata, &tc.name);
-        let safe_arguments =
-            relay_tools::normalize_response_tool_arguments(&response_name, &tc.arguments);
-        let mut item = json!({
-            "id": tc.call_id,
-            "type": "function_call",
-            "status": "completed",
-            "name": response_name,
-            "arguments": safe_arguments,
-            "call_id": tc.call_id,
-        });
-        attach_namespace(&mut item, state, &response_name);
+        let mut item = relay_tools::response_tool_item(
+            &state.request_metadata,
+            Value::String(tc.call_id.clone()),
+            &tc.name,
+            &tc.arguments,
+        );
+        if let Some(response_name) = relay_tools::response_tool_name(&item).map(str::to_string) {
+            attach_namespace(&mut item, state, &response_name);
+        }
         closing.push((tc.output_index, item));
     }
     closing.sort_by_key(|(idx, _)| *idx);
@@ -1616,25 +1602,18 @@ pub fn translate_sync_response(
             let name = fn_obj
                 .get("name")
                 .and_then(Value::as_str)
-                .map(|name| {
-                    relay_tools::canonical_response_tool_name(&state.request_metadata, name)
-                })
                 .unwrap_or_default();
             let raw_args = fn_obj.get("arguments").cloned().unwrap_or(Value::Null);
             let args_string = match raw_args {
                 Value::String(s) => s,
                 other => serde_json::to_string(&other).unwrap_or_default(),
             };
-            let args_string = relay_tools::normalize_response_tool_arguments(&name, &args_string);
-            let mut item = json!({
-                "id": id.clone(),
-                "type": "function_call",
-                "status": "completed",
-                "name": name.clone(),
-                "arguments": args_string.clone(),
-                "call_id": id,
-            });
-            attach_namespace(&mut item, state, &name);
+            let mut item =
+                relay_tools::response_tool_item(&state.request_metadata, id, name, &args_string);
+            if let Some(response_name) = relay_tools::response_tool_name(&item).map(str::to_string)
+            {
+                attach_namespace(&mut item, state, &response_name);
+            }
             output_items.push(item);
         }
     }
@@ -2409,6 +2388,10 @@ mod tests {
         assert_eq!(v["tool_choice"]["type"], "function");
         assert_eq!(v["tool_choice"]["function"]["name"], "tool_search");
         assert_eq!(v["tools"][0]["function"]["name"], "tool_search");
+        assert_eq!(
+            v["tools"][0]["function"]["parameters"]["required"][0],
+            "query"
+        );
     }
 
     #[test]
@@ -2746,7 +2729,13 @@ mod tests {
         let f = &tools[0]["function"];
         assert_eq!(f["name"], "apply_patch");
         assert!(f["description"].as_str().unwrap_or("").contains("grammar"));
+        assert!(f["description"]
+            .as_str()
+            .unwrap_or("")
+            .contains("*** Begin Patch"));
         assert!(f["parameters"]["properties"]["input"].is_object());
+        assert_eq!(f["parameters"]["required"][0], "input");
+        assert_eq!(f["parameters"]["additionalProperties"], false);
     }
 
     #[test]
@@ -2791,6 +2780,30 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0]["function"]["name"], "tool_search");
         assert_eq!(tools[0]["function"]["parameters"]["required"][0], "query");
+    }
+
+    #[test]
+    fn sparse_tool_search_gets_strong_query_schema() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "do tool discovery",
+            "tools": [{
+                "type": "tool_search"
+            }],
+        });
+        let (body, _state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-flash").unwrap();
+        let v = parse(&body);
+        let function = &v["tools"][0]["function"];
+        assert_eq!(function["name"], "tool_search");
+        assert!(function["description"]
+            .as_str()
+            .unwrap()
+            .contains("available deferred tools"));
+        assert_eq!(function["parameters"]["type"], "object");
+        assert!(function["parameters"]["properties"]["query"].is_object());
+        assert_eq!(function["parameters"]["required"][0], "query");
+        assert_eq!(function["parameters"]["additionalProperties"], false);
     }
 
     #[test]
@@ -2862,6 +2875,81 @@ mod tests {
     }
 
     #[test]
+    fn sync_custom_tool_call_returns_custom_tool_shape() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "patch",
+            "tools": [{"type": "custom", "name": "apply_patch", "description": "Apply a patch.", "format": {"type": "grammar"}}],
+        });
+        let (_body, state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let patch = "*** Begin Patch\n*** End Patch";
+        let chat = json!({
+            "id": "chatcmpl-patch",
+            "created": 1700000000,
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_patch",
+                        "type": "function",
+                        "function": {
+                            "name": "apply_patch",
+                            "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = translate_sync_response(&state, &serde_json::to_vec(&chat).unwrap()).unwrap();
+        let v = parse(&body);
+        let output = v["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "custom_tool_call");
+        assert_eq!(output[0]["name"], "apply_patch");
+        assert_eq!(output[0]["input"], patch);
+        assert!(output[0].get("arguments").is_none());
+    }
+
+    #[test]
+    fn sync_custom_tool_call_accepts_patch_argument_alias() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "patch",
+            "tools": [{"type": "custom", "name": "apply_patch", "description": "Apply a patch.", "format": {"type": "grammar"}}],
+        });
+        let (_body, state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let patch = "*** Begin Patch\n*** End Patch";
+        let chat = json!({
+            "id": "chatcmpl-patch",
+            "created": 1700000000,
+            "model": "deepseek-v4-pro",
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call_patch",
+                        "type": "function",
+                        "function": {
+                            "name": "apply_patch",
+                            "arguments": serde_json::to_string(&json!({"patch": patch})).unwrap()
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let body = translate_sync_response(&state, &serde_json::to_vec(&chat).unwrap()).unwrap();
+        let v = parse(&body);
+        let output = v["output"].as_array().unwrap();
+        assert_eq!(output[0]["type"], "custom_tool_call");
+        assert_eq!(output[0]["name"], "apply_patch");
+        assert_eq!(output[0]["input"], patch);
+    }
+
+    #[test]
     fn stream_function_tool_call_name_is_preserved() {
         let codex = json!({
             "model": "gpt-5",
@@ -2893,6 +2981,44 @@ mod tests {
         assert!(contains_bytes(&all, b"\"type\":\"function_call\""));
         assert!(contains_bytes(&all, b"\"name\":\"shell_command\""));
         assert!(!contains_bytes(&all, b"\"type\":\"local_shell_call\""));
+    }
+
+    #[test]
+    fn stream_custom_tool_call_returns_custom_tool_shape() {
+        let codex = json!({
+            "model": "gpt-5",
+            "input": "patch",
+            "stream": true,
+            "tools": [{"type": "custom", "name": "apply_patch", "description": "Apply a patch.", "format": {"type": "grammar"}}],
+        });
+        let (_body, mut state) =
+            translate_request(&serde_json::to_vec(&codex).unwrap(), "deepseek-v4-pro").unwrap();
+        let patch = "*** Begin Patch\n*** End Patch";
+        let chunk = json!({
+            "choices": [{
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_patch",
+                        "function": {
+                            "name": "apply_patch",
+                            "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                        }
+                    }]
+                }
+            }]
+        });
+        let mut all: Vec<u8> = Vec::new();
+        for event in handle_chunk(&mut state, &serde_json::to_vec(&chunk).unwrap()) {
+            all.extend(event);
+        }
+        all.extend(emit_completed(&mut state));
+        assert!(contains_bytes(&all, b"\"type\":\"custom_tool_call\""));
+        assert!(contains_bytes(&all, b"\"name\":\"apply_patch\""));
+        assert!(!contains_bytes(
+            &all,
+            b"\"type\":\"function_call\",\"status\":\"completed\",\"name\":\"apply_patch\""
+        ));
     }
 
     #[test]

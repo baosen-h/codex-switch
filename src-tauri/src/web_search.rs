@@ -1,9 +1,10 @@
 use crate::app_config::PROXY_USER_AGENT;
 use crate::models::{WebSearchCapability, WebSearchResponse, WebSearchResult, WebSearchSettings};
-use reqwest::blocking::Client;
+use reqwest::blocking::{Client, ClientBuilder};
 use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, LOCATION};
-use reqwest::redirect::Policy;
+use reqwest::{redirect::Policy, Proxy};
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -284,6 +285,7 @@ fn fetch_jina(settings: &WebSearchSettings, source_url: &str) -> Result<WebSearc
     validate_public_url(
         &Url::parse(source_url)
             .map_err(|error| format!("Invalid web fetch URL {source_url}: {error}"))?,
+        false,
     )?;
     let api_key = next_api_key(&settings.fetch_api_keys, JINA_PROVIDER_ID)?;
     let base = configured_endpoint(&settings.fetch_api_url, JINA_FETCH_DEFAULT_URL, None)?;
@@ -367,18 +369,15 @@ fn configured_endpoint(
 }
 
 fn fetch_direct(source_url: &str) -> Result<WebSearchResult, String> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(FETCH_TIMEOUT_SECONDS))
-        .user_agent(PROXY_USER_AGENT)
-        .redirect(Policy::none())
-        .build()
-        .map_err(|error| format!("Failed to create web fetch client: {error}"))?;
+    let fetch_client = web_fetch_client()?;
     let mut current_url = Url::parse(source_url)
         .map_err(|error| format!("Invalid web fetch URL {source_url}: {error}"))?;
 
     for redirect_count in 0..=FETCH_MAX_REDIRECTS {
-        validate_public_url(&current_url)?;
-        let response = client
+        validate_public_url(&current_url, !fetch_client.uses_proxy)
+            .map_err(|error| describe_fetch_url_error(&error, source_url, &current_url))?;
+        let response = fetch_client
+            .client
             .get(current_url.clone())
             .send()
             .map_err(|error| format!("Failed to fetch {current_url}: {error}"))?;
@@ -394,9 +393,13 @@ fn fetch_direct(source_url: &str) -> Result<WebSearchResult, String> {
                 .get(LOCATION)
                 .and_then(|value| value.to_str().ok())
                 .ok_or_else(|| format!("Redirect from {current_url} did not include a location"))?;
+            let previous_url = current_url.clone();
             current_url = current_url
                 .join(location)
                 .map_err(|error| format!("Invalid redirect from {current_url}: {error}"))?;
+            validate_public_url(&current_url, !fetch_client.uses_proxy).map_err(|error| {
+                format!("{error} after redirect from {previous_url} to {current_url}")
+            })?;
             continue;
         }
 
@@ -468,7 +471,127 @@ fn fetch_direct(source_url: &str) -> Result<WebSearchResult, String> {
     Err(format!("Web fetch failed for {source_url}"))
 }
 
-fn validate_public_url(url: &Url) -> Result<(), String> {
+struct WebFetchClient {
+    client: Client,
+    uses_proxy: bool,
+}
+
+fn web_fetch_client() -> Result<WebFetchClient, String> {
+    let builder = Client::builder()
+        .timeout(Duration::from_secs(FETCH_TIMEOUT_SECONDS))
+        .user_agent(PROXY_USER_AGENT)
+        .redirect(Policy::none());
+    let proxy_urls = configured_proxy_urls();
+    let uses_proxy = !proxy_urls.is_empty();
+    let client = apply_system_proxy(builder, &proxy_urls)?
+        .build()
+        .map_err(|error| format!("Failed to create web fetch client: {error}"))?;
+    Ok(WebFetchClient { client, uses_proxy })
+}
+
+fn apply_system_proxy(
+    mut builder: ClientBuilder,
+    proxy_urls: &[String],
+) -> Result<ClientBuilder, String> {
+    for proxy_url in proxy_urls {
+        builder = builder.proxy(
+            Proxy::all(proxy_url)
+                .map_err(|error| format!("Invalid system proxy {proxy_url}: {error}"))?,
+        );
+    }
+    Ok(builder)
+}
+
+fn configured_proxy_urls() -> Vec<String> {
+    if let Some(proxy_url) = env_proxy_url() {
+        return vec![proxy_url];
+    }
+    windows_proxy_urls()
+}
+
+fn env_proxy_url() -> Option<String> {
+    [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ]
+    .into_iter()
+    .filter_map(|name| env::var(name).ok())
+    .map(|value| value.trim().to_string())
+    .find(|value| !value.is_empty())
+    .map(normalize_proxy_url)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_proxy_urls() -> Vec<String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(settings) =
+        hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings")
+    else {
+        return Vec::new();
+    };
+    let enabled = settings.get_value::<u32, _>("ProxyEnable").unwrap_or(0) != 0;
+    if !enabled {
+        return Vec::new();
+    }
+    let Ok(proxy_server) = settings.get_value::<String, _>("ProxyServer") else {
+        return Vec::new();
+    };
+    parse_windows_proxy_server(&proxy_server)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn windows_proxy_urls() -> Vec<String> {
+    Vec::new()
+}
+
+fn parse_windows_proxy_server(value: &str) -> Vec<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    if !trimmed.contains('=') {
+        return vec![normalize_proxy_url(trimmed)];
+    }
+    trimmed
+        .split(';')
+        .filter_map(|part| {
+            let (scheme, proxy) = part.split_once('=')?;
+            matches!(
+                scheme.trim().to_ascii_lowercase().as_str(),
+                "http" | "https"
+            )
+            .then(|| proxy.trim())
+        })
+        .filter(|proxy| !proxy.is_empty())
+        .map(normalize_proxy_url)
+        .collect()
+}
+
+fn normalize_proxy_url(value: impl AsRef<str>) -> String {
+    let value = value.as_ref().trim();
+    if value.contains("://") {
+        value.to_string()
+    } else {
+        format!("http://{value}")
+    }
+}
+
+fn describe_fetch_url_error(error: &str, source_url: &str, current_url: &Url) -> String {
+    if current_url.as_str() == source_url {
+        error.to_string()
+    } else {
+        format!("{error} while fetching {source_url} via {current_url}")
+    }
+}
+
+fn validate_public_url(url: &Url, resolve_dns: bool) -> Result<(), String> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err("Web fetch only supports HTTP and HTTPS URLs".to_string());
     }
@@ -481,6 +604,17 @@ fn validate_public_url(url: &Url) -> Result<(), String> {
     if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
         return Err("Web fetch cannot access localhost".to_string());
     }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_blocked_ip(ip) {
+            return Err(format!(
+                "Web fetch cannot access private or reserved address for {host} ({ip})"
+            ));
+        }
+        return Ok(());
+    }
+    if !resolve_dns {
+        return Ok(());
+    }
     let port = url
         .port_or_known_default()
         .ok_or_else(|| "Web fetch URL uses an unsupported port".to_string())?;
@@ -491,9 +625,10 @@ fn validate_public_url(url: &Url) -> Result<(), String> {
     if addresses.is_empty() {
         return Err(format!("Web fetch host {host} did not resolve"));
     }
-    if addresses.iter().any(|address| is_blocked_ip(address.ip())) {
+    if let Some(address) = addresses.iter().find(|address| is_blocked_ip(address.ip())) {
         return Err(format!(
-            "Web fetch cannot access private or reserved address for {host}"
+            "Web fetch cannot access private or reserved address for {host} ({})",
+            address.ip()
         ));
     }
     Ok(())
@@ -1044,6 +1179,22 @@ mod tests {
     }
 
     #[test]
+    fn windows_proxy_settings_are_normalized() {
+        assert_eq!(
+            parse_windows_proxy_server("127.0.0.1:7890"),
+            vec!["http://127.0.0.1:7890".to_string()]
+        );
+        assert_eq!(
+            parse_windows_proxy_server("http=127.0.0.1:7890;https=https://proxy.example:8443"),
+            vec![
+                "http://127.0.0.1:7890".to_string(),
+                "https://proxy.example:8443".to_string(),
+            ]
+        );
+        assert!(parse_windows_proxy_server("ftp=127.0.0.1:7890").is_empty());
+    }
+
+    #[test]
     fn html_is_reduced_to_readable_text() {
         let html = r#"
             <html>
@@ -1066,5 +1217,24 @@ mod tests {
         )
         .expect_err("private URL should fail");
         assert!(error.contains("private or reserved"));
+        assert!(error.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn proxy_mode_still_rejects_private_ip_literals() {
+        let error = validate_public_url(&Url::parse("http://127.0.0.1/private").unwrap(), false)
+            .expect_err("private IP literals must be blocked even through a proxy");
+
+        assert!(error.contains("private or reserved"));
+        assert!(error.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn proxy_mode_does_not_require_local_dns_for_public_domains() {
+        validate_public_url(
+            &Url::parse("https://blog.csdn.net/example/article/details/1").unwrap(),
+            false,
+        )
+        .expect("proxy mode should let the proxy resolve public domain names");
     }
 }

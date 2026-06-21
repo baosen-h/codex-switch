@@ -482,10 +482,10 @@ fn local_web_tool_calls(response: &Value) -> Result<Vec<LocalWebToolCall>, Strin
             .pointer("/function/name")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if !matches!(name, LOCAL_WEB_SEARCH_TOOL | LOCAL_WEB_FETCH_TOOL) {
+        let Some(name) = canonical_local_web_tool_name(name) else {
             has_external_call = true;
             continue;
-        }
+        };
         let id = call
             .get("id")
             .and_then(Value::as_str)
@@ -509,6 +509,14 @@ fn local_web_tool_calls(response: &Value) -> Result<Vec<LocalWebToolCall>, Strin
         return Ok(Vec::new());
     }
     Ok(local_calls)
+}
+
+fn canonical_local_web_tool_name(name: &str) -> Option<&'static str> {
+    match name {
+        LOCAL_WEB_SEARCH_TOOL | "web_search" => Some(LOCAL_WEB_SEARCH_TOOL),
+        LOCAL_WEB_FETCH_TOOL | "web_fetch" => Some(LOCAL_WEB_FETCH_TOOL),
+        _ => None,
+    }
 }
 
 fn execute_local_web_tool(
@@ -1644,6 +1652,50 @@ mod tests {
                 name: LOCAL_WEB_SEARCH_TOOL.to_string(),
                 arguments: serde_json::json!({"query": "Rust release"}),
             }]
+        );
+    }
+
+    #[test]
+    fn local_web_tool_call_aliases_are_parsed() {
+        let response = serde_json::json!({
+            "choices": [{
+                "message": {
+                    "tool_calls": [
+                        {
+                            "id": "call-search",
+                            "type": "function",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": "{\"query\":\"Rust release\"}"
+                            }
+                        },
+                        {
+                            "id": "call-fetch",
+                            "type": "function",
+                            "function": {
+                                "name": "web_fetch",
+                                "arguments": "{\"urls\":[\"https://example.com\"]}"
+                            }
+                        }
+                    ]
+                }
+            }]
+        });
+
+        assert_eq!(
+            local_web_tool_calls(&response).unwrap(),
+            vec![
+                LocalWebToolCall {
+                    id: "call-search".to_string(),
+                    name: LOCAL_WEB_SEARCH_TOOL.to_string(),
+                    arguments: serde_json::json!({"query": "Rust release"}),
+                },
+                LocalWebToolCall {
+                    id: "call-fetch".to_string(),
+                    name: LOCAL_WEB_FETCH_TOOL.to_string(),
+                    arguments: serde_json::json!({"urls": ["https://example.com"]}),
+                }
+            ]
         );
     }
 

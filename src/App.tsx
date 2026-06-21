@@ -52,6 +52,11 @@ const emptyState: DashboardState = {
 
 let toastSeq = 0;
 
+const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const UPDATE_CHECK_MIN_GAP_MS = 60 * 1000;
+const UPDATE_CHECK_STARTUP_DELAY_MS = 2500;
+const UPDATE_CHECK_BURST_DELAYS_MS = [15 * 1000, 60 * 1000, 3 * 60 * 1000];
+
 function upsertProvider(providers: Provider[], provider: Provider): Provider[] {
   const index = providers.findIndex((item) => item.id === provider.id);
   if (index === -1) return [...providers, provider];
@@ -85,6 +90,8 @@ function App() {
   const [sessionsIndexing, setSessionsIndexing] = useState(false);
   const sessionsIndexingRef = useRef(false);
   const sessionsAutoRefreshStarted = useRef(false);
+  const updateCheckInFlight = useRef(false);
+  const lastUpdateCheckAt = useRef(0);
   const dismissToast = useCallback(() => setToast(null), []);
 
   const showToast = useRef((message: string, type: ToastState["type"]) => {
@@ -171,7 +178,12 @@ function App() {
     }
   }, [lang]);
 
-  const checkUpdate = useCallback(async () => {
+  const checkUpdate = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (updateCheckInFlight.current) return;
+    if (!force && now - lastUpdateCheckAt.current < UPDATE_CHECK_MIN_GAP_MS) return;
+    updateCheckInFlight.current = true;
+    lastUpdateCheckAt.current = now;
     try {
       const update = await appApi.checkAppUpdate(__APP_VERSION__);
       if (!update) return;
@@ -179,6 +191,8 @@ function App() {
       setAppUpdate(update);
     } catch {
       // Update checks should never affect normal startup or offline use.
+    } finally {
+      updateCheckInFlight.current = false;
     }
   }, []);
 
@@ -202,17 +216,23 @@ function App() {
 
   useEffect(() => {
     const handleFocus = () => {
-      void checkUpdate();
+      void checkUpdate(true);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") void checkUpdate();
+      if (document.visibilityState === "visible") void checkUpdate(true);
     };
-    const interval = window.setInterval(() => void checkUpdate(), 15 * 60 * 1000);
+    const timers = [
+      window.setTimeout(() => void checkUpdate(true), UPDATE_CHECK_STARTUP_DELAY_MS),
+      ...UPDATE_CHECK_BURST_DELAYS_MS.map((delay) =>
+        window.setTimeout(() => void checkUpdate(true), delay),
+      ),
+    ];
+    const interval = window.setInterval(() => void checkUpdate(), UPDATE_CHECK_INTERVAL_MS);
 
-    void checkUpdate();
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
       window.clearInterval(interval);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
